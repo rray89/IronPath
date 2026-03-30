@@ -1,0 +1,29 @@
+{
+  "hooks": {
+    "PostToolUseFailure": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "agent",
+            "if": "Bash(./gradlew*)",
+            "prompt": "A Gradle build just failed. Analyze the error output, identify the Kotlin compiler errors or Gradle configuration issues, and fix them with minimal changes.",
+            "statusMessage": "Diagnosing Gradle failure...",
+            "timeout": 120
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "n=$(git status --porcelain 2>/dev/null | grep -c '\\.kt$' || echo 0); if [ \"$n\" -gt 5 ]; then echo '{\"systemMessage\": \"Large Kotlin change — consider /everything-claude-code:kotlin-review and /everything-claude-code:android-clean-architecture\"}'; elif [ \"$n\" -gt 0 ]; then echo '{\"systemMessage\": \"Kotlin files changed — consider /everything-claude-code:kotlin-review\"}'; fi",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}
