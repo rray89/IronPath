@@ -8,6 +8,7 @@ import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import com.example.ironpath.ui.screens.active.ActiveScreen
+import com.example.ironpath.ui.screens.entry.EntryScreen
 import com.example.ironpath.ui.screens.history.HistoryScreen
 import com.example.ironpath.ui.screens.home.HomeScreen
 import com.example.ironpath.ui.screens.plan.PlanScreen
@@ -20,12 +21,49 @@ fun IronPathNavHost(
 ) {
     NavHost(
         navController = navController,
-        startDestination = Route.HOME,
-        modifier = modifier.padding(innerPadding),
+        startDestination = Route.ENTRY,
+        modifier = modifier,
     ) {
-        composable(Route.HOME) { HomeScreen() }
-        composable(Route.PLAN) { PlanScreen() }
-        composable(Route.ACTIVE) { ActiveScreen() }
-        composable(Route.HISTORY) { HistoryScreen() }
+        composable(Route.ENTRY) {
+            EntryScreen(
+                onGetStarted = {
+                    navController.navigate(Route.HOME) {
+                        popUpTo(Route.ENTRY) { inclusive = true }
+                    }
+                },
+            )
+        }
+        composable(Route.HOME) {
+            HomeScreen(
+                onNavigateToPlan = {
+                    navController.navigate(Route.PLAN) {
+                        popUpTo(navController.graph.startDestinationId) {
+                            saveState = true
+                        }
+                        launchSingleTop = true
+                        restoreState = true
+                    }
+                },
+                onNavigateToActive = {
+                    navController.navigate(Route.ACTIVE) {
+                        popUpTo(navController.graph.startDestinationId) {
+                            saveState = true
+                        }
+                        launchSingleTop = true
+                        restoreState = true
+                    }
+                },
+                modifier = Modifier.padding(innerPadding),
+            )
+        }
+        composable(Route.PLAN) {
+            PlanScreen(modifier = Modifier.padding(innerPadding))
+        }
+        composable(Route.ACTIVE) {
+            ActiveScreen(modifier = Modifier.padding(innerPadding))
+        }
+        composable(Route.HISTORY) {
+            HistoryScreen(modifier = Modifier.padding(innerPadding))
+        }
     }
 }
