@@ -28,6 +28,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.material3.Surface
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -388,64 +389,72 @@ private val PreviewWorkouts = listOf(
     ),
 )
 
-@Preview(showBackground = true, backgroundColor = 0xFF0E0E0E)
+@Preview(showBackground = true)
 @Composable
 private fun PreviewHomeNoPlan() {
     IronPathTheme {
-        HomeContent(
-            uiState = HomeUiState.NoPlan,
-            onNavigateToPlan = {},
-            onNavigateToActive = {},
-        )
+        Surface(color = MaterialTheme.colorScheme.surface) {
+            HomeContent(
+                uiState = HomeUiState.NoPlan,
+                onNavigateToPlan = {},
+                onNavigateToActive = {},
+            )
+        }
     }
 }
 
-@Preview(showBackground = true, backgroundColor = 0xFF0E0E0E)
+@Preview(showBackground = true)
 @Composable
 private fun PreviewHomeActivePlanTodayWorkout() {
     IronPathTheme {
-        HomeContent(
-            uiState = HomeUiState.ActivePlan(
-                plan = PreviewPlan,
-                workouts = PreviewWorkouts,
-                planned = 3,
-                completed = 1,
-                todayWorkout = PreviewWorkouts[1], // Pull B is "today"
-                nextWorkout = PreviewWorkouts[1],
-            ),
-            onNavigateToPlan = {},
-            onNavigateToActive = {},
-        )
+        Surface(color = MaterialTheme.colorScheme.surface) {
+            HomeContent(
+                uiState = HomeUiState.ActivePlan(
+                    plan = PreviewPlan,
+                    workouts = PreviewWorkouts,
+                    planned = 3,
+                    completed = 1,
+                    todayWorkout = PreviewWorkouts[1],
+                    nextWorkout = PreviewWorkouts[1],
+                ),
+                onNavigateToPlan = {},
+                onNavigateToActive = {},
+            )
+        }
     }
 }
 
-@Preview(showBackground = true, backgroundColor = 0xFF0E0E0E)
+@Preview(showBackground = true)
 @Composable
 private fun PreviewHomeActivePlanNextWorkout() {
     IronPathTheme {
-        HomeContent(
-            uiState = HomeUiState.ActivePlan(
-                plan = PreviewPlan,
-                workouts = PreviewWorkouts,
-                planned = 3,
-                completed = 1,
-                todayWorkout = null, // not a workout day
-                nextWorkout = PreviewWorkouts[1], // Pull B is next
-            ),
-            onNavigateToPlan = {},
-            onNavigateToActive = {},
-        )
+        Surface(color = MaterialTheme.colorScheme.surface) {
+            HomeContent(
+                uiState = HomeUiState.ActivePlan(
+                    plan = PreviewPlan,
+                    workouts = PreviewWorkouts,
+                    planned = 3,
+                    completed = 1,
+                    todayWorkout = null,
+                    nextWorkout = PreviewWorkouts[1],
+                ),
+                onNavigateToPlan = {},
+                onNavigateToActive = {},
+            )
+        }
     }
 }
 
-@Preview(showBackground = true, backgroundColor = 0xFF0E0E0E)
+@Preview(showBackground = true)
 @Composable
 private fun PreviewHomeWeekComplete() {
     IronPathTheme {
-        HomeContent(
-            uiState = HomeUiState.WeekComplete(planned = 3, completed = 3),
-            onNavigateToPlan = {},
-            onNavigateToActive = {},
-        )
+        Surface(color = MaterialTheme.colorScheme.surface) {
+            HomeContent(
+                uiState = HomeUiState.WeekComplete(planned = 3, completed = 3),
+                onNavigateToPlan = {},
+                onNavigateToActive = {},
+            )
+        }
     }
 }
