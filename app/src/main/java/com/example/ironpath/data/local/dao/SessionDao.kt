@@ -3,6 +3,7 @@ package com.example.ironpath.data.local.dao
 import androidx.room.Dao
 import androidx.room.Insert
 import androidx.room.Query
+import androidx.room.Transaction
 import androidx.room.Update
 import com.example.ironpath.data.local.entity.ActiveSession
 import com.example.ironpath.data.local.entity.SessionExercise
@@ -53,4 +54,15 @@ interface SessionDao {
 
     @Query("SELECT COUNT(*) FROM session_sets WHERE sessionExerciseId IN (:exerciseIds) AND reps IS NOT NULL AND weightKg IS NOT NULL")
     suspend fun countCompletedSets(exerciseIds: List<String>): Int
+
+    @Transaction
+    suspend fun startNewSession(session: ActiveSession, exercises: List<SessionExercise>) {
+        val existing = getActiveSession()
+        if (existing != null) {
+            deleteSession(existing.id)
+        }
+        insertSession(session)
+        insertSessionExercises(exercises)
+    }
+
 }
