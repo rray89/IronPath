@@ -3,6 +3,7 @@ package com.example.ironpath.data.local.dao
 import androidx.room.Dao
 import androidx.room.Insert
 import androidx.room.Query
+import androidx.room.Transaction
 import androidx.room.Update
 import com.example.ironpath.data.local.entity.PlannedExercise
 import com.example.ironpath.data.local.entity.PlannedWorkout
@@ -59,4 +60,16 @@ interface PlanDao {
 
     @Query("SELECT DISTINCT name FROM planned_exercises")
     suspend fun getAllExerciseNames(): List<String>
+
+    @Transaction
+    suspend fun createPlanWithWorkouts(
+        plan: WeeklyPlan,
+        workouts: List<PlannedWorkout>,
+        exercises: List<PlannedExercise>,
+    ) {
+        archiveAllActivePlans()
+        insertPlan(plan)
+        insertWorkouts(workouts)
+        insertExercises(exercises)
+    }
 }
