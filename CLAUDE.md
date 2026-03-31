@@ -17,9 +17,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Tech Stack
 
 - **UI:** Jetpack Compose with Material 3
-- **DI:** Koin 4.0 (not Hilt) with `koin-androidx-compose`
-- **Database:** Room 2.7
-- **Language:** Kotlin with JVM target 11
+- **DI:** Koin 4.2.0 (not Hilt) with `koin-androidx-compose`
+- **Database:** Room 2.8.4 with KSP 2.3.6 for annotation processing
+- **Navigation:** Navigation Compose 2.9.0 with string routes
+- **Language:** Kotlin 2.3.20 with JVM target 11
 - **Min SDK:** 29 (Android 10), Compile/Target SDK: 36
 - **Versions:** Managed via `gradle/libs.versions.toml` — add new dependencies there, not inline in `build.gradle.kts`
 
