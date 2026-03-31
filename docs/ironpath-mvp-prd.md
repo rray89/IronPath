@@ -10,7 +10,7 @@ IronPath is a local-first workout planning app skeleton for a private portfolio 
 This MVP focuses on:
 - generating one calendar-week workout plan
 - reviewing a generated weekly plan before save
-- viewing the current saved week
+- referencing the current accepted week from Home / Plan state
 - executing today’s workout in an active session
 - storing simple workout history and personal records
 
@@ -63,7 +63,7 @@ Users may not:
 ## Plan / Review / Active state split
 These are distinct product states:
 - Planner Review = review a newly generated week before saving it
-- View Plan / This Week = reference the accepted weekly plan
+- Accepted current week = current-week state shown through Home + Plan
 - Active Session = execute and log the current workout
 
 They may share components, but should not be treated as the same screen or interaction mode.
@@ -72,7 +72,7 @@ They may share components, but should not be treated as the same screen or inter
 ### Home
 Supported Home states:
 - no active saved plan -> CTA to Plan
-- active saved plan exists, next workout not today -> CTA to View Plan
+- active saved plan exists, next workout not today -> show next workout summary / rest state
 - workout is today -> CTA to Start Session / Open Active
 - current week fully completed -> CTA to Plan for next week
 
@@ -80,7 +80,7 @@ Supported Home states:
 Plan owns the plan lifecycle:
 - no saved week -> Planner Setup
 - generated but not accepted -> Planner Review
-- accepted current week -> This Week
+- accepted current week -> current-week state (return to Home; Plan shows summary/rest state, not review UI)
 - completed week -> Planner Setup for next week
 
 ### Active
@@ -197,7 +197,7 @@ Completion behavior:
 2. write a workout log entry
 3. mark the planned workout as completed when appropriate
 4. update derived home/plan state
-5. optionally support future record creation logic
+5. no automatic record creation in MVP
 6. route back to Home
 
 ## Persistence rules

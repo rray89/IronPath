@@ -40,6 +40,8 @@ Key decisions:
 - Plan generation uses a simple local algorithm (hardcoded exercise templates), not AI
 - All data persisted locally with Room, no backend sync
 - Bottom nav order: Home, Plan, Active, History
+- No "This Week" screen — after accepting a plan, navigate to Home; Plan tab shows summary/rest state
+- No automatic record creation on session completion in MVP
 
 ## Architecture
 
@@ -60,7 +62,7 @@ com.example.ironpath/
 │   ├── screens/
 │   │   ├── entry/           # Entry/splash screen
 │   │   ├── home/            # Home tab (empty + active plan states)
-│   │   ├── plan/            # Planner Setup, Plan Review, This Week
+│   │   ├── plan/            # Planner Setup, Plan Review
 │   │   ├── active/          # Active Session, empty/rest day states
 │   │   └── history/         # Logs, Records, Add Record
 │   └── theme/               # Color, Type, Theme (Kinetic Precision)
@@ -84,3 +86,8 @@ Data model (Room entities): WeeklyPlan → PlannedWorkout → PlannedExercise, A
 - The app uses `Theme.IronPath` (no action bar) from `res/values/themes.xml`
 - Figma text has Stitch export artifacts (garbled chars) — always use PRD text, not Figma literals
 - Figma nav shows "Dashboard" in some screens — use "Home" per PRD
+
+## PR & Branch Naming
+
+- PR titles: `Feature X.X: <description>` for features, `Bugfix: <description>` for bug fixes
+- Branch names: `feature/X.X-short-name` or `bugfix/short-name`
