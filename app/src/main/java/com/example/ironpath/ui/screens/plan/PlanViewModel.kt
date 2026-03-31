@@ -52,7 +52,21 @@ class PlanViewModel(
     val planUiState = combine(activePlan, activeWorkouts, _generatedPlan) { plan, workouts, generated ->
         when {
             generated != null -> PlanUiState.Review(generated)
-            plan != null -> PlanUiState.Accepted(plan, workouts)
+            plan != null -> {
+                val todayDow = java.time.LocalDate.now().dayOfWeek.value
+                val upcoming = workouts.filter { it.status.name == "Upcoming" }.sortedBy { it.dayOfWeek }
+                val todayWorkout = upcoming.firstOrNull { it.dayOfWeek == todayDow }
+                val nextWorkout = todayWorkout
+                    ?: upcoming.firstOrNull { it.dayOfWeek > todayDow }
+                    ?: upcoming.firstOrNull()
+                PlanUiState.Accepted(
+                    plan = plan,
+                    planned = workouts.size,
+                    completed = workouts.count { it.status.name == "Completed" },
+                    todayWorkout = todayWorkout,
+                    nextWorkout = nextWorkout,
+                )
+            }
             else -> PlanUiState.Setup
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), PlanUiState.Loading)
@@ -86,11 +100,6 @@ class PlanViewModel(
         }
     }
 
-    fun regenerate() {
-        _generatedPlan.value = null
-        generatePlan()
-    }
-
     fun backToSetup() {
         _generatedPlan.value = null
     }
@@ -114,5 +123,11 @@ sealed interface PlanUiState {
     data object Loading : PlanUiState
     data object Setup : PlanUiState
     data class Review(val generated: GeneratedPlan) : PlanUiState
-    data class Accepted(val plan: WeeklyPlan, val workouts: List<PlannedWorkout>) : PlanUiState
+    data class Accepted(
+        val plan: WeeklyPlan,
+        val planned: Int,
+        val completed: Int,
+        val todayWorkout: PlannedWorkout?,
+        val nextWorkout: PlannedWorkout?,
+    ) : PlanUiState
 }

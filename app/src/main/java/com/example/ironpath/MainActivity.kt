@@ -99,7 +99,7 @@ fun IronPathApp() {
                             onClick = {
                                 if (currentRoute != item.route) {
                                     navController.navigate(item.route) {
-                                        popUpTo(navController.graph.startDestinationId) {
+                                        popUpTo(Route.HOME) {
                                             saveState = true
                                         }
                                         launchSingleTop = true
