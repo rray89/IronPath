@@ -57,7 +57,18 @@ fun IronPathNavHost(
             )
         }
         composable(Route.PLAN) {
-            PlanScreen(modifier = Modifier.padding(innerPadding))
+            PlanScreen(
+                onPlanAccepted = {
+                    navController.navigate(Route.HOME) {
+                        popUpTo(navController.graph.startDestinationId) {
+                            saveState = true
+                        }
+                        launchSingleTop = true
+                        restoreState = true
+                    }
+                },
+                modifier = Modifier.padding(innerPadding),
+            )
         }
         composable(Route.ACTIVE) {
             ActiveScreen(modifier = Modifier.padding(innerPadding))

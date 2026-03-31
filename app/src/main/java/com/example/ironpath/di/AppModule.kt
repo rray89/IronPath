@@ -6,7 +6,9 @@ import com.example.ironpath.data.repository.HistoryRepository
 import com.example.ironpath.data.repository.PlanRepository
 import com.example.ironpath.data.repository.RecordRepository
 import com.example.ironpath.data.repository.SessionRepository
+import com.example.ironpath.domain.planner.PlanGenerator
 import com.example.ironpath.ui.screens.home.HomeViewModel
+import com.example.ironpath.ui.screens.plan.PlanViewModel
 import org.koin.core.module.dsl.viewModel
 import org.koin.dsl.module
 
@@ -32,6 +34,11 @@ val repositoryModule = module {
     single { RecordRepository(get()) }
 }
 
+val domainModule = module {
+    single { PlanGenerator() }
+}
+
 val viewModelModule = module {
     viewModel { HomeViewModel(get()) }
+    viewModel { PlanViewModel(get(), get()) }
 }
