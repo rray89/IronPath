@@ -27,13 +27,20 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.ironpath.data.local.entity.PlannedWorkout
+import com.example.ironpath.data.local.entity.WeeklyPlan
+import com.example.ironpath.data.local.entity.WorkoutStatus
 import com.example.ironpath.ui.components.GreenGradientButton
+import com.example.ironpath.ui.theme.IronPathTheme
 import com.example.ironpath.ui.theme.SurfaceContainerHigh
 import com.example.ironpath.ui.theme.SurfaceContainerLow
 import org.koin.androidx.compose.koinViewModel
+
+// -- Production entry point (Koin-backed) --
 
 @Composable
 fun HomeScreen(
@@ -43,18 +50,31 @@ fun HomeScreen(
     viewModel: HomeViewModel = koinViewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    HomeContent(uiState, onNavigateToPlan, onNavigateToActive, modifier)
+}
 
-    when (val state = uiState) {
+// -- Pure render composable (no ViewModel, previewable) --
+
+@Composable
+internal fun HomeContent(
+    uiState: HomeUiState,
+    onNavigateToPlan: () -> Unit,
+    onNavigateToActive: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    when (uiState) {
         HomeUiState.Loading -> {
             Box(modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
             }
         }
         HomeUiState.NoPlan -> HomeEmptyState(onNavigateToPlan, modifier)
-        is HomeUiState.ActivePlan -> HomeActivePlanState(state, onNavigateToPlan, onNavigateToActive, modifier)
-        is HomeUiState.WeekComplete -> HomeWeekCompleteState(state, onNavigateToPlan, modifier)
+        is HomeUiState.ActivePlan -> HomeActivePlanState(uiState, onNavigateToPlan, onNavigateToActive, modifier)
+        is HomeUiState.WeekComplete -> HomeWeekCompleteState(uiState, onNavigateToPlan, modifier)
     }
 }
+
+// -- State composables --
 
 @Composable
 private fun HomeEmptyState(
@@ -101,7 +121,6 @@ private fun HomeEmptyState(
 
         Spacer(Modifier.height(40.dp))
 
-        // Info card
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -266,12 +285,14 @@ private fun HomeWeekCompleteState(
     }
 }
 
+// -- Shared sub-components --
+
 @Composable
 private fun StatItem(
     label: String,
     value: String,
     modifier: Modifier = Modifier,
-    valueColor: androidx.compose.ui.graphics.Color = MaterialTheme.colorScheme.onSurface,
+    valueColor: Color = MaterialTheme.colorScheme.onSurface,
 ) {
     Column(modifier = modifier, horizontalAlignment = Alignment.Start) {
         Text(
@@ -300,7 +321,6 @@ private fun WorkoutCard(
             .padding(16.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        // Day badge
         Box(
             modifier = Modifier
                 .background(SurfaceContainerHigh, RoundedCornerShape(4.dp))
@@ -338,6 +358,94 @@ private fun WorkoutCard(
             contentDescription = null,
             modifier = Modifier.size(24.dp),
             tint = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
+// -- Previews --
+
+private val PreviewPlan = WeeklyPlan(
+    id = "preview-plan",
+    startDate = "2026-03-30",
+    endDate = "2026-04-05",
+)
+
+private val PreviewWorkouts = listOf(
+    PlannedWorkout(
+        id = "w1", weeklyPlanId = "preview-plan",
+        dayOfWeek = 1, scheduledDate = "2026-03-30",
+        title = "Push A", status = WorkoutStatus.Completed,
+    ),
+    PlannedWorkout(
+        id = "w2", weeklyPlanId = "preview-plan",
+        dayOfWeek = 3, scheduledDate = "2026-04-01",
+        title = "Pull B", status = WorkoutStatus.Upcoming,
+    ),
+    PlannedWorkout(
+        id = "w3", weeklyPlanId = "preview-plan",
+        dayOfWeek = 5, scheduledDate = "2026-04-03",
+        title = "Legs", status = WorkoutStatus.Upcoming,
+    ),
+)
+
+@Preview(showBackground = true, backgroundColor = 0xFF0E0E0E)
+@Composable
+private fun PreviewHomeNoPlan() {
+    IronPathTheme {
+        HomeContent(
+            uiState = HomeUiState.NoPlan,
+            onNavigateToPlan = {},
+            onNavigateToActive = {},
+        )
+    }
+}
+
+@Preview(showBackground = true, backgroundColor = 0xFF0E0E0E)
+@Composable
+private fun PreviewHomeActivePlanTodayWorkout() {
+    IronPathTheme {
+        HomeContent(
+            uiState = HomeUiState.ActivePlan(
+                plan = PreviewPlan,
+                workouts = PreviewWorkouts,
+                planned = 3,
+                completed = 1,
+                todayWorkout = PreviewWorkouts[1], // Pull B is "today"
+                nextWorkout = PreviewWorkouts[1],
+            ),
+            onNavigateToPlan = {},
+            onNavigateToActive = {},
+        )
+    }
+}
+
+@Preview(showBackground = true, backgroundColor = 0xFF0E0E0E)
+@Composable
+private fun PreviewHomeActivePlanNextWorkout() {
+    IronPathTheme {
+        HomeContent(
+            uiState = HomeUiState.ActivePlan(
+                plan = PreviewPlan,
+                workouts = PreviewWorkouts,
+                planned = 3,
+                completed = 1,
+                todayWorkout = null, // not a workout day
+                nextWorkout = PreviewWorkouts[1], // Pull B is next
+            ),
+            onNavigateToPlan = {},
+            onNavigateToActive = {},
+        )
+    }
+}
+
+@Preview(showBackground = true, backgroundColor = 0xFF0E0E0E)
+@Composable
+private fun PreviewHomeWeekComplete() {
+    IronPathTheme {
+        HomeContent(
+            uiState = HomeUiState.WeekComplete(planned = 3, completed = 3),
+            onNavigateToPlan = {},
+            onNavigateToActive = {},
         )
     }
 }
