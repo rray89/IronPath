@@ -17,7 +17,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CalendarMonth
-import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.FlashOn
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
@@ -70,7 +69,7 @@ internal fun HomeContent(
             }
         }
         HomeUiState.NoPlan -> HomeEmptyState(onNavigateToPlan, modifier)
-        is HomeUiState.ActivePlan -> HomeActivePlanState(uiState, onNavigateToPlan, onNavigateToActive, modifier)
+        is HomeUiState.ActivePlan -> HomeActivePlanState(uiState, onNavigateToActive, modifier)
         is HomeUiState.WeekComplete -> HomeWeekCompleteState(uiState, onNavigateToPlan, modifier)
     }
 }
@@ -157,7 +156,6 @@ private fun HomeEmptyState(
 @Composable
 private fun HomeActivePlanState(
     state: HomeUiState.ActivePlan,
-    onNavigateToPlan: () -> Unit,
     onNavigateToActive: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -199,20 +197,22 @@ private fun HomeActivePlanState(
                     )
                 }
 
-                Spacer(Modifier.height(16.dp))
+                if (state.todayWorkout != null) {
+                    Spacer(Modifier.height(16.dp))
 
-                GreenGradientButton(
-                    text = if (state.todayWorkout != null) "Start Workout" else "View Plan",
-                    onClick = if (state.todayWorkout != null) onNavigateToActive else onNavigateToPlan,
-                    trailingIcon = {
-                        Icon(
-                            imageVector = Icons.Default.CalendarMonth,
-                            contentDescription = null,
-                            modifier = Modifier.size(18.dp),
-                            tint = MaterialTheme.colorScheme.surface,
-                        )
-                    },
-                )
+                    GreenGradientButton(
+                        text = "Start Workout",
+                        onClick = onNavigateToActive,
+                        trailingIcon = {
+                            Icon(
+                                imageVector = Icons.Default.FlashOn,
+                                contentDescription = null,
+                                modifier = Modifier.size(18.dp),
+                                tint = MaterialTheme.colorScheme.surface,
+                            )
+                        },
+                    )
+                }
             }
         }
 
@@ -337,29 +337,20 @@ private fun WorkoutCard(
 
         Spacer(Modifier.width(16.dp))
 
-        Column(modifier = Modifier.weight(1f)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    text = workout.title.uppercase(),
-                    style = MaterialTheme.typography.titleSmall,
-                    color = MaterialTheme.colorScheme.onSurface,
-                )
-                Spacer(Modifier.width(6.dp))
-                Icon(
-                    imageVector = Icons.Default.FlashOn,
-                    contentDescription = null,
-                    modifier = Modifier.size(16.dp),
-                    tint = MaterialTheme.colorScheme.primary,
-                )
-            }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                text = workout.title.uppercase(),
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+            Spacer(Modifier.width(6.dp))
+            Icon(
+                imageVector = Icons.Default.FlashOn,
+                contentDescription = null,
+                modifier = Modifier.size(16.dp),
+                tint = MaterialTheme.colorScheme.primary,
+            )
         }
-
-        Icon(
-            imageVector = Icons.Default.ChevronRight,
-            contentDescription = null,
-            modifier = Modifier.size(24.dp),
-            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
     }
 }
 
