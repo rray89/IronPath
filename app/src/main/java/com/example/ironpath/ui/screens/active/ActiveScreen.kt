@@ -38,7 +38,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -355,7 +357,7 @@ private fun ExerciseSection(
         sets.forEach { set ->
             SetRow(
                 set = set,
-                planInfo = "${exercise.plannedSets}x${exercise.plannedReps}",
+                planInfo = "${exercise.plannedReps}x${exercise.plannedWeightKg.toInt()}",
                 onUpdateSet = onUpdateSet,
             )
             Spacer(Modifier.height(4.dp))
@@ -464,12 +466,23 @@ private fun CompactNumberField(
     onValueChange: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    // Use TextFieldValue to preserve cursor position across recompositions
+    var tfv by remember { mutableStateOf(TextFieldValue(value, TextRange(value.length))) }
+
+    // Sync when external value changes (pre-fill or DB roundtrip)
+    if (tfv.text != value) {
+        tfv = TextFieldValue(value, TextRange(value.length))
+    }
+
     var isFocused by remember { mutableStateOf(false) }
     val borderColor = if (isFocused) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline
 
     BasicTextField(
-        value = value,
-        onValueChange = onValueChange,
+        value = tfv,
+        onValueChange = { newTfv ->
+            tfv = newTfv
+            onValueChange(newTfv.text)
+        },
         modifier = modifier
             .height(40.dp)
             .onFocusChanged { isFocused = it.isFocused }
