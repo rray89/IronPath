@@ -560,7 +560,6 @@ private fun PreviewPlanAccepted() {
         Surface(color = MaterialTheme.colorScheme.surface) {
             PlanContent(
                 uiState = PlanUiState.Accepted(
-                    plan = PreviewPlan,
                     planned = 3,
                     completed = 1,
                     todayWorkout = null,

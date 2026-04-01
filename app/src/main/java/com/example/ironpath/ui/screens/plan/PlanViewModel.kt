@@ -4,7 +4,6 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.ironpath.data.local.entity.PlannedExercise
 import com.example.ironpath.data.local.entity.PlannedWorkout
-import com.example.ironpath.data.local.entity.WeeklyPlan
 import com.example.ironpath.data.repository.PlanRepository
 import com.example.ironpath.domain.planner.GeneratedPlan
 import com.example.ironpath.domain.planner.PlanGenerator
@@ -60,7 +59,6 @@ class PlanViewModel(
                     ?: upcoming.firstOrNull { it.dayOfWeek > todayDow }
                     ?: upcoming.firstOrNull()
                 PlanUiState.Accepted(
-                    plan = plan,
                     planned = workouts.size,
                     completed = workouts.count { it.status.name == "Completed" },
                     todayWorkout = todayWorkout,
@@ -124,7 +122,6 @@ sealed interface PlanUiState {
     data object Setup : PlanUiState
     data class Review(val generated: GeneratedPlan) : PlanUiState
     data class Accepted(
-        val plan: WeeklyPlan,
         val planned: Int,
         val completed: Int,
         val todayWorkout: PlannedWorkout?,
