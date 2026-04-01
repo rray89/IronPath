@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.example.ironpath.data.local.entity.PlannedExercise
 import com.example.ironpath.data.local.entity.PlannedWorkout
 import com.example.ironpath.data.repository.PlanRepository
+import com.example.ironpath.data.repository.SessionRepository
 import com.example.ironpath.domain.planner.GeneratedPlan
 import com.example.ironpath.domain.planner.PlanGenerator
 import com.example.ironpath.domain.planner.TrainingGoal
@@ -24,6 +25,7 @@ import kotlinx.coroutines.launch
 class PlanViewModel(
     private val planRepository: PlanRepository,
     private val planGenerator: PlanGenerator,
+    private val sessionRepository: SessionRepository,
 ) : ViewModel() {
 
     // -- Setup state --
@@ -39,6 +41,7 @@ class PlanViewModel(
 
     // -- Persisted plan observation --
     private val activePlan = planRepository.observeActivePlan()
+    private val activeSession = sessionRepository.observeActiveSession()
 
     private val activeWorkouts = activePlan.flatMapLatest { plan ->
         if (plan != null) {
@@ -48,7 +51,7 @@ class PlanViewModel(
         }
     }
 
-    val planUiState = combine(activePlan, activeWorkouts, _generatedPlan) { plan, workouts, generated ->
+    val planUiState = combine(activePlan, activeWorkouts, _generatedPlan, activeSession) { plan, workouts, generated, session ->
         when {
             generated != null -> PlanUiState.Review(generated)
             plan != null -> {
@@ -63,6 +66,7 @@ class PlanViewModel(
                     completed = workouts.count { it.status.name == "Completed" },
                     todayWorkout = todayWorkout,
                     nextWorkout = nextWorkout,
+                    hasActiveSession = session != null,
                 )
             }
             else -> PlanUiState.Setup
@@ -126,5 +130,6 @@ sealed interface PlanUiState {
         val completed: Int,
         val todayWorkout: PlannedWorkout?,
         val nextWorkout: PlannedWorkout?,
+        val hasActiveSession: Boolean,
     ) : PlanUiState
 }

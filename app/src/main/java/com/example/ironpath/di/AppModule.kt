@@ -41,8 +41,8 @@ val domainModule = module {
 }
 
 val viewModelModule = module {
-    viewModel { HomeViewModel(get()) }
-    viewModel { PlanViewModel(get(), get()) }
+    viewModel { HomeViewModel(get(), get()) }
+    viewModel { PlanViewModel(get(), get(), get()) }
     viewModel { ActiveViewModel(get(), get()) }
     viewModel { HistoryViewModel(get(), get(), get()) }
 }

@@ -197,9 +197,20 @@ private fun HomeActivePlanState(
                     )
                 }
 
-                if (state.todayWorkout != null) {
-                    Spacer(Modifier.height(16.dp))
+                Spacer(Modifier.height(16.dp))
 
+                if (state.hasActiveSession) {
+                    Text(
+                        text = "Workout in progress",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    GreenGradientButton(
+                        text = "Return to Active Session",
+                        onClick = onNavigateToActive,
+                    )
+                } else if (state.todayWorkout != null) {
                     GreenGradientButton(
                         text = "Start Workout",
                         onClick = onNavigateToActive,
@@ -407,6 +418,7 @@ private fun PreviewHomeActivePlanTodayWorkout() {
                     completed = 1,
                     todayWorkout = PreviewWorkouts[1],
                     nextWorkout = PreviewWorkouts[1],
+                    hasActiveSession = false,
                 ),
                 onNavigateToPlan = {},
                 onNavigateToActive = {},
@@ -428,6 +440,7 @@ private fun PreviewHomeActivePlanNextWorkout() {
                     completed = 1,
                     todayWorkout = null,
                     nextWorkout = PreviewWorkouts[1],
+                    hasActiveSession = false,
                 ),
                 onNavigateToPlan = {},
                 onNavigateToActive = {},
