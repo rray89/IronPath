@@ -94,7 +94,10 @@ fun IronPathNavHost(
                     navController.navigate(Route.HOME) {
                         popUpTo(Route.HOME) {
                             inclusive = true
+                            saveState = false
                         }
+                        launchSingleTop = true
+                        restoreState = false
                     }
                 },
                 modifier = Modifier.padding(innerPadding),
