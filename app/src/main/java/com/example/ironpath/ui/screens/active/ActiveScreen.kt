@@ -1,6 +1,7 @@
 package com.example.ironpath.ui.screens.active
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -15,6 +16,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -24,15 +26,18 @@ import androidx.compose.material.icons.filled.FitnessCenter
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
@@ -335,7 +340,7 @@ private fun ExerciseSection(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text("SET", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.width(36.dp))
-            Text("PREVIOUS", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
+            Text("PLAN", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
             Text("KG", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
             Spacer(Modifier.width(4.dp))
             Text("REPS", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
@@ -350,7 +355,7 @@ private fun ExerciseSection(
         sets.forEach { set ->
             SetRow(
                 set = set,
-                previousInfo = "${exercise.plannedReps}x${exercise.plannedWeightKg.toInt()}",
+                planInfo = "${exercise.plannedSets}x${exercise.plannedReps}",
                 onUpdateSet = onUpdateSet,
             )
             Spacer(Modifier.height(4.dp))
@@ -385,7 +390,7 @@ private fun ExerciseSection(
 @Composable
 private fun SetRow(
     set: SessionSet,
-    previousInfo: String,
+    planInfo: String,
     onUpdateSet: (SessionSet) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -406,56 +411,34 @@ private fun SetRow(
             modifier = Modifier.width(36.dp),
         )
 
-        // Previous
+        // Plan
         Text(
-            text = previousInfo,
+            text = planInfo,
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.weight(1f),
         )
 
         // Weight input
-        OutlinedTextField(
+        CompactNumberField(
             value = set.weightKg?.let { if (it == it.toLong().toDouble()) it.toInt().toString() else it.toString() } ?: "",
             onValueChange = { text ->
                 val weight = text.toDoubleOrNull()
                 onUpdateSet(set.copy(weightKg = weight, completedAt = if (weight != null && set.reps != null) System.currentTimeMillis() else null))
             },
-            modifier = Modifier
-                .weight(1f)
-                .height(40.dp),
-            textStyle = MaterialTheme.typography.bodySmall,
-            singleLine = true,
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-            colors = OutlinedTextFieldDefaults.colors(
-                focusedBorderColor = MaterialTheme.colorScheme.primary,
-                unfocusedBorderColor = MaterialTheme.colorScheme.outline,
-                focusedTextColor = MaterialTheme.colorScheme.onSurface,
-                unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
-            ),
+            modifier = Modifier.weight(1f),
         )
 
         Spacer(Modifier.width(4.dp))
 
         // Reps input
-        OutlinedTextField(
+        CompactNumberField(
             value = set.reps?.toString() ?: "",
             onValueChange = { text ->
                 val reps = text.toIntOrNull()
                 onUpdateSet(set.copy(reps = reps, completedAt = if (reps != null && set.weightKg != null) System.currentTimeMillis() else null))
             },
-            modifier = Modifier
-                .weight(1f)
-                .height(40.dp),
-            textStyle = MaterialTheme.typography.bodySmall,
-            singleLine = true,
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-            colors = OutlinedTextFieldDefaults.colors(
-                focusedBorderColor = MaterialTheme.colorScheme.primary,
-                unfocusedBorderColor = MaterialTheme.colorScheme.outline,
-                focusedTextColor = MaterialTheme.colorScheme.onSurface,
-                unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
-            ),
+            modifier = Modifier.weight(1f),
         )
 
         // Done indicator (passive — auto-filled when both kg and reps are entered)
@@ -473,6 +456,40 @@ private fun SetRow(
             }
         }
     }
+}
+
+@Composable
+private fun CompactNumberField(
+    value: String,
+    onValueChange: (String) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    var isFocused by remember { mutableStateOf(false) }
+    val borderColor = if (isFocused) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline
+
+    BasicTextField(
+        value = value,
+        onValueChange = onValueChange,
+        modifier = modifier
+            .height(40.dp)
+            .onFocusChanged { isFocused = it.isFocused }
+            .border(1.dp, borderColor, RoundedCornerShape(4.dp))
+            .padding(horizontal = 8.dp),
+        textStyle = MaterialTheme.typography.bodyMedium.copy(
+            color = MaterialTheme.colorScheme.onSurface,
+        ),
+        singleLine = true,
+        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+        cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+        decorationBox = { innerTextField ->
+            Box(
+                modifier = Modifier.fillMaxSize(),
+                contentAlignment = Alignment.CenterStart,
+            ) {
+                innerTextField()
+            }
+        },
+    )
 }
 
 private fun formatElapsed(seconds: Long): String {
