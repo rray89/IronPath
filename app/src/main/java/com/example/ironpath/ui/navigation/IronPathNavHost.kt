@@ -37,7 +37,7 @@ fun IronPathNavHost(
             HomeScreen(
                 onNavigateToPlan = {
                     navController.navigate(Route.PLAN) {
-                        popUpTo(navController.graph.startDestinationId) {
+                        popUpTo(Route.HOME) {
                             saveState = true
                         }
                         launchSingleTop = true
@@ -46,7 +46,7 @@ fun IronPathNavHost(
                 },
                 onNavigateToActive = {
                     navController.navigate(Route.ACTIVE) {
-                        popUpTo(navController.graph.startDestinationId) {
+                        popUpTo(Route.HOME) {
                             saveState = true
                         }
                         launchSingleTop = true
@@ -57,7 +57,27 @@ fun IronPathNavHost(
             )
         }
         composable(Route.PLAN) {
-            PlanScreen(modifier = Modifier.padding(innerPadding))
+            PlanScreen(
+                onPlanAccepted = {
+                    navController.navigate(Route.HOME) {
+                        popUpTo(Route.HOME) {
+                            saveState = true
+                        }
+                        launchSingleTop = true
+                        restoreState = true
+                    }
+                },
+                onStartWorkout = {
+                    navController.navigate(Route.ACTIVE) {
+                        popUpTo(Route.HOME) {
+                            saveState = true
+                        }
+                        launchSingleTop = true
+                        restoreState = true
+                    }
+                },
+                modifier = Modifier.padding(innerPadding),
+            )
         }
         composable(Route.ACTIVE) {
             ActiveScreen(modifier = Modifier.padding(innerPadding))
