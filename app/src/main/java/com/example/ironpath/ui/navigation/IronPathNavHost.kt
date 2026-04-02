@@ -80,7 +80,28 @@ fun IronPathNavHost(
             )
         }
         composable(Route.ACTIVE) {
-            ActiveScreen(modifier = Modifier.padding(innerPadding))
+            ActiveScreen(
+                onNavigateToPlan = {
+                    navController.navigate(Route.PLAN) {
+                        popUpTo(Route.HOME) {
+                            saveState = true
+                        }
+                        launchSingleTop = true
+                        restoreState = true
+                    }
+                },
+                onWorkoutComplete = {
+                    navController.navigate(Route.HOME) {
+                        popUpTo(Route.HOME) {
+                            inclusive = true
+                            saveState = false
+                        }
+                        launchSingleTop = true
+                        restoreState = false
+                    }
+                },
+                modifier = Modifier.padding(innerPadding),
+            )
         }
         composable(Route.HISTORY) {
             HistoryScreen(modifier = Modifier.padding(innerPadding))

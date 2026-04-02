@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.example.ironpath.data.local.entity.PlannedWorkout
 import com.example.ironpath.data.local.entity.WeeklyPlan
 import com.example.ironpath.data.repository.PlanRepository
+import com.example.ironpath.data.repository.SessionRepository
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -14,9 +15,13 @@ import kotlinx.coroutines.flow.stateIn
 import java.time.LocalDate
 
 @OptIn(ExperimentalCoroutinesApi::class)
-class HomeViewModel(private val planRepository: PlanRepository) : ViewModel() {
+class HomeViewModel(
+    private val planRepository: PlanRepository,
+    private val sessionRepository: SessionRepository,
+) : ViewModel() {
 
     private val activePlan = planRepository.observeActivePlan()
+    private val activeSession = sessionRepository.observeActiveSession()
 
     private val workouts = activePlan.flatMapLatest { plan ->
         if (plan != null) {
@@ -26,7 +31,8 @@ class HomeViewModel(private val planRepository: PlanRepository) : ViewModel() {
         }
     }
 
-    val uiState = combine(activePlan, workouts) { plan, workouts ->
+    val uiState = combine(activePlan, workouts, activeSession) { plan, workouts, session ->
+        val hasActiveSession = session != null
         when {
             plan == null -> HomeUiState.NoPlan
             else -> {
@@ -40,9 +46,8 @@ class HomeViewModel(private val planRepository: PlanRepository) : ViewModel() {
                 val nextWorkout = if (todayWorkout != null) {
                     todayWorkout
                 } else {
-                    // Find next upcoming workout after today
                     upcomingWorkouts.firstOrNull { it.dayOfWeek > todayDow }
-                        ?: upcomingWorkouts.firstOrNull() // wrap around to next week's first
+                        ?: upcomingWorkouts.firstOrNull()
                 }
 
                 val planned = workouts.size
@@ -59,6 +64,7 @@ class HomeViewModel(private val planRepository: PlanRepository) : ViewModel() {
                         completed = completed,
                         todayWorkout = todayWorkout,
                         nextWorkout = nextWorkout,
+                        hasActiveSession = hasActiveSession,
                     )
                 }
             }
@@ -76,6 +82,7 @@ sealed interface HomeUiState {
         val completed: Int,
         val todayWorkout: PlannedWorkout?,
         val nextWorkout: PlannedWorkout?,
+        val hasActiveSession: Boolean,
     ) : HomeUiState
     data class WeekComplete(
         val planned: Int,

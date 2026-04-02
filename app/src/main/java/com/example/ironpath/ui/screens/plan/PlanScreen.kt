@@ -119,6 +119,7 @@ internal fun PlanContent(
             completed = uiState.completed,
             todayWorkout = uiState.todayWorkout,
             nextWorkout = uiState.nextWorkout,
+            hasActiveSession = uiState.hasActiveSession,
             onStartWorkout = onStartWorkout,
             modifier = modifier,
         )
@@ -447,6 +448,7 @@ private fun PlanAcceptedScreen(
     completed: Int,
     todayWorkout: PlannedWorkout?,
     nextWorkout: PlannedWorkout?,
+    hasActiveSession: Boolean,
     onStartWorkout: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -459,37 +461,45 @@ private fun PlanAcceptedScreen(
     ) {
         // Headline
         Text(
-            text = if (todayWorkout != null) "WORKOUT DAY TODAY" else "NO WORKOUT TODAY",
+            text = if (hasActiveSession) "SESSION IN PROGRESS" else if (todayWorkout != null) "WORKOUT DAY TODAY" else "NO WORKOUT TODAY",
             style = MaterialTheme.typography.headlineSmall,
             color = MaterialTheme.colorScheme.onSurface,
         )
 
         Spacer(Modifier.height(12.dp))
 
-        // Next workout line
-        if (nextWorkout != null && todayWorkout == null) {
+        if (hasActiveSession) {
             Text(
-                text = "Next workout: ${dayOfWeekAbbrev(nextWorkout.dayOfWeek)} · ${nextWorkout.title}",
-                style = MaterialTheme.typography.bodyLarge,
+                text = "Switch to the Active tab to continue your workout.",
+                style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            Spacer(Modifier.height(8.dp))
-        }
+        } else {
+            // Next workout line
+            if (nextWorkout != null && todayWorkout == null) {
+                Text(
+                    text = "Next workout: ${dayOfWeekAbbrev(nextWorkout.dayOfWeek)} · ${nextWorkout.title}",
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(Modifier.height(8.dp))
+            }
 
-        // Progress line
-        Text(
-            text = "$planned workouts planned · $completed completed",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-
-        // Start Workout CTA — only when there's a workout today
-        if (todayWorkout != null) {
-            Spacer(Modifier.height(24.dp))
-            GreenGradientButton(
-                text = "Start Workout",
-                onClick = onStartWorkout,
+            // Progress line
+            Text(
+                text = "$planned workouts planned · $completed completed",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+
+            // Start Workout CTA — only when there's a workout today and no active session
+            if (todayWorkout != null) {
+                Spacer(Modifier.height(24.dp))
+                GreenGradientButton(
+                    text = "Start Workout",
+                    onClick = onStartWorkout,
+                )
+            }
         }
     }
 }
@@ -564,6 +574,7 @@ private fun PreviewPlanAccepted() {
                     completed = 1,
                     todayWorkout = null,
                     nextWorkout = PreviewWorkouts[1],
+                    hasActiveSession = false,
                 ),
                 selectedGoal = TrainingGoal.Strength,
                 selectedDays = emptySet(),
