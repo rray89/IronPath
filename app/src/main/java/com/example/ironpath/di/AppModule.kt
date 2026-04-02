@@ -6,8 +6,10 @@ import com.example.ironpath.data.repository.HistoryRepository
 import com.example.ironpath.data.repository.PlanRepository
 import com.example.ironpath.data.repository.RecordRepository
 import com.example.ironpath.data.repository.SessionRepository
+import com.example.ironpath.dev.DevToolsSeeder
 import com.example.ironpath.domain.planner.PlanGenerator
 import com.example.ironpath.ui.screens.active.ActiveViewModel
+import com.example.ironpath.ui.screens.devtools.DevToolsViewModel
 import com.example.ironpath.ui.screens.history.HistoryViewModel
 import com.example.ironpath.ui.screens.home.HomeViewModel
 import com.example.ironpath.ui.screens.plan.PlanViewModel
@@ -38,6 +40,11 @@ val repositoryModule = module {
 
 val domainModule = module {
     single { PlanGenerator() }
+}
+
+val devModule = module {
+    single { DevToolsSeeder(get(), get(), get(), get()) }
+    viewModel { DevToolsViewModel(get()) }
 }
 
 val viewModelModule = module {

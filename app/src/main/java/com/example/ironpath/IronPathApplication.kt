@@ -2,6 +2,7 @@ package com.example.ironpath
 
 import android.app.Application
 import com.example.ironpath.di.databaseModule
+import com.example.ironpath.di.devModule
 import com.example.ironpath.di.domainModule
 import com.example.ironpath.di.repositoryModule
 import com.example.ironpath.di.viewModelModule
@@ -13,7 +14,7 @@ class IronPathApplication : Application() {
         super.onCreate()
         startKoin {
             androidContext(this@IronPathApplication)
-            modules(databaseModule, repositoryModule, domainModule, viewModelModule)
+            modules(databaseModule, repositoryModule, domainModule, devModule, viewModelModule)
         }
     }
 }

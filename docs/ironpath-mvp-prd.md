@@ -42,7 +42,8 @@ History contains:
 ## Planning scope
 - MVP generates one week only
 - a week is a fixed Monday-Sunday calendar week
-- if the user starts mid-week without an active plan, generate the next full Monday-Sunday week
+- canonical product rule: if the user starts mid-week without an active plan, generate the next full Monday-Sunday week
+- if local dev/test tooling temporarily allows current-week seeding for faster manual testing, treat that as internal-only dev behavior rather than product truth
 - planner setup should collect specific workout days before generation
 
 Planner Review supports light adjustment only.
@@ -236,6 +237,27 @@ Completion behavior:
 - custom program builder flows
 - charts/trends/progression analytics
 - advanced adaptive/intelligence features
+
+## Internal Dev Tools (not product MVP UI)
+These are allowed as local-only internal testing helpers.
+
+Rules:
+- Dev Tools are internal developer support, not part of the user-facing MVP story
+- hidden entry is acceptable; current preferred entry is multi-tap on the IRONPATH title
+- no need to optimize discoverability for normal users
+- keep the scope small and practical
+- avoid turning Dev Tools into a full settings/debug system
+
+Initial desired capabilities:
+- seed a test weekly plan for today
+- seed a test weekly plan for tomorrow
+- seed workout history logs
+- seed manual records
+- clear all local data
+
+Design direction:
+- keep all dev/test actions in one dedicated Dev Tools surface rather than scattering them across normal screens
+- if the app is ever prepared for public release later, visibility/hardening can be revisited then
 
 ## Build principle
 Build the smallest version that looks intentional, works end-to-end, and tells a strong portfolio story.

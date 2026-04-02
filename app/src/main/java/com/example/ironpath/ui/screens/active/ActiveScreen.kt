@@ -342,7 +342,7 @@ private fun ExerciseSection(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text("SET", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.width(36.dp))
-            Text("PLAN", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
+            Text("TARGET", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
             Text("KG", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
             Spacer(Modifier.width(4.dp))
             Text("REPS", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
@@ -357,7 +357,7 @@ private fun ExerciseSection(
         sets.forEach { set ->
             SetRow(
                 set = set,
-                planInfo = "${exercise.plannedReps}x${exercise.plannedWeightKg.toInt()}",
+                planInfo = "${exercise.plannedReps}reps@${exercise.plannedWeightKg.toInt()}kg",
                 onUpdateSet = onUpdateSet,
             )
             Spacer(Modifier.height(4.dp))

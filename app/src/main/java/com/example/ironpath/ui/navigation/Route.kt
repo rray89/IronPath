@@ -6,4 +6,5 @@ object Route {
     const val PLAN = "plan"
     const val ACTIVE = "active"
     const val HISTORY = "history"
+    const val DEV_TOOLS = "dev_tools"
 }

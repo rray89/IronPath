@@ -8,6 +8,7 @@ import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import com.example.ironpath.ui.screens.active.ActiveScreen
+import com.example.ironpath.ui.screens.devtools.DevToolsScreen
 import com.example.ironpath.ui.screens.entry.EntryScreen
 import com.example.ironpath.ui.screens.history.HistoryScreen
 import com.example.ironpath.ui.screens.home.HomeScreen
@@ -105,6 +106,16 @@ fun IronPathNavHost(
         }
         composable(Route.HISTORY) {
             HistoryScreen(modifier = Modifier.padding(innerPadding))
+        }
+        composable(Route.DEV_TOOLS) {
+            DevToolsScreen(
+                onBack = { navController.popBackStack() },
+                onClearComplete = {
+                    navController.navigate(Route.ENTRY) {
+                        popUpTo(0) { inclusive = true }
+                    }
+                },
+            )
         }
     }
 }
