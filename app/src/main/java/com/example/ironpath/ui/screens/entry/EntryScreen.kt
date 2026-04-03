@@ -28,129 +28,125 @@ import com.example.ironpath.ui.theme.SurfaceContainerHigh
 
 @Composable
 fun EntryScreen(
-    onGetStarted: () -> Unit,
-    modifier: Modifier = Modifier,
+  onGetStarted: () -> Unit,
+  modifier: Modifier = Modifier,
 ) {
-    Box(
-        modifier = modifier
-            .fillMaxSize()
-            .background(MaterialTheme.colorScheme.surface)
-            .drawBehind {
-                // Subtle ambient glow behind the logo area
-                drawCircle(
-                    color = AmbientGlow,
-                    radius = size.width * 0.6f,
-                    center = center.copy(y = size.height * 0.28f),
-                )
-            },
+  Box(
+    modifier =
+      modifier.fillMaxSize().background(MaterialTheme.colorScheme.surface).drawBehind {
+        // Subtle ambient glow behind the logo area
+        drawCircle(
+          color = AmbientGlow,
+          radius = size.width * 0.6f,
+          center = center.copy(y = size.height * 0.28f),
+        )
+      },
+  ) {
+    Column(
+      modifier = Modifier.fillMaxSize().padding(horizontal = 32.dp),
+      horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(horizontal = 32.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-        ) {
-            Spacer(Modifier.weight(1f))
+      Spacer(Modifier.weight(1f))
 
-            // Logo icon in bracketed container
-            Box(
-                modifier = Modifier
-                    .size(100.dp)
-                    .background(
-                        color = SurfaceContainerHigh,
-                        shape = RoundedCornerShape(12.dp),
-                    )
-                    .border(
-                        width = 1.5.dp,
-                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.4f),
-                        shape = RoundedCornerShape(12.dp),
-                    ),
-                contentAlignment = Alignment.Center,
-            ) {
-                Icon(
-                    imageVector = Icons.Default.FitnessCenter,
-                    contentDescription = null,
-                    modifier = Modifier.size(48.dp),
-                    tint = MaterialTheme.colorScheme.primary,
-                )
-            }
-
-            Spacer(Modifier.height(24.dp))
-
-            // App name
-            Text(
-                text = "IRONPATH",
-                style = MaterialTheme.typography.headlineLarge,
-                color = MaterialTheme.colorScheme.onSurface,
+      // Logo icon in bracketed container
+      Box(
+        modifier =
+          Modifier.size(100.dp)
+            .background(
+              color = SurfaceContainerHigh,
+              shape = RoundedCornerShape(12.dp),
             )
+            .border(
+              width = 1.5.dp,
+              color = MaterialTheme.colorScheme.primary.copy(alpha = 0.4f),
+              shape = RoundedCornerShape(12.dp),
+            ),
+        contentAlignment = Alignment.Center,
+      ) {
+        Icon(
+          imageVector = Icons.Default.FitnessCenter,
+          contentDescription = null,
+          modifier = Modifier.size(48.dp),
+          tint = MaterialTheme.colorScheme.primary,
+        )
+      }
 
-            Spacer(Modifier.height(8.dp))
+      Spacer(Modifier.height(24.dp))
 
-            // Tagline
-            Text(
-                text = "OWN YOUR PROGRESS",
-                style = MaterialTheme.typography.labelLarge,
-                color = MaterialTheme.colorScheme.primary,
+      // App name
+      Text(
+        text = "IRONPATH",
+        style = MaterialTheme.typography.headlineLarge,
+        color = MaterialTheme.colorScheme.onSurface,
+      )
+
+      Spacer(Modifier.height(8.dp))
+
+      // Tagline
+      Text(
+        text = "OWN YOUR PROGRESS",
+        style = MaterialTheme.typography.labelLarge,
+        color = MaterialTheme.colorScheme.primary,
+      )
+
+      Spacer(Modifier.height(12.dp))
+
+      // Privacy note
+      Text(
+        text = "Your data stays on this device.",
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+      )
+
+      Spacer(Modifier.weight(1f))
+
+      // Get Started button
+      GreenGradientButton(
+        text = "Get Started",
+        onClick = onGetStarted,
+      )
+
+      Spacer(Modifier.height(16.dp))
+
+      // Non-functional Google sign-in button
+      Box(
+        modifier =
+          Modifier.fillMaxWidth()
+            .border(
+              width = 1.dp,
+              color = MaterialTheme.colorScheme.primary,
+              shape = RoundedCornerShape(4.dp),
             )
+            .padding(vertical = 14.dp),
+        contentAlignment = Alignment.Center,
+      ) {
+        Text(
+          text = "Sign in with Google",
+          style = MaterialTheme.typography.bodyMedium,
+          color = MaterialTheme.colorScheme.onSurface,
+        )
+      }
 
-            Spacer(Modifier.height(12.dp))
+      Spacer(Modifier.height(32.dp))
 
-            // Privacy note
-            Text(
-                text = "Your data stays on this device.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+      // Terms text
+      Text(
+        text = "By continuing, you agree to our Terms of Service",
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        textAlign = TextAlign.Center,
+      )
 
-            Spacer(Modifier.weight(1f))
+      Spacer(Modifier.height(8.dp))
 
-            // Get Started button
-            GreenGradientButton(
-                text = "Get Started",
-                onClick = onGetStarted,
-            )
+      // Version
+      Text(
+        text = "v1.0.0",
+        style = MaterialTheme.typography.labelSmall,
+        color = MaterialTheme.colorScheme.primary,
+      )
 
-            Spacer(Modifier.height(16.dp))
-
-            // Non-functional Google sign-in button
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .border(
-                        width = 1.dp,
-                        color = MaterialTheme.colorScheme.primary,
-                        shape = RoundedCornerShape(4.dp),
-                    )
-                    .padding(vertical = 14.dp),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(
-                    text = "Sign in with Google",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurface,
-                )
-            }
-
-            Spacer(Modifier.height(32.dp))
-
-            // Terms text
-            Text(
-                text = "By continuing, you agree to our Terms of Service",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                textAlign = TextAlign.Center,
-            )
-
-            Spacer(Modifier.height(8.dp))
-
-            // Version
-            Text(
-                text = "v1.0.0",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.primary,
-            )
-
-            Spacer(Modifier.height(32.dp))
-        }
+      Spacer(Modifier.height(32.dp))
     }
+  }
 }

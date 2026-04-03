@@ -16,22 +16,26 @@ import com.example.ironpath.data.local.entity.WeeklyPlan
 import com.example.ironpath.data.local.entity.WorkoutLog
 
 @Database(
-    entities = [
-        WeeklyPlan::class,
-        PlannedWorkout::class,
-        PlannedExercise::class,
-        ActiveSession::class,
-        SessionExercise::class,
-        SessionSet::class,
-        WorkoutLog::class,
-        PersonalRecord::class,
+  entities =
+    [
+      WeeklyPlan::class,
+      PlannedWorkout::class,
+      PlannedExercise::class,
+      ActiveSession::class,
+      SessionExercise::class,
+      SessionSet::class,
+      WorkoutLog::class,
+      PersonalRecord::class,
     ],
-    version = 1,
-    exportSchema = true,
+  version = 1,
+  exportSchema = true,
 )
 abstract class IronPathDatabase : RoomDatabase() {
-    abstract fun planDao(): PlanDao
-    abstract fun sessionDao(): SessionDao
-    abstract fun historyDao(): HistoryDao
-    abstract fun recordDao(): RecordDao
+  abstract fun planDao(): PlanDao
+
+  abstract fun sessionDao(): SessionDao
+
+  abstract fun historyDao(): HistoryDao
+
+  abstract fun recordDao(): RecordDao
 }

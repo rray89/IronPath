@@ -53,77 +53,80 @@ import org.koin.androidx.compose.koinViewModel
 
 @Composable
 fun PlanScreen(
-    onPlanAccepted: () -> Unit,
-    onStartWorkout: () -> Unit,
-    modifier: Modifier = Modifier,
-    viewModel: PlanViewModel = koinViewModel(),
+  onPlanAccepted: () -> Unit,
+  onStartWorkout: () -> Unit,
+  modifier: Modifier = Modifier,
+  viewModel: PlanViewModel = koinViewModel(),
 ) {
-    val uiState by viewModel.planUiState.collectAsStateWithLifecycle()
-    val selectedGoal by viewModel.selectedGoal.collectAsStateWithLifecycle()
-    val selectedDays by viewModel.selectedDays.collectAsStateWithLifecycle()
+  val uiState by viewModel.planUiState.collectAsStateWithLifecycle()
+  val selectedGoal by viewModel.selectedGoal.collectAsStateWithLifecycle()
+  val selectedDays by viewModel.selectedDays.collectAsStateWithLifecycle()
 
-    PlanContent(
-        uiState = uiState,
-        selectedGoal = selectedGoal,
-        selectedDays = selectedDays,
-        onGoalSelected = viewModel::setGoal,
-        onDayToggled = viewModel::toggleDay,
-        onGenerate = viewModel::generatePlan,
-        onDeleteWorkout = viewModel::deleteWorkoutFromReview,
-        onBackToSetup = viewModel::backToSetup,
-        onAccept = { viewModel.acceptPlan(onPlanAccepted) },
-        onStartWorkout = onStartWorkout,
-        modifier = modifier,
-    )
+  PlanContent(
+    uiState = uiState,
+    selectedGoal = selectedGoal,
+    selectedDays = selectedDays,
+    onGoalSelected = viewModel::setGoal,
+    onDayToggled = viewModel::toggleDay,
+    onGenerate = viewModel::generatePlan,
+    onDeleteWorkout = viewModel::deleteWorkoutFromReview,
+    onBackToSetup = viewModel::backToSetup,
+    onAccept = { viewModel.acceptPlan(onPlanAccepted) },
+    onStartWorkout = onStartWorkout,
+    modifier = modifier,
+  )
 }
 
 // -- Pure render composable --
 
 @Composable
 internal fun PlanContent(
-    uiState: PlanUiState,
-    selectedGoal: TrainingGoal,
-    selectedDays: Set<Int>,
-    onGoalSelected: (TrainingGoal) -> Unit,
-    onDayToggled: (Int) -> Unit,
-    onGenerate: () -> Unit,
-    onDeleteWorkout: (String) -> Unit,
-    onBackToSetup: () -> Unit,
-    onAccept: () -> Unit,
-    onStartWorkout: () -> Unit,
-    modifier: Modifier = Modifier,
+  uiState: PlanUiState,
+  selectedGoal: TrainingGoal,
+  selectedDays: Set<Int>,
+  onGoalSelected: (TrainingGoal) -> Unit,
+  onDayToggled: (Int) -> Unit,
+  onGenerate: () -> Unit,
+  onDeleteWorkout: (String) -> Unit,
+  onBackToSetup: () -> Unit,
+  onAccept: () -> Unit,
+  onStartWorkout: () -> Unit,
+  modifier: Modifier = Modifier,
 ) {
-    when (uiState) {
-        PlanUiState.Loading -> {
-            Box(modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
-            }
-        }
-        PlanUiState.Setup -> PlanSetupScreen(
-            selectedGoal = selectedGoal,
-            selectedDays = selectedDays,
-            onGoalSelected = onGoalSelected,
-            onDayToggled = onDayToggled,
-            onGenerate = onGenerate,
-            modifier = modifier,
-        )
-        is PlanUiState.Review -> PlanReviewScreen(
-            generated = uiState.generated,
-            onDeleteWorkout = onDeleteWorkout,
-            onBackToSetup = onBackToSetup,
-            onAccept = onAccept,
-            modifier = modifier,
-        )
-        is PlanUiState.Accepted -> PlanAcceptedScreen(
-            planned = uiState.planned,
-            completed = uiState.completed,
-            todayWorkout = uiState.todayWorkout,
-            nextWorkout = uiState.nextWorkout,
-            hasActiveSession = uiState.hasActiveSession,
-            onStartWorkout = onStartWorkout,
-            modifier = modifier,
-        )
+  when (uiState) {
+    PlanUiState.Loading -> {
+      Box(modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
+      }
     }
+    PlanUiState.Setup ->
+      PlanSetupScreen(
+        selectedGoal = selectedGoal,
+        selectedDays = selectedDays,
+        onGoalSelected = onGoalSelected,
+        onDayToggled = onDayToggled,
+        onGenerate = onGenerate,
+        modifier = modifier,
+      )
+    is PlanUiState.Review ->
+      PlanReviewScreen(
+        generated = uiState.generated,
+        onDeleteWorkout = onDeleteWorkout,
+        onBackToSetup = onBackToSetup,
+        onAccept = onAccept,
+        modifier = modifier,
+      )
+    is PlanUiState.Accepted ->
+      PlanAcceptedScreen(
+        planned = uiState.planned,
+        completed = uiState.completed,
+        todayWorkout = uiState.todayWorkout,
+        nextWorkout = uiState.nextWorkout,
+        hasActiveSession = uiState.hasActiveSession,
+        onStartWorkout = onStartWorkout,
+        modifier = modifier,
+      )
+  }
 }
 
 // -- Setup Screen --
@@ -131,457 +134,514 @@ internal fun PlanContent(
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun PlanSetupScreen(
-    selectedGoal: TrainingGoal,
-    selectedDays: Set<Int>,
-    onGoalSelected: (TrainingGoal) -> Unit,
-    onDayToggled: (Int) -> Unit,
-    onGenerate: () -> Unit,
-    modifier: Modifier = Modifier,
+  selectedGoal: TrainingGoal,
+  selectedDays: Set<Int>,
+  onGoalSelected: (TrainingGoal) -> Unit,
+  onDayToggled: (Int) -> Unit,
+  onGenerate: () -> Unit,
+  modifier: Modifier = Modifier,
 ) {
-    Column(
-        modifier = modifier
-            .fillMaxSize()
-            .padding(horizontal = 24.dp)
-            .verticalScroll(rememberScrollState()),
+  Column(
+    modifier =
+      modifier.fillMaxSize().padding(horizontal = 24.dp).verticalScroll(rememberScrollState()),
+  ) {
+    Spacer(Modifier.height(16.dp))
+
+    // Primary Goal
+    Text(
+      text = "Primary Goal",
+      style = MaterialTheme.typography.titleMedium,
+      color = MaterialTheme.colorScheme.onSurface,
+    )
+
+    Spacer(Modifier.height(12.dp))
+
+    FlowRow(
+      horizontalArrangement = Arrangement.spacedBy(8.dp),
+      verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        Spacer(Modifier.height(16.dp))
-
-        // Primary Goal
-        Text(
-            text = "Primary Goal",
-            style = MaterialTheme.typography.titleMedium,
-            color = MaterialTheme.colorScheme.onSurface,
+      TrainingGoal.entries.forEach { goal ->
+        GoalChip(
+          label = goal.name.uppercase(),
+          selected = goal == selectedGoal,
+          onClick = { onGoalSelected(goal) },
         )
-
-        Spacer(Modifier.height(12.dp))
-
-        FlowRow(
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            TrainingGoal.entries.forEach { goal ->
-                GoalChip(
-                    label = goal.name.uppercase(),
-                    selected = goal == selectedGoal,
-                    onClick = { onGoalSelected(goal) },
-                )
-            }
-        }
-
-        Spacer(Modifier.height(32.dp))
-
-        // Workout Days
-        Text(
-            text = "Workout Days",
-            style = MaterialTheme.typography.titleMedium,
-            color = MaterialTheme.colorScheme.onSurface,
-        )
-
-        Spacer(Modifier.height(12.dp))
-
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
-        ) {
-            val dayLabels = listOf("MO", "TU", "WE", "TH", "FR", "SA", "SU")
-            dayLabels.forEachIndexed { index, label ->
-                val dow = index + 1
-                DayChip(
-                    label = label,
-                    selected = dow in selectedDays,
-                    onClick = { onDayToggled(dow) },
-                    modifier = Modifier.weight(1f),
-                )
-            }
-        }
-
-        Spacer(Modifier.height(8.dp))
-
-        Text(
-            text = "SELECT THE DAYS YOU WANT TO TRAIN THIS WEEK",
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-
-        Spacer(Modifier.weight(1f))
-
-        // Generate button
-        GreenGradientButton(
-            text = "Generate Week",
-            onClick = onGenerate,
-            leadingIcon = {
-                Icon(
-                    imageVector = Icons.Default.CalendarMonth,
-                    contentDescription = null,
-                    modifier = Modifier.size(18.dp),
-                    tint = MaterialTheme.colorScheme.surface,
-                )
-            },
-        )
-
-        Spacer(Modifier.height(32.dp))
+      }
     }
+
+    Spacer(Modifier.height(32.dp))
+
+    // Workout Days
+    Text(
+      text = "Workout Days",
+      style = MaterialTheme.typography.titleMedium,
+      color = MaterialTheme.colorScheme.onSurface,
+    )
+
+    Spacer(Modifier.height(12.dp))
+
+    Row(
+      modifier = Modifier.fillMaxWidth(),
+      horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+      val dayLabels = listOf("MO", "TU", "WE", "TH", "FR", "SA", "SU")
+      dayLabels.forEachIndexed { index, label ->
+        val dow = index + 1
+        DayChip(
+          label = label,
+          selected = dow in selectedDays,
+          onClick = { onDayToggled(dow) },
+          modifier = Modifier.weight(1f),
+        )
+      }
+    }
+
+    Spacer(Modifier.height(8.dp))
+
+    Text(
+      text = "SELECT THE DAYS YOU WANT TO TRAIN THIS WEEK",
+      style = MaterialTheme.typography.labelSmall,
+      color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+
+    Spacer(Modifier.weight(1f))
+
+    // Generate button
+    GreenGradientButton(
+      text = "Generate Week",
+      onClick = onGenerate,
+      leadingIcon = {
+        Icon(
+          imageVector = Icons.Default.CalendarMonth,
+          contentDescription = null,
+          modifier = Modifier.size(18.dp),
+          tint = MaterialTheme.colorScheme.surface,
+        )
+      },
+    )
+
+    Spacer(Modifier.height(32.dp))
+  }
 }
 
 @Composable
 private fun GoalChip(
-    label: String,
-    selected: Boolean,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier,
+  label: String,
+  selected: Boolean,
+  onClick: () -> Unit,
+  modifier: Modifier = Modifier,
 ) {
-    val shape = RoundedCornerShape(4.dp)
-    val bgColor = if (selected) MaterialTheme.colorScheme.primary else SurfaceContainerHigh
-    val textColor = if (selected) MaterialTheme.colorScheme.surface else MaterialTheme.colorScheme.onSurface
+  val shape = RoundedCornerShape(4.dp)
+  val bgColor = if (selected) MaterialTheme.colorScheme.primary else SurfaceContainerHigh
+  val textColor =
+    if (selected) MaterialTheme.colorScheme.surface else MaterialTheme.colorScheme.onSurface
 
-    Box(
-        modifier = modifier
-            .clip(shape)
-            .background(bgColor)
-            .clickable(onClick = onClick)
-            .padding(horizontal = 16.dp, vertical = 10.dp),
-    ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            if (selected) {
-                Icon(
-                    imageVector = Icons.Default.Check,
-                    contentDescription = null,
-                    modifier = Modifier.size(14.dp),
-                    tint = textColor,
-                )
-                Spacer(Modifier.width(6.dp))
-            }
-            Text(
-                text = label,
-                style = MaterialTheme.typography.labelMedium,
-                color = textColor,
-            )
-        }
+  Box(
+    modifier =
+      modifier
+        .clip(shape)
+        .background(bgColor)
+        .clickable(onClick = onClick)
+        .padding(horizontal = 16.dp, vertical = 10.dp),
+  ) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+      if (selected) {
+        Icon(
+          imageVector = Icons.Default.Check,
+          contentDescription = null,
+          modifier = Modifier.size(14.dp),
+          tint = textColor,
+        )
+        Spacer(Modifier.width(6.dp))
+      }
+      Text(
+        text = label,
+        style = MaterialTheme.typography.labelMedium,
+        color = textColor,
+      )
     }
+  }
 }
 
 @Composable
 private fun DayChip(
-    label: String,
-    selected: Boolean,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier,
+  label: String,
+  selected: Boolean,
+  onClick: () -> Unit,
+  modifier: Modifier = Modifier,
 ) {
-    val shape = RoundedCornerShape(4.dp)
-    val bgColor = if (selected) MaterialTheme.colorScheme.primary else SurfaceContainerHigh
-    val textColor = if (selected) MaterialTheme.colorScheme.surface else MaterialTheme.colorScheme.onSurface
+  val shape = RoundedCornerShape(4.dp)
+  val bgColor = if (selected) MaterialTheme.colorScheme.primary else SurfaceContainerHigh
+  val textColor =
+    if (selected) MaterialTheme.colorScheme.surface else MaterialTheme.colorScheme.onSurface
 
-    Box(
-        modifier = modifier
-            .clip(shape)
-            .background(bgColor)
-            .clickable(onClick = onClick)
-            .padding(vertical = 12.dp),
-        contentAlignment = Alignment.Center,
-    ) {
-        Text(
-            text = label,
-            style = MaterialTheme.typography.labelMedium,
-            color = textColor,
-        )
-    }
+  Box(
+    modifier =
+      modifier
+        .clip(shape)
+        .background(bgColor)
+        .clickable(onClick = onClick)
+        .padding(vertical = 12.dp),
+    contentAlignment = Alignment.Center,
+  ) {
+    Text(
+      text = label,
+      style = MaterialTheme.typography.labelMedium,
+      color = textColor,
+    )
+  }
 }
 
 // -- Review Screen --
 
 @Composable
 private fun PlanReviewScreen(
-    generated: GeneratedPlan,
-    onDeleteWorkout: (String) -> Unit,
-    onBackToSetup: () -> Unit,
-    onAccept: () -> Unit,
-    modifier: Modifier = Modifier,
+  generated: GeneratedPlan,
+  onDeleteWorkout: (String) -> Unit,
+  onBackToSetup: () -> Unit,
+  onAccept: () -> Unit,
+  modifier: Modifier = Modifier,
 ) {
-    Column(
-        modifier = modifier
-            .fillMaxSize()
-            .padding(horizontal = 24.dp)
-            .verticalScroll(rememberScrollState()),
-    ) {
-        Spacer(Modifier.height(16.dp))
+  Column(
+    modifier =
+      modifier.fillMaxSize().padding(horizontal = 24.dp).verticalScroll(rememberScrollState()),
+  ) {
+    Spacer(Modifier.height(16.dp))
 
-        Text(
-            text = "WEEKLY PLAN",
-            style = MaterialTheme.typography.labelLarge,
-            color = MaterialTheme.colorScheme.primary,
-        )
-        Text(
-            text = "THIS WEEK",
-            style = MaterialTheme.typography.headlineMedium,
-            color = MaterialTheme.colorScheme.onSurface,
-        )
+    Text(
+      text = "WEEKLY PLAN",
+      style = MaterialTheme.typography.labelLarge,
+      color = MaterialTheme.colorScheme.primary,
+    )
+    Text(
+      text = "THIS WEEK",
+      style = MaterialTheme.typography.headlineMedium,
+      color = MaterialTheme.colorScheme.onSurface,
+    )
 
-        Spacer(Modifier.height(24.dp))
+    Spacer(Modifier.height(24.dp))
 
-        // Workouts grouped by day
-        generated.workouts.forEach { workout ->
-            val exercises = generated.exercises.filter { it.plannedWorkoutId == workout.id }
-            ReviewWorkoutCard(
-                workout = workout,
-                exercises = exercises,
-                onDelete = { onDeleteWorkout(workout.id) },
-            )
-            Spacer(Modifier.height(20.dp))
-        }
-
-        Spacer(Modifier.weight(1f))
-
-        // Bottom action row
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            // Back to Setup button
-            Box(
-                modifier = Modifier
-                    .weight(1f)
-                    .clip(RoundedCornerShape(4.dp))
-                    .background(SurfaceContainerHigh)
-                    .clickable(onClick = onBackToSetup)
-                    .padding(vertical = 14.dp),
-                contentAlignment = Alignment.Center,
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        imageVector = Icons.Default.Refresh,
-                        contentDescription = null,
-                        modifier = Modifier.size(18.dp),
-                        tint = MaterialTheme.colorScheme.onSurface,
-                    )
-                    Spacer(Modifier.width(8.dp))
-                    Text(
-                        text = "REGENERATE",
-                        style = MaterialTheme.typography.labelLarge,
-                        color = MaterialTheme.colorScheme.onSurface,
-                    )
-                }
-            }
-
-            // Accept button
-            GreenGradientButton(
-                text = "Accept Plan",
-                onClick = onAccept,
-                modifier = Modifier.weight(1f),
-            )
-        }
-
-        Spacer(Modifier.height(32.dp))
+    // Workouts grouped by day
+    generated.workouts.forEach { workout ->
+      val exercises = generated.exercises.filter { it.plannedWorkoutId == workout.id }
+      ReviewWorkoutCard(
+        workout = workout,
+        exercises = exercises,
+        onDelete = { onDeleteWorkout(workout.id) },
+      )
+      Spacer(Modifier.height(20.dp))
     }
+
+    Spacer(Modifier.weight(1f))
+
+    // Bottom action row
+    Row(
+      modifier = Modifier.fillMaxWidth(),
+      horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+      // Back to Setup button
+      Box(
+        modifier =
+          Modifier.weight(1f)
+            .clip(RoundedCornerShape(4.dp))
+            .background(SurfaceContainerHigh)
+            .clickable(onClick = onBackToSetup)
+            .padding(vertical = 14.dp),
+        contentAlignment = Alignment.Center,
+      ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+          Icon(
+            imageVector = Icons.Default.Refresh,
+            contentDescription = null,
+            modifier = Modifier.size(18.dp),
+            tint = MaterialTheme.colorScheme.onSurface,
+          )
+          Spacer(Modifier.width(8.dp))
+          Text(
+            text = "REGENERATE",
+            style = MaterialTheme.typography.labelLarge,
+            color = MaterialTheme.colorScheme.onSurface,
+          )
+        }
+      }
+
+      // Accept button
+      GreenGradientButton(
+        text = "Accept Plan",
+        onClick = onAccept,
+        modifier = Modifier.weight(1f),
+      )
+    }
+
+    Spacer(Modifier.height(32.dp))
+  }
 }
 
 @Composable
 private fun ReviewWorkoutCard(
-    workout: PlannedWorkout,
-    exercises: List<PlannedExercise>,
-    onDelete: () -> Unit,
-    modifier: Modifier = Modifier,
+  workout: PlannedWorkout,
+  exercises: List<PlannedExercise>,
+  onDelete: () -> Unit,
+  modifier: Modifier = Modifier,
 ) {
-    Column(modifier = modifier) {
-        // Day header with delete button
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(
-                text = "${dayOfWeekAbbrev(workout.dayOfWeek)} - ${workout.title}",
-                style = MaterialTheme.typography.titleSmall,
-                color = MaterialTheme.colorScheme.onSurface,
-                modifier = Modifier.weight(1f),
-            )
-            IconButton(onClick = onDelete, modifier = Modifier.size(32.dp)) {
-                Icon(
-                    imageVector = Icons.Default.Close,
-                    contentDescription = "Remove workout",
-                    modifier = Modifier.size(18.dp),
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-        }
-
-        Spacer(Modifier.height(8.dp))
-
-        // Exercises
-        exercises.forEach { exercise ->
-            ReviewExerciseRow(exercise)
-            Spacer(Modifier.height(6.dp))
-        }
+  Column(modifier = modifier) {
+    // Day header with delete button
+    Row(
+      modifier = Modifier.fillMaxWidth(),
+      verticalAlignment = Alignment.CenterVertically,
+    ) {
+      Text(
+        text = "${dayOfWeekAbbrev(workout.dayOfWeek)} - ${workout.title}",
+        style = MaterialTheme.typography.titleSmall,
+        color = MaterialTheme.colorScheme.onSurface,
+        modifier = Modifier.weight(1f),
+      )
+      IconButton(onClick = onDelete, modifier = Modifier.size(32.dp)) {
+        Icon(
+          imageVector = Icons.Default.Close,
+          contentDescription = "Remove workout",
+          modifier = Modifier.size(18.dp),
+          tint = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+      }
     }
+
+    Spacer(Modifier.height(8.dp))
+
+    // Exercises
+    exercises.forEach { exercise ->
+      ReviewExerciseRow(exercise)
+      Spacer(Modifier.height(6.dp))
+    }
+  }
 }
 
 @Composable
 private fun ReviewExerciseRow(
-    exercise: PlannedExercise,
-    modifier: Modifier = Modifier,
+  exercise: PlannedExercise,
+  modifier: Modifier = Modifier,
 ) {
-    Row(
-        modifier = modifier
-            .fillMaxWidth()
-            .padding(start = 16.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Text(
-            text = exercise.name,
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurface,
-            modifier = Modifier.weight(1f),
-        )
-        val weightText = if (exercise.weightKg > 0) "${exercise.weightKg.toInt()}KG" else "BW"
-        Text(
-            text = "${exercise.sets} SETS  •  ${exercise.reps} REPS  •  $weightText",
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-    }
+  Row(
+    modifier = modifier.fillMaxWidth().padding(start = 16.dp),
+    horizontalArrangement = Arrangement.SpaceBetween,
+    verticalAlignment = Alignment.CenterVertically,
+  ) {
+    Text(
+      text = exercise.name,
+      style = MaterialTheme.typography.bodyMedium,
+      color = MaterialTheme.colorScheme.onSurface,
+      modifier = Modifier.weight(1f),
+    )
+    val weightText = if (exercise.weightKg > 0) "${exercise.weightKg.toInt()}KG" else "BW"
+    Text(
+      text = "${exercise.sets} SETS  •  ${exercise.reps} REPS  •  $weightText",
+      style = MaterialTheme.typography.labelSmall,
+      color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+  }
 }
 
 // -- Accepted/Lightweight Status Screen --
 
 @Composable
 private fun PlanAcceptedScreen(
-    planned: Int,
-    completed: Int,
-    todayWorkout: PlannedWorkout?,
-    nextWorkout: PlannedWorkout?,
-    hasActiveSession: Boolean,
-    onStartWorkout: () -> Unit,
-    modifier: Modifier = Modifier,
+  planned: Int,
+  completed: Int,
+  todayWorkout: PlannedWorkout?,
+  nextWorkout: PlannedWorkout?,
+  hasActiveSession: Boolean,
+  onStartWorkout: () -> Unit,
+  modifier: Modifier = Modifier,
 ) {
-    Column(
-        modifier = modifier
-            .fillMaxSize()
-            .padding(horizontal = 24.dp),
-        verticalArrangement = Arrangement.Center,
-        horizontalAlignment = Alignment.CenterHorizontally,
-    ) {
-        // Headline
+  Column(
+    modifier = modifier.fillMaxSize().padding(horizontal = 24.dp),
+    verticalArrangement = Arrangement.Center,
+    horizontalAlignment = Alignment.CenterHorizontally,
+  ) {
+    // Headline
+    Text(
+      text =
+        if (hasActiveSession) "SESSION IN PROGRESS"
+        else if (todayWorkout != null) "WORKOUT DAY TODAY" else "NO WORKOUT TODAY",
+      style = MaterialTheme.typography.headlineSmall,
+      color = MaterialTheme.colorScheme.onSurface,
+    )
+
+    Spacer(Modifier.height(12.dp))
+
+    if (hasActiveSession) {
+      Text(
+        text = "Switch to the Active tab to continue your workout.",
+        style = MaterialTheme.typography.bodyMedium,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+      )
+    } else {
+      // Next workout line
+      if (nextWorkout != null && todayWorkout == null) {
         Text(
-            text = if (hasActiveSession) "SESSION IN PROGRESS" else if (todayWorkout != null) "WORKOUT DAY TODAY" else "NO WORKOUT TODAY",
-            style = MaterialTheme.typography.headlineSmall,
-            color = MaterialTheme.colorScheme.onSurface,
+          text = "Next workout: ${dayOfWeekAbbrev(nextWorkout.dayOfWeek)} · ${nextWorkout.title}",
+          style = MaterialTheme.typography.bodyLarge,
+          color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
+        Spacer(Modifier.height(8.dp))
+      }
 
-        Spacer(Modifier.height(12.dp))
+      // Progress line
+      Text(
+        text = "$planned workouts planned · $completed completed",
+        style = MaterialTheme.typography.bodyMedium,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+      )
 
-        if (hasActiveSession) {
-            Text(
-                text = "Switch to the Active tab to continue your workout.",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        } else {
-            // Next workout line
-            if (nextWorkout != null && todayWorkout == null) {
-                Text(
-                    text = "Next workout: ${dayOfWeekAbbrev(nextWorkout.dayOfWeek)} · ${nextWorkout.title}",
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Spacer(Modifier.height(8.dp))
-            }
-
-            // Progress line
-            Text(
-                text = "$planned workouts planned · $completed completed",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-
-            // Start Workout CTA — only when there's a workout today and no active session
-            if (todayWorkout != null) {
-                Spacer(Modifier.height(24.dp))
-                GreenGradientButton(
-                    text = "Start Workout",
-                    onClick = onStartWorkout,
-                )
-            }
-        }
+      // Start Workout CTA — only when there's a workout today and no active session
+      if (todayWorkout != null) {
+        Spacer(Modifier.height(24.dp))
+        GreenGradientButton(
+          text = "Start Workout",
+          onClick = onStartWorkout,
+        )
+      }
     }
+  }
 }
 
 // -- Previews --
 
-private val PreviewPlan = WeeklyPlan(
+private val PreviewPlan =
+  WeeklyPlan(
     id = "preview-plan",
     startDate = "2026-03-30",
     endDate = "2026-04-05",
-)
+  )
 
-private val PreviewWorkouts = listOf(
+private val PreviewWorkouts =
+  listOf(
     PlannedWorkout("w1", "preview-plan", 1, "2026-03-30", "Chest/Tris", WorkoutStatus.Completed),
     PlannedWorkout("w2", "preview-plan", 3, "2026-04-01", "Back/Bis", WorkoutStatus.Upcoming),
     PlannedWorkout("w3", "preview-plan", 5, "2026-04-03", "Legs", WorkoutStatus.Upcoming),
-)
+  )
 
-private val PreviewExercises = listOf(
-    PlannedExercise(plannedWorkoutId = "w1", name = "Barbell Bench Press", sets = 4, reps = 10, weightKg = 50.0, orderIndex = 0),
-    PlannedExercise(plannedWorkoutId = "w1", name = "Dumbbell Incline Flys", sets = 3, reps = 12, weightKg = 12.0, orderIndex = 1),
-    PlannedExercise(plannedWorkoutId = "w1", name = "Tricep Rope Pushdowns", sets = 3, reps = 12, weightKg = 15.0, orderIndex = 2),
-    PlannedExercise(plannedWorkoutId = "w2", name = "Barbell Rows", sets = 4, reps = 10, weightKg = 50.0, orderIndex = 0),
-    PlannedExercise(plannedWorkoutId = "w2", name = "Lat Pulldowns", sets = 3, reps = 12, weightKg = 45.0, orderIndex = 1),
-    PlannedExercise(plannedWorkoutId = "w3", name = "Barbell Squats", sets = 4, reps = 10, weightKg = 60.0, orderIndex = 0),
-)
+private val PreviewExercises =
+  listOf(
+    PlannedExercise(
+      plannedWorkoutId = "w1",
+      name = "Barbell Bench Press",
+      sets = 4,
+      reps = 10,
+      weightKg = 50.0,
+      orderIndex = 0
+    ),
+    PlannedExercise(
+      plannedWorkoutId = "w1",
+      name = "Dumbbell Incline Flys",
+      sets = 3,
+      reps = 12,
+      weightKg = 12.0,
+      orderIndex = 1
+    ),
+    PlannedExercise(
+      plannedWorkoutId = "w1",
+      name = "Tricep Rope Pushdowns",
+      sets = 3,
+      reps = 12,
+      weightKg = 15.0,
+      orderIndex = 2
+    ),
+    PlannedExercise(
+      plannedWorkoutId = "w2",
+      name = "Barbell Rows",
+      sets = 4,
+      reps = 10,
+      weightKg = 50.0,
+      orderIndex = 0
+    ),
+    PlannedExercise(
+      plannedWorkoutId = "w2",
+      name = "Lat Pulldowns",
+      sets = 3,
+      reps = 12,
+      weightKg = 45.0,
+      orderIndex = 1
+    ),
+    PlannedExercise(
+      plannedWorkoutId = "w3",
+      name = "Barbell Squats",
+      sets = 4,
+      reps = 10,
+      weightKg = 60.0,
+      orderIndex = 0
+    ),
+  )
 
 @Preview(showBackground = true)
 @Composable
 private fun PreviewPlanSetup() {
-    IronPathTheme {
-        Surface(color = MaterialTheme.colorScheme.surface) {
-            PlanContent(
-                uiState = PlanUiState.Setup,
-                selectedGoal = TrainingGoal.Strength,
-                selectedDays = setOf(1, 3, 5),
-                onGoalSelected = {}, onDayToggled = {}, onGenerate = {},
-                onDeleteWorkout = {}, onBackToSetup = {},
-                onAccept = {}, onStartWorkout = {},
-            )
-        }
+  IronPathTheme {
+    Surface(color = MaterialTheme.colorScheme.surface) {
+      PlanContent(
+        uiState = PlanUiState.Setup,
+        selectedGoal = TrainingGoal.Strength,
+        selectedDays = setOf(1, 3, 5),
+        onGoalSelected = {},
+        onDayToggled = {},
+        onGenerate = {},
+        onDeleteWorkout = {},
+        onBackToSetup = {},
+        onAccept = {},
+        onStartWorkout = {},
+      )
     }
+  }
 }
 
 @Preview(showBackground = true)
 @Composable
 private fun PreviewPlanReview() {
-    IronPathTheme {
-        Surface(color = MaterialTheme.colorScheme.surface) {
-            PlanContent(
-                uiState = PlanUiState.Review(
-                    GeneratedPlan(PreviewPlan, PreviewWorkouts, PreviewExercises),
-                ),
-                selectedGoal = TrainingGoal.Hypertrophy,
-                selectedDays = setOf(1, 3, 5),
-                onGoalSelected = {}, onDayToggled = {}, onGenerate = {},
-                onDeleteWorkout = {}, onBackToSetup = {},
-                onAccept = {}, onStartWorkout = {},
-            )
-        }
+  IronPathTheme {
+    Surface(color = MaterialTheme.colorScheme.surface) {
+      PlanContent(
+        uiState =
+          PlanUiState.Review(
+            GeneratedPlan(PreviewPlan, PreviewWorkouts, PreviewExercises),
+          ),
+        selectedGoal = TrainingGoal.Hypertrophy,
+        selectedDays = setOf(1, 3, 5),
+        onGoalSelected = {},
+        onDayToggled = {},
+        onGenerate = {},
+        onDeleteWorkout = {},
+        onBackToSetup = {},
+        onAccept = {},
+        onStartWorkout = {},
+      )
     }
+  }
 }
 
 @Preview(showBackground = true)
 @Composable
 private fun PreviewPlanAccepted() {
-    IronPathTheme {
-        Surface(color = MaterialTheme.colorScheme.surface) {
-            PlanContent(
-                uiState = PlanUiState.Accepted(
-                    planned = 3,
-                    completed = 1,
-                    todayWorkout = null,
-                    nextWorkout = PreviewWorkouts[1],
-                    hasActiveSession = false,
-                ),
-                selectedGoal = TrainingGoal.Strength,
-                selectedDays = emptySet(),
-                onGoalSelected = {}, onDayToggled = {}, onGenerate = {},
-                onDeleteWorkout = {}, onBackToSetup = {},
-                onAccept = {}, onStartWorkout = {},
-            )
-        }
+  IronPathTheme {
+    Surface(color = MaterialTheme.colorScheme.surface) {
+      PlanContent(
+        uiState =
+          PlanUiState.Accepted(
+            planned = 3,
+            completed = 1,
+            todayWorkout = null,
+            nextWorkout = PreviewWorkouts[1],
+            hasActiveSession = false,
+          ),
+        selectedGoal = TrainingGoal.Strength,
+        selectedDays = emptySet(),
+        onGoalSelected = {},
+        onDayToggled = {},
+        onGenerate = {},
+        onDeleteWorkout = {},
+        onBackToSetup = {},
+        onAccept = {},
+        onStartWorkout = {},
+      )
     }
+  }
 }
