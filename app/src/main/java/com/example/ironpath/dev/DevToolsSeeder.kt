@@ -1,5 +1,6 @@
 package com.example.ironpath.dev
 
+import androidx.room.withTransaction
 import com.example.ironpath.data.local.IronPathDatabase
 import com.example.ironpath.data.local.entity.PersonalRecord
 import com.example.ironpath.data.local.entity.PlannedExercise
@@ -14,175 +15,206 @@ import java.time.DayOfWeek
 import java.time.LocalDate
 import java.time.temporal.TemporalAdjusters
 import java.util.UUID
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 class DevToolsSeeder(
-    private val database: IronPathDatabase,
-    private val planRepository: PlanRepository,
-    private val historyRepository: HistoryRepository,
-    private val recordRepository: RecordRepository,
+  private val database: IronPathDatabase,
+  private val planRepository: PlanRepository,
+  private val historyRepository: HistoryRepository,
+  private val recordRepository: RecordRepository,
 ) {
 
-    /** Seed a 3-day Strength plan where today is one of the workout days. */
-    suspend fun seedPlanForToday() {
-        val today = LocalDate.now()
-        val todayDow = today.dayOfWeek.value
-        val existing = planRepository.getActivePlan()
-        if (existing != null) {
-            val workouts = planRepository.getWorkoutsForPlan(existing.id)
-            if (workouts.any { it.dayOfWeek == todayDow }) {
-                throw IllegalStateException("Today's workout already exists")
-            }
-        }
-        seedPlanWithAnchorDay(todayDow, today)
+  /** Seed a 3-day Strength plan where today is one of the workout days. */
+  suspend fun seedPlanForToday() {
+    val today = LocalDate.now()
+    val todayDow = today.dayOfWeek.value
+    val existing = planRepository.getActivePlan()
+    if (existing != null) {
+      val workouts = planRepository.getWorkoutsForPlan(existing.id)
+      if (workouts.any { it.dayOfWeek == todayDow }) {
+        throw IllegalStateException("Today's workout already exists")
+      }
     }
+    seedPlanWithAnchorDay(todayDow, today)
+  }
 
-    /** Seed a 3-day Strength plan where tomorrow is one of the workout days. */
-    suspend fun seedPlanForTomorrow() {
-        val tomorrow = LocalDate.now().plusDays(1)
-        val tomorrowDow = tomorrow.dayOfWeek.value
-        val existing = planRepository.getActivePlan()
-        if (existing != null) {
-            val workouts = planRepository.getWorkoutsForPlan(existing.id)
-            if (workouts.any { it.dayOfWeek == tomorrowDow }) {
-                throw IllegalStateException("Tomorrow's workout already exists")
-            }
-        }
-        seedPlanWithAnchorDay(tomorrowDow, tomorrow)
+  /** Seed a 3-day Strength plan where tomorrow is one of the workout days. */
+  suspend fun seedPlanForTomorrow() {
+    val tomorrow = LocalDate.now().plusDays(1)
+    val tomorrowDow = tomorrow.dayOfWeek.value
+    val existing = planRepository.getActivePlan()
+    if (existing != null) {
+      val workouts = planRepository.getWorkoutsForPlan(existing.id)
+      if (workouts.any { it.dayOfWeek == tomorrowDow }) {
+        throw IllegalStateException("Tomorrow's workout already exists")
+      }
     }
+    seedPlanWithAnchorDay(tomorrowDow, tomorrow)
+  }
 
-    /** Insert 5 workout log entries spread over the past 2 weeks. */
-    suspend fun seedHistoryLogs() {
-        val now = System.currentTimeMillis()
-        val dayMs = 24 * 60 * 60 * 1000L
-        val entries = listOf(
-            Triple("Push A",       3, 45),
-            Triple("Pull A",       3, 38),
-            Triple("Legs",         3, 52),
-            Triple("Push B",       3, 40),
-            Triple("Back/Bis",     3, 35),
+  /** Insert 5 workout log entries spread over the past 2 weeks. */
+  suspend fun seedHistoryLogs() {
+    val now = System.currentTimeMillis()
+    val dayMs = 24 * 60 * 60 * 1000L
+    val entries =
+      listOf(
+        Triple("Push A", 3, 45),
+        Triple("Pull A", 3, 38),
+        Triple("Legs", 3, 52),
+        Triple("Push B", 3, 40),
+        Triple("Back/Bis", 3, 35),
+      )
+    entries.forEachIndexed { i, (title, exerciseCount, durationMinutes) ->
+      val completedAt = now - (i * 2 + 1) * dayMs
+      val startedAt = completedAt - durationMinutes * 60_000L
+      historyRepository.insertLog(
+        WorkoutLog(
+          title = title,
+          sourcePlannedWorkoutId = null,
+          startedAt = startedAt,
+          completedAt = completedAt,
+          durationMinutes = durationMinutes,
+          exerciseCount = exerciseCount,
         )
-        entries.forEachIndexed { i, (title, exerciseCount, durationMinutes) ->
-            val completedAt = now - (i * 2 + 1) * dayMs
-            val startedAt = completedAt - durationMinutes * 60_000L
-            historyRepository.insertLog(
-                WorkoutLog(
-                    title = title,
-                    sourcePlannedWorkoutId = null,
-                    startedAt = startedAt,
-                    completedAt = completedAt,
-                    durationMinutes = durationMinutes,
-                    exerciseCount = exerciseCount,
-                )
-            )
-        }
+      )
     }
+  }
 
-    /** Insert 5 personal records for common exercises. */
-    suspend fun seedRecords() {
-        val today = LocalDate.now()
-        val entries = listOf(
-            Triple("Barbell Bench Press", 80.0,  today.minusDays(1).toString()),
-            Triple("Barbell Squats",      100.0, today.minusDays(3).toString()),
-            Triple("Deadlift",            120.0, today.minusDays(7).toString()),
-            Triple("Overhead Press",       50.0, today.minusDays(10).toString()),
-            Triple("Barbell Rows",         70.0, today.minusDays(14).toString()),
-        )
+  /** Insert 5 personal records for common exercises. */
+  suspend fun seedRecords() {
+    val today = LocalDate.now()
+    val entries =
+      listOf(
+        Triple("Barbell Bench Press", 80.0, today.minusDays(1).toString()),
+        Triple("Barbell Squats", 100.0, today.minusDays(3).toString()),
+        Triple("Deadlift", 120.0, today.minusDays(7).toString()),
+        Triple("Overhead Press", 50.0, today.minusDays(10).toString()),
+        Triple("Barbell Rows", 70.0, today.minusDays(14).toString()),
+      )
+    try {
+      database.withTransaction {
         entries.forEach { (name, weightKg, achievedOn) ->
-            recordRepository.insertRecord(
-                PersonalRecord(
-                    exerciseName = name,
-                    normalizedExerciseName = name.lowercase().trim(),
-                    weightKg = weightKg,
-                    achievedOn = achievedOn,
-                    sourceType = RecordSource.Manual,
-                )
+          recordRepository.insertRecord(
+            PersonalRecord(
+              exerciseName = name,
+              normalizedExerciseName = name.lowercase().trim(),
+              weightKg = weightKg,
+              achievedOn = achievedOn,
+              sourceType = RecordSource.Manual,
             )
+          )
         }
+      }
+    } catch (_: android.database.sqlite.SQLiteConstraintException) {
+      throw IllegalStateException("Records already seeded")
     }
+  }
 
-    /** Wipe all local data. */
-    suspend fun clearAllData() {
-        database.clearAllTables()
-    }
+  /** Wipe all local data. */
+  suspend fun clearAllData() {
+    withContext(Dispatchers.IO) { database.clearAllTables() }
+  }
 
-    // -- Helpers --
+  // -- Helpers --
 
-    /**
-     * Build a 3-day plan for the current Mon-Sun week that contains [anchorDate],
-     * where [anchorDow] (1=Mon..7=Sun) is the first of the three workout days.
-     * This is a dev-only bypass of the "generate next Monday" product rule.
-     */
-    private suspend fun seedPlanWithAnchorDay(anchorDow: Int, anchorDate: LocalDate) {
-        val thisMonday = anchorDate.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY))
-        val thisSunday = thisMonday.plusDays(6)
+  /**
+   * Build a 3-day plan for the current Mon-Sun week that contains [anchorDate], where [anchorDow]
+   * (1=Mon..7=Sun) is the first of the three workout days. This is a dev-only bypass of the
+   * "generate next Monday" product rule.
+   */
+  private suspend fun seedPlanWithAnchorDay(anchorDow: Int, anchorDate: LocalDate) {
+    val thisMonday = anchorDate.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY))
+    val thisSunday = thisMonday.plusDays(6)
 
-        // Pick 3 days: anchor + 2 more spaced 2 apart (wrap within 1-7)
-        val days = listOf(
-            anchorDow,
-            wrapDow(anchorDow + 2),
-            wrapDow(anchorDow + 4),
-        ).distinct().sorted()
-
-        val planId = UUID.randomUUID().toString()
-        val plan = WeeklyPlan(
-            id = planId,
-            startDate = thisMonday.toString(),
-            endDate = thisSunday.toString(),
+    // Pick 3 days: anchor + 2 more spaced 2 apart (wrap within 1-7)
+    val days =
+      listOf(
+          anchorDow,
+          wrapDow(anchorDow + 2),
+          wrapDow(anchorDow + 4),
         )
+        .distinct()
+        .sorted()
 
-        val workouts = mutableListOf<PlannedWorkout>()
-        val exercises = mutableListOf<PlannedExercise>()
+    val planId = UUID.randomUUID().toString()
+    val plan =
+      WeeklyPlan(
+        id = planId,
+        startDate = thisMonday.toString(),
+        endDate = thisSunday.toString(),
+      )
 
-        days.forEachIndexed { index, dow ->
-            val template = strengthTemplates[index % strengthTemplates.size]
-            val workoutId = UUID.randomUUID().toString()
-            workouts.add(
-                PlannedWorkout(
-                    id = workoutId,
-                    weeklyPlanId = planId,
-                    dayOfWeek = dow,
-                    scheduledDate = thisMonday.plusDays((dow - 1).toLong()).toString(),
-                    title = template.title,
-                )
-            )
-            template.exercises.forEachIndexed { exIndex, ex ->
-                exercises.add(
-                    PlannedExercise(
-                        plannedWorkoutId = workoutId,
-                        name = ex.name,
-                        sets = ex.sets,
-                        reps = ex.reps,
-                        weightKg = ex.weightKg,
-                        orderIndex = exIndex,
-                    )
-                )
-            }
-        }
+    val workouts = mutableListOf<PlannedWorkout>()
+    val exercises = mutableListOf<PlannedExercise>()
 
-        planRepository.createPlan(plan, workouts, exercises)
+    days.forEachIndexed { index, dow ->
+      val template = strengthTemplates[index % strengthTemplates.size]
+      val workoutId = UUID.randomUUID().toString()
+      workouts.add(
+        PlannedWorkout(
+          id = workoutId,
+          weeklyPlanId = planId,
+          dayOfWeek = dow,
+          scheduledDate = thisMonday.plusDays((dow - 1).toLong()).toString(),
+          title = template.title,
+        )
+      )
+      template.exercises.forEachIndexed { exIndex, ex ->
+        exercises.add(
+          PlannedExercise(
+            plannedWorkoutId = workoutId,
+            name = ex.name,
+            sets = ex.sets,
+            reps = ex.reps,
+            weightKg = ex.weightKg,
+            orderIndex = exIndex,
+          )
+        )
+      }
     }
 
-    private fun wrapDow(d: Int): Int = ((d - 1) % 7) + 1
+    planRepository.createPlan(plan, workouts, exercises)
+  }
+
+  private fun wrapDow(d: Int): Int = ((d - 1) % 7) + 1
 }
 
-private data class SeedExercise(val name: String, val sets: Int, val reps: Int, val weightKg: Double)
+private data class SeedExercise(
+  val name: String,
+  val sets: Int,
+  val reps: Int,
+  val weightKg: Double
+)
+
 private data class SeedWorkout(val title: String, val exercises: List<SeedExercise>)
 
-// Inline exercise data — mirrors PlanGenerator's strengthTemplates, avoids coupling to internal types
-private val strengthTemplates = listOf(
-    SeedWorkout("Push A", listOf(
+// Inline exercise data — mirrors PlanGenerator's strengthTemplates, avoids coupling to internal
+// types
+private val strengthTemplates =
+  listOf(
+    SeedWorkout(
+      "Push A",
+      listOf(
         SeedExercise("Barbell Bench Press", 5, 5, 60.0),
-        SeedExercise("Overhead Press",      4, 6, 40.0),
-        SeedExercise("Tricep Dips",         3, 8,  0.0),
-    )),
-    SeedWorkout("Pull A", listOf(
-        SeedExercise("Barbell Rows",        5, 5, 60.0),
-        SeedExercise("Weighted Pull-ups",   4, 6, 10.0),
-        SeedExercise("Barbell Curls",       3, 8, 25.0),
-    )),
-    SeedWorkout("Legs", listOf(
-        SeedExercise("Barbell Squats",      5, 5,  80.0),
-        SeedExercise("Romanian Deadlift",   4, 6,  60.0),
-        SeedExercise("Calf Raises",         3, 12, 40.0),
-    )),
-)
+        SeedExercise("Overhead Press", 4, 6, 40.0),
+        SeedExercise("Tricep Dips", 3, 8, 0.0),
+      )
+    ),
+    SeedWorkout(
+      "Pull A",
+      listOf(
+        SeedExercise("Barbell Rows", 5, 5, 60.0),
+        SeedExercise("Weighted Pull-ups", 4, 6, 10.0),
+        SeedExercise("Barbell Curls", 3, 8, 25.0),
+      )
+    ),
+    SeedWorkout(
+      "Legs",
+      listOf(
+        SeedExercise("Barbell Squats", 5, 5, 80.0),
+        SeedExercise("Romanian Deadlift", 4, 6, 60.0),
+        SeedExercise("Calf Raises", 3, 12, 40.0),
+      )
+    ),
+  )
