@@ -4,12 +4,13 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
 
-private val IronPathColorScheme = darkColorScheme(
+private val IronPathColorScheme =
+  darkColorScheme(
     primary = Primary,
     onPrimary = OnPrimary,
     primaryContainer = PrimaryContainer,
     onPrimaryContainer = OnPrimaryContainer,
-    secondary = Primary,      // reuse green for secondary in MVP
+    secondary = Primary, // reuse green for secondary in MVP
     onSecondary = OnPrimary,
     surface = Surface,
     onSurface = OnSurface,
@@ -24,15 +25,15 @@ private val IronPathColorScheme = darkColorScheme(
     outlineVariant = OutlineVariant,
     error = Error,
     onError = OnError,
-)
+  )
 
 @Composable
 fun IronPathTheme(
-    content: @Composable () -> Unit,
+  content: @Composable () -> Unit,
 ) {
-    MaterialTheme(
-        colorScheme = IronPathColorScheme,
-        typography = Typography,
-        content = content,
-    )
+  MaterialTheme(
+    colorScheme = IronPathColorScheme,
+    typography = Typography,
+    content = content,
+  )
 }

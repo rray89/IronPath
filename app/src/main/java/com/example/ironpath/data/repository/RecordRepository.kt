@@ -6,9 +6,9 @@ import kotlinx.coroutines.flow.Flow
 
 class RecordRepository(private val recordDao: RecordDao) {
 
-    fun observeAllRecords(): Flow<List<PersonalRecord>> = recordDao.observeAllRecords()
+  fun observeAllRecords(): Flow<List<PersonalRecord>> = recordDao.observeAllRecords()
 
-    suspend fun getAllRecordExerciseNames(): List<String> = recordDao.getAllRecordExerciseNames()
+  suspend fun getAllRecordExerciseNames(): List<String> = recordDao.getAllRecordExerciseNames()
 
-    suspend fun insertRecord(record: PersonalRecord) = recordDao.insertRecord(record)
+  suspend fun insertRecord(record: PersonalRecord) = recordDao.insertRecord(record)
 }

@@ -9,12 +9,11 @@ import kotlinx.coroutines.flow.Flow
 @Dao
 interface RecordDao {
 
-    @Insert
-    suspend fun insertRecord(record: PersonalRecord)
+  @Insert suspend fun insertRecord(record: PersonalRecord)
 
-    @Query("SELECT * FROM personal_records ORDER BY achievedOn DESC, createdAt DESC")
-    fun observeAllRecords(): Flow<List<PersonalRecord>>
+  @Query("SELECT * FROM personal_records ORDER BY achievedOn DESC, createdAt DESC")
+  fun observeAllRecords(): Flow<List<PersonalRecord>>
 
-    @Query("SELECT DISTINCT exerciseName FROM personal_records")
-    suspend fun getAllRecordExerciseNames(): List<String>
+  @Query("SELECT DISTINCT exerciseName FROM personal_records")
+  suspend fun getAllRecordExerciseNames(): List<String>
 }
