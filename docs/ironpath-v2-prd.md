@@ -68,8 +68,9 @@ Rules:
 Rules:
 - each exercise row shows a delete/remove action (icon or swipe)
 - removing the last exercise from a workout removes the entire workout day (same as v1 delete-workout behavior)
-- confirmation is not required for individual exercise removal
+- no modal confirmation for individual exercise removal
 - removal updates the in-memory plan immediately
+- show an undo snackbar/toast after removal so the action is easily reversible
 
 ### Add exercise
 
@@ -79,6 +80,7 @@ Rules:
 - new exercise is appended to the end of the list (highest `orderIndex + 1`)
 - all fields required: name, sets, reps, weight
 - same validation rules as edit
+- duplicate exercise names within the same workout are allowed — users may intentionally repeat a movement with different reps or weights
 
 ### Reorder exercises
 
@@ -125,10 +127,9 @@ Users may not:
 
 Rules:
 - tap the day header/label on a workout card to open a day picker
-- day picker shows Monday-Sunday with already-assigned days marked
-- selecting an unoccupied day moves the workout to that day
-- selecting an occupied day triggers a swap (both workouts exchange days)
-- the day picker should clearly indicate which days are available vs. occupied
+- day picker shows Monday-Sunday; occupied days (assigned to another workout) are visually distinct from empty days
+- selecting an empty day moves the workout to that day
+- selecting an occupied day always performs a swap — both workouts exchange their days with no additional confirmation
 - moving a workout updates both `dayOfWeek` and `scheduledDate` in the in-memory plan
 - workout title remains unchanged (e.g., "Chest/Tris" stays "Chest/Tris" regardless of day)
 
@@ -145,7 +146,7 @@ No entity schema changes. `PlannedWorkout` already stores `dayOfWeek` (1-7 ISO) 
 
 - if a user deletes a workout (v1 feature) and then reassigns another workout to that now-empty day, the empty day simply becomes available in the picker
 - if all workouts are deleted except one, that workout can still be reassigned freely
-- at least one workout must remain for the plan to be acceptable (unchanged from v1 implicit behavior)
+- if all workouts are deleted, the Accept Plan action is disabled; the user must regenerate or be left on the review screen with no way to accept an empty plan
 
 ---
 
@@ -211,7 +212,7 @@ No new dev tools capabilities required for v2. Existing seed data tools remain s
 
 ## Database migration
 
-v2 requires no schema changes to Room entities. The database version remains at 1. All new functionality operates on existing tables and columns. If DAO-level additions (new queries) require a version bump due to Room's hash validation, use a no-op migration.
+v2 requires no schema changes to Room entities. The database version remains at 1 and no migration is needed. All new functionality operates on existing tables and columns.
 
 ## Build principle
 
