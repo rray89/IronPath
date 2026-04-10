@@ -36,6 +36,10 @@ class HistoryViewModel(
   private val _addRecordShown = MutableStateFlow(false)
   val addRecordShown: StateFlow<Boolean> = _addRecordShown.asStateFlow()
 
+  // Edit Record state
+  private val _editingRecord = MutableStateFlow<PersonalRecord?>(null)
+  val editingRecord: StateFlow<PersonalRecord?> = _editingRecord.asStateFlow()
+
   // Exercise name suggestions from both plans and existing records
   private val _exerciseSuggestions = MutableStateFlow<List<String>>(emptyList())
   val exerciseSuggestions: StateFlow<List<String>> = _exerciseSuggestions.asStateFlow()
@@ -44,12 +48,16 @@ class HistoryViewModel(
     _selectedTab.value = tab
   }
 
-  fun showAddRecord() {
+  private fun loadSuggestions() {
     viewModelScope.launch {
       val planNames = planRepository.getAllExerciseNames()
       val recordNames = recordRepository.getAllRecordExerciseNames()
       _exerciseSuggestions.value = (planNames + recordNames).distinct().sorted()
     }
+  }
+
+  fun showAddRecord() {
+    loadSuggestions()
     _addRecordShown.value = true
   }
 
@@ -57,11 +65,36 @@ class HistoryViewModel(
     _addRecordShown.value = false
   }
 
+  fun showEditRecord(record: PersonalRecord) {
+    loadSuggestions()
+    _editingRecord.value = record
+  }
+
+  fun hideEditRecord() {
+    _editingRecord.value = null
+  }
+
   fun saveRecord(record: PersonalRecord, onSaved: () -> Unit) {
     viewModelScope.launch {
       recordRepository.insertRecord(record)
       _addRecordShown.value = false
       onSaved()
+    }
+  }
+
+  fun updateRecord(record: PersonalRecord, onUpdated: () -> Unit = {}) {
+    viewModelScope.launch {
+      recordRepository.updateRecord(record)
+      _editingRecord.value = null
+      onUpdated()
+    }
+  }
+
+  fun deleteRecord(id: String, onDeleted: () -> Unit = {}) {
+    viewModelScope.launch {
+      recordRepository.deleteRecord(id)
+      _editingRecord.value = null
+      onDeleted()
     }
   }
 }

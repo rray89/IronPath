@@ -54,24 +54,39 @@ fun HistoryScreen(
   val logs by viewModel.logs.collectAsStateWithLifecycle()
   val records by viewModel.records.collectAsStateWithLifecycle()
   val addRecordShown by viewModel.addRecordShown.collectAsStateWithLifecycle()
+  val editingRecord by viewModel.editingRecord.collectAsStateWithLifecycle()
   val suggestions by viewModel.exerciseSuggestions.collectAsStateWithLifecycle()
 
-  if (addRecordShown) {
-    AddRecordScreen(
-      suggestions = suggestions,
-      onSave = { record -> viewModel.saveRecord(record) {} },
-      onCancel = viewModel::hideAddRecord,
-      modifier = modifier,
-    )
-  } else {
-    HistoryContent(
-      selectedTab = selectedTab,
-      logs = logs,
-      records = records,
-      onTabSelected = viewModel::selectTab,
-      onAddRecord = viewModel::showAddRecord,
-      modifier = modifier,
-    )
+  when {
+    editingRecord != null -> {
+      AddRecordScreen(
+        suggestions = suggestions,
+        onSave = { record -> viewModel.updateRecord(record) },
+        onCancel = viewModel::hideEditRecord,
+        existingRecord = editingRecord,
+        onDelete = { editingRecord?.let { viewModel.deleteRecord(it.id) } },
+        modifier = modifier,
+      )
+    }
+    addRecordShown -> {
+      AddRecordScreen(
+        suggestions = suggestions,
+        onSave = { record -> viewModel.saveRecord(record) {} },
+        onCancel = viewModel::hideAddRecord,
+        modifier = modifier,
+      )
+    }
+    else -> {
+      HistoryContent(
+        selectedTab = selectedTab,
+        logs = logs,
+        records = records,
+        onTabSelected = viewModel::selectTab,
+        onAddRecord = viewModel::showAddRecord,
+        onRecordClick = viewModel::showEditRecord,
+        modifier = modifier,
+      )
+    }
   }
 }
 
@@ -84,6 +99,7 @@ internal fun HistoryContent(
   records: List<PersonalRecord>,
   onTabSelected: (HistoryTab) -> Unit,
   onAddRecord: () -> Unit,
+  onRecordClick: (PersonalRecord) -> Unit = {},
   modifier: Modifier = Modifier,
 ) {
   Column(
@@ -98,7 +114,7 @@ internal fun HistoryContent(
 
     when (selectedTab) {
       HistoryTab.Logs -> LogsContent(logs)
-      HistoryTab.Records -> RecordsContent(records, onAddRecord)
+      HistoryTab.Records -> RecordsContent(records, onAddRecord, onRecordClick)
     }
   }
 }
@@ -251,6 +267,7 @@ private fun LogRow(
 private fun RecordsContent(
   records: List<PersonalRecord>,
   onAddRecord: () -> Unit,
+  onRecordClick: (PersonalRecord) -> Unit = {},
   modifier: Modifier = Modifier,
 ) {
   if (records.isEmpty()) {
@@ -268,7 +285,7 @@ private fun RecordsContent(
       Spacer(Modifier.height(16.dp))
 
       records.forEach { record ->
-        RecordRow(record)
+        RecordRow(record, onClick = { onRecordClick(record) })
         Spacer(Modifier.height(8.dp))
       }
 
@@ -362,12 +379,15 @@ private fun RecordsEmptyState(
 private fun RecordRow(
   record: PersonalRecord,
   modifier: Modifier = Modifier,
+  onClick: () -> Unit = {},
 ) {
   Row(
     modifier =
       modifier
         .fillMaxWidth()
-        .background(SurfaceContainerLow, RoundedCornerShape(4.dp))
+        .clip(RoundedCornerShape(4.dp))
+        .background(SurfaceContainerLow)
+        .clickable(onClick = onClick)
         .padding(16.dp),
     verticalAlignment = Alignment.CenterVertically,
   ) {
