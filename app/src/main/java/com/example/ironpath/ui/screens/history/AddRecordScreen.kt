@@ -19,6 +19,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -41,6 +42,8 @@ internal fun AddRecordScreen(
   modifier: Modifier = Modifier,
   existingRecord: PersonalRecord? = null,
   onDelete: (() -> Unit)? = null,
+  externalError: String? = null,
+  onExternalErrorConsumed: () -> Unit = {},
 ) {
   val isEditMode = existingRecord != null
 
@@ -59,6 +62,14 @@ internal fun AddRecordScreen(
   }
   var note by remember { mutableStateOf(existingRecord?.note ?: "") }
   var errorMessage by remember { mutableStateOf<String?>(null) }
+
+  // Show errors surfaced asynchronously from the ViewModel (e.g. duplicate-record constraint)
+  LaunchedEffect(externalError) {
+    if (externalError != null) {
+      errorMessage = externalError
+      onExternalErrorConsumed()
+    }
+  }
   var showDeleteConfirmation by remember { mutableStateOf(false) }
 
   val fieldColors =

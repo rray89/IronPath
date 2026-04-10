@@ -17,4 +17,12 @@ class RecordRepository(private val recordDao: RecordDao) {
   suspend fun deleteRecord(id: String) = recordDao.deleteRecord(id)
 
   suspend fun getRecordById(id: String): PersonalRecord? = recordDao.getRecordById(id)
+
+  suspend fun isDuplicateExcluding(
+    normalizedName: String,
+    date: String,
+    weight: Double,
+    excludeId: String,
+  ): Boolean =
+    recordDao.countDuplicatesExcluding(normalizedName, date, weight, excludeId) > 0
 }

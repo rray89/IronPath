@@ -40,6 +40,10 @@ class HistoryViewModel(
   private val _editingRecord = MutableStateFlow<PersonalRecord?>(null)
   val editingRecord: StateFlow<PersonalRecord?> = _editingRecord.asStateFlow()
 
+  // Edit Record error (e.g. duplicate constraint)
+  private val _editRecordError = MutableStateFlow<String?>(null)
+  val editRecordError: StateFlow<String?> = _editRecordError.asStateFlow()
+
   // Exercise name suggestions from both plans and existing records
   private val _exerciseSuggestions = MutableStateFlow<List<String>>(emptyList())
   val exerciseSuggestions: StateFlow<List<String>> = _exerciseSuggestions.asStateFlow()
@@ -72,6 +76,11 @@ class HistoryViewModel(
 
   fun hideEditRecord() {
     _editingRecord.value = null
+    _editRecordError.value = null
+  }
+
+  fun clearEditRecordError() {
+    _editRecordError.value = null
   }
 
   fun saveRecord(record: PersonalRecord, onSaved: () -> Unit) {
@@ -84,8 +93,20 @@ class HistoryViewModel(
 
   fun updateRecord(record: PersonalRecord, onUpdated: () -> Unit = {}) {
     viewModelScope.launch {
+      val isDuplicate =
+        recordRepository.isDuplicateExcluding(
+          normalizedName = record.normalizedExerciseName,
+          date = record.achievedOn,
+          weight = record.weightKg,
+          excludeId = record.id,
+        )
+      if (isDuplicate) {
+        _editRecordError.value = "A record with this exercise, date, and weight already exists"
+        return@launch
+      }
       recordRepository.updateRecord(record)
       _editingRecord.value = null
+      _editRecordError.value = null
       onUpdated()
     }
   }

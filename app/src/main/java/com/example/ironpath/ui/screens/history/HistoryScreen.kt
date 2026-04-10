@@ -1,5 +1,6 @@
 package com.example.ironpath.ui.screens.history
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -55,7 +56,12 @@ fun HistoryScreen(
   val records by viewModel.records.collectAsStateWithLifecycle()
   val addRecordShown by viewModel.addRecordShown.collectAsStateWithLifecycle()
   val editingRecord by viewModel.editingRecord.collectAsStateWithLifecycle()
+  val editRecordError by viewModel.editRecordError.collectAsStateWithLifecycle()
   val suggestions by viewModel.exerciseSuggestions.collectAsStateWithLifecycle()
+
+  // Intercept system back so it returns to the records list, not pops History off the nav stack
+  BackHandler(enabled = editingRecord != null, onBack = viewModel::hideEditRecord)
+  BackHandler(enabled = addRecordShown, onBack = viewModel::hideAddRecord)
 
   when {
     editingRecord != null -> {
@@ -65,6 +71,8 @@ fun HistoryScreen(
         onCancel = viewModel::hideEditRecord,
         existingRecord = editingRecord,
         onDelete = { editingRecord?.let { viewModel.deleteRecord(it.id) } },
+        externalError = editRecordError,
+        onExternalErrorConsumed = viewModel::clearEditRecordError,
         modifier = modifier,
       )
     }

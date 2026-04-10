@@ -19,6 +19,16 @@ interface RecordDao {
   @Query("SELECT * FROM personal_records WHERE id = :id")
   suspend fun getRecordById(id: String): PersonalRecord?
 
+  @Query(
+    "SELECT COUNT(*) FROM personal_records WHERE normalizedExerciseName = :normalizedName AND achievedOn = :date AND weightKg = :weight AND id != :excludeId"
+  )
+  suspend fun countDuplicatesExcluding(
+    normalizedName: String,
+    date: String,
+    weight: Double,
+    excludeId: String,
+  ): Int
+
   @Query("SELECT * FROM personal_records ORDER BY achievedOn DESC, createdAt DESC")
   fun observeAllRecords(): Flow<List<PersonalRecord>>
 
