@@ -23,6 +23,5 @@ class RecordRepository(private val recordDao: RecordDao) {
     date: String,
     weight: Double,
     excludeId: String,
-  ): Boolean =
-    recordDao.countDuplicatesExcluding(normalizedName, date, weight, excludeId) > 0
+  ): Boolean = recordDao.countDuplicatesExcluding(normalizedName, date, weight, excludeId) > 0
 }
