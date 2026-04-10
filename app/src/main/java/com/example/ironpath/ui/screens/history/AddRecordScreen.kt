@@ -23,7 +23,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.tooling.preview.Preview
@@ -55,8 +54,7 @@ internal fun AddRecordScreen(
   }
   var dateText by remember {
     mutableStateOf(
-      existingRecord?.achievedOn
-        ?: LocalDate.now().format(DateTimeFormatter.ISO_LOCAL_DATE),
+      existingRecord?.achievedOn ?: LocalDate.now().format(DateTimeFormatter.ISO_LOCAL_DATE),
     )
   }
   var note by remember { mutableStateOf(existingRecord?.note ?: "") }
@@ -103,9 +101,7 @@ internal fun AddRecordScreen(
         }
       },
       dismissButton = {
-        TextButton(onClick = { showDeleteConfirmation = false }) {
-          Text("CANCEL")
-        }
+        TextButton(onClick = { showDeleteConfirmation = false }) { Text("CANCEL") }
       },
       containerColor = MaterialTheme.colorScheme.surface,
     )
@@ -296,10 +292,7 @@ internal fun AddRecordScreen(
       text = "CANCEL",
       style = MaterialTheme.typography.labelLarge,
       color = MaterialTheme.colorScheme.onSurfaceVariant,
-      modifier =
-        Modifier.fillMaxWidth()
-          .clickable(onClick = onCancel)
-          .padding(vertical = 12.dp),
+      modifier = Modifier.fillMaxWidth().clickable(onClick = onCancel).padding(vertical = 12.dp),
     )
 
     Spacer(Modifier.height(32.dp))
