@@ -449,6 +449,7 @@ private fun ReviewWorkoutCard(
   }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun DayPickerDialog(
   currentDayOfWeek: Int,
@@ -467,10 +468,11 @@ private fun DayPickerDialog(
       )
     },
     text = {
-      val dayLabels = listOf("M", "T", "W", "T", "F", "S", "S")
-      Row(
+      val dayLabels = listOf("MO", "TU", "WE", "TH", "FR", "SA", "SU")
+      FlowRow(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(4.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
       ) {
         dayLabels.forEachIndexed { index, label ->
           val dow = index + 1
@@ -485,8 +487,7 @@ private fun DayPickerDialog(
             }
           Box(
             modifier =
-              Modifier.weight(1f)
-                .clip(RoundedCornerShape(4.dp))
+              Modifier.clip(RoundedCornerShape(4.dp))
                 .background(bgColor)
                 .then(
                   if (!isCurrent)
@@ -496,7 +497,7 @@ private fun DayPickerDialog(
                     }
                   else Modifier
                 )
-                .padding(vertical = 10.dp),
+                .padding(horizontal = 10.dp, vertical = 10.dp),
             contentAlignment = Alignment.Center,
           ) {
             Text(label, style = MaterialTheme.typography.labelSmall, color = textColor)
