@@ -111,18 +111,22 @@ class PlanViewModel(
     val occupant = current.workouts.find { it.dayOfWeek == newDayOfWeek && it.id != workoutId }
     val updatedWorkouts =
       if (occupant != null) {
-        current.workouts.map { w ->
-          when (w.id) {
-            workoutId -> w.copy(dayOfWeek = newDayOfWeek, scheduledDate = newScheduledDate)
-            occupant.id -> w.copy(dayOfWeek = target.dayOfWeek, scheduledDate = target.scheduledDate)
-            else -> w
+          current.workouts.map { w ->
+            when (w.id) {
+              workoutId -> w.copy(dayOfWeek = newDayOfWeek, scheduledDate = newScheduledDate)
+              occupant.id ->
+                w.copy(dayOfWeek = target.dayOfWeek, scheduledDate = target.scheduledDate)
+              else -> w
+            }
+          }
+        } else {
+          current.workouts.map { w ->
+            if (w.id == workoutId)
+              w.copy(dayOfWeek = newDayOfWeek, scheduledDate = newScheduledDate)
+            else w
           }
         }
-      } else {
-        current.workouts.map { w ->
-          if (w.id == workoutId) w.copy(dayOfWeek = newDayOfWeek, scheduledDate = newScheduledDate) else w
-        }
-      }.sortedBy { it.dayOfWeek }
+        .sortedBy { it.dayOfWeek }
     _generatedPlan.value = current.copy(workouts = updatedWorkouts)
   }
 
