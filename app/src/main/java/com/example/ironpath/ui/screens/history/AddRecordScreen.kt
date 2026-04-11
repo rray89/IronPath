@@ -11,12 +11,15 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -37,14 +40,37 @@ internal fun AddRecordScreen(
   onSave: (PersonalRecord) -> Unit,
   onCancel: () -> Unit,
   modifier: Modifier = Modifier,
+  existingRecord: PersonalRecord? = null,
+  onDelete: (() -> Unit)? = null,
+  externalError: String? = null,
+  onExternalErrorConsumed: () -> Unit = {},
 ) {
-  var exerciseName by remember { mutableStateOf("") }
-  var weightText by remember { mutableStateOf("") }
-  var dateText by remember {
-    mutableStateOf(LocalDate.now().format(DateTimeFormatter.ISO_LOCAL_DATE))
+  val isEditMode = existingRecord != null
+
+  var exerciseName by remember { mutableStateOf(existingRecord?.exerciseName ?: "") }
+  var weightText by remember {
+    mutableStateOf(
+      existingRecord?.weightKg?.let {
+        if (it == it.toLong().toDouble()) it.toLong().toString() else it.toString()
+      } ?: "",
+    )
   }
-  var note by remember { mutableStateOf("") }
+  var dateText by remember {
+    mutableStateOf(
+      existingRecord?.achievedOn ?: LocalDate.now().format(DateTimeFormatter.ISO_LOCAL_DATE),
+    )
+  }
+  var note by remember { mutableStateOf(existingRecord?.note ?: "") }
   var errorMessage by remember { mutableStateOf<String?>(null) }
+
+  // Show errors surfaced asynchronously from the ViewModel (e.g. duplicate-record constraint)
+  LaunchedEffect(externalError) {
+    if (externalError != null) {
+      errorMessage = externalError
+      onExternalErrorConsumed()
+    }
+  }
+  var showDeleteConfirmation by remember { mutableStateOf(false) }
 
   val fieldColors =
     OutlinedTextFieldDefaults.colors(
@@ -56,6 +82,42 @@ internal fun AddRecordScreen(
       unfocusedLabelColor = MaterialTheme.colorScheme.onSurfaceVariant,
     )
 
+  // Delete confirmation dialog
+  if (showDeleteConfirmation) {
+    AlertDialog(
+      onDismissRequest = { showDeleteConfirmation = false },
+      title = {
+        Text(
+          text = "Delete Record",
+          style = MaterialTheme.typography.titleLarge,
+        )
+      },
+      text = {
+        Text(
+          text = "Delete this record? This cannot be undone.",
+          style = MaterialTheme.typography.bodyMedium,
+        )
+      },
+      confirmButton = {
+        TextButton(
+          onClick = {
+            showDeleteConfirmation = false
+            onDelete?.invoke()
+          },
+        ) {
+          Text(
+            text = "DELETE",
+            color = MaterialTheme.colorScheme.error,
+          )
+        }
+      },
+      dismissButton = {
+        TextButton(onClick = { showDeleteConfirmation = false }) { Text("CANCEL") }
+      },
+      containerColor = MaterialTheme.colorScheme.surface,
+    )
+  }
+
   Column(
     modifier =
       modifier.fillMaxSize().padding(horizontal = 24.dp).verticalScroll(rememberScrollState()),
@@ -63,7 +125,7 @@ internal fun AddRecordScreen(
     Spacer(Modifier.height(16.dp))
 
     Text(
-      text = "ADD RECORD",
+      text = if (isEditMode) "EDIT RECORD" else "ADD RECORD",
       style = MaterialTheme.typography.headlineMedium,
       color = MaterialTheme.colorScheme.onSurface,
     )
@@ -174,9 +236,9 @@ internal fun AddRecordScreen(
 
     Spacer(Modifier.weight(1f))
 
-    // Save button
+    // Save / Update button
     GreenGradientButton(
-      text = "Save",
+      text = if (isEditMode) "Update Record" else "Save",
       onClick = {
         val name = exerciseName.trim()
         val weight = weightText.toDoubleOrNull()
@@ -194,21 +256,47 @@ internal fun AddRecordScreen(
           date.isAfter(LocalDate.now()) -> errorMessage = "Date cannot be in the future"
           else -> {
             errorMessage = null
-            onSave(
-              PersonalRecord(
-                exerciseName = name,
-                normalizedExerciseName = name.lowercase().trim(),
-                weightKg = weight,
-                achievedOn = dateText,
-                note = note.ifBlank { null },
-              ),
-            )
+            if (isEditMode) {
+              onSave(
+                existingRecord.copy(
+                  exerciseName = name,
+                  normalizedExerciseName = name.lowercase().trim(),
+                  weightKg = weight,
+                  achievedOn = dateText,
+                  note = note.ifBlank { null },
+                ),
+              )
+            } else {
+              onSave(
+                PersonalRecord(
+                  exerciseName = name,
+                  normalizedExerciseName = name.lowercase().trim(),
+                  weightKg = weight,
+                  achievedOn = dateText,
+                  note = note.ifBlank { null },
+                ),
+              )
+            }
           }
         }
       },
     )
 
     Spacer(Modifier.height(12.dp))
+
+    // Delete button (edit mode only)
+    if (isEditMode && onDelete != null) {
+      Text(
+        text = "DELETE RECORD",
+        style = MaterialTheme.typography.labelLarge,
+        color = MaterialTheme.colorScheme.error,
+        modifier =
+          Modifier.fillMaxWidth()
+            .clickable { showDeleteConfirmation = true }
+            .padding(vertical = 12.dp),
+      )
+      Spacer(Modifier.height(4.dp))
+    }
 
     // Cancel
     Text(
@@ -222,7 +310,7 @@ internal fun AddRecordScreen(
   }
 }
 
-// -- Preview --
+// -- Previews --
 
 @Preview(showBackground = true)
 @Composable
@@ -233,6 +321,29 @@ private fun PreviewAddRecord() {
         suggestions = listOf("Bench Press", "Squat", "Deadlift"),
         onSave = {},
         onCancel = {},
+      )
+    }
+  }
+}
+
+@Preview(showBackground = true)
+@Composable
+private fun PreviewEditRecord() {
+  IronPathTheme {
+    Surface(color = MaterialTheme.colorScheme.surface) {
+      AddRecordScreen(
+        suggestions = listOf("Bench Press", "Squat", "Deadlift"),
+        onSave = {},
+        onCancel = {},
+        existingRecord =
+          PersonalRecord(
+            exerciseName = "Bench Press",
+            normalizedExerciseName = "bench press",
+            weightKg = 100.0,
+            achievedOn = "2026-03-23",
+            note = "Felt strong",
+          ),
+        onDelete = {},
       )
     }
   }

@@ -11,4 +11,17 @@ class RecordRepository(private val recordDao: RecordDao) {
   suspend fun getAllRecordExerciseNames(): List<String> = recordDao.getAllRecordExerciseNames()
 
   suspend fun insertRecord(record: PersonalRecord) = recordDao.insertRecord(record)
+
+  suspend fun updateRecord(record: PersonalRecord) = recordDao.updateRecord(record)
+
+  suspend fun deleteRecord(id: String) = recordDao.deleteRecord(id)
+
+  suspend fun getRecordById(id: String): PersonalRecord? = recordDao.getRecordById(id)
+
+  suspend fun isDuplicateExcluding(
+    normalizedName: String,
+    date: String,
+    weight: Double,
+    excludeId: String,
+  ): Boolean = recordDao.countDuplicatesExcluding(normalizedName, date, weight, excludeId) > 0
 }
