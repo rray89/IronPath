@@ -23,14 +23,19 @@ import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -47,6 +52,7 @@ import com.example.ironpath.ui.components.GreenGradientButton
 import com.example.ironpath.ui.screens.home.dayOfWeekAbbrev
 import com.example.ironpath.ui.theme.IronPathTheme
 import com.example.ironpath.ui.theme.SurfaceContainerHigh
+import com.example.ironpath.ui.theme.SurfaceContainerHighest
 import org.koin.androidx.compose.koinViewModel
 
 // -- Production entry point --
@@ -70,6 +76,7 @@ fun PlanScreen(
     onDayToggled = viewModel::toggleDay,
     onGenerate = viewModel::generatePlan,
     onDeleteWorkout = viewModel::deleteWorkoutFromReview,
+    onReassignDay = viewModel::reassignWorkoutDay,
     onBackToSetup = viewModel::backToSetup,
     onAccept = { viewModel.acceptPlan(onPlanAccepted) },
     onStartWorkout = onStartWorkout,
@@ -88,6 +95,7 @@ internal fun PlanContent(
   onDayToggled: (Int) -> Unit,
   onGenerate: () -> Unit,
   onDeleteWorkout: (String) -> Unit,
+  onReassignDay: (String, Int) -> Unit,
   onBackToSetup: () -> Unit,
   onAccept: () -> Unit,
   onStartWorkout: () -> Unit,
@@ -112,6 +120,7 @@ internal fun PlanContent(
       PlanReviewScreen(
         generated = uiState.generated,
         onDeleteWorkout = onDeleteWorkout,
+        onReassignDay = onReassignDay,
         onBackToSetup = onBackToSetup,
         onAccept = onAccept,
         modifier = modifier,
@@ -298,10 +307,12 @@ private fun DayChip(
 private fun PlanReviewScreen(
   generated: GeneratedPlan,
   onDeleteWorkout: (String) -> Unit,
+  onReassignDay: (String, Int) -> Unit,
   onBackToSetup: () -> Unit,
   onAccept: () -> Unit,
   modifier: Modifier = Modifier,
 ) {
+  val occupiedDays = generated.workouts.map { it.dayOfWeek }.toSet()
   Column(
     modifier =
       modifier.fillMaxSize().padding(horizontal = 24.dp).verticalScroll(rememberScrollState()),
@@ -327,7 +338,9 @@ private fun PlanReviewScreen(
       ReviewWorkoutCard(
         workout = workout,
         exercises = exercises,
+        occupiedDays = occupiedDays,
         onDelete = { onDeleteWorkout(workout.id) },
+        onReassignDay = { newDay -> onReassignDay(workout.id, newDay) },
       )
       Spacer(Modifier.height(20.dp))
     }
@@ -365,10 +378,11 @@ private fun PlanReviewScreen(
         }
       }
 
-      // Accept button
+      // Accept button — disabled when all workouts are deleted
       GreenGradientButton(
         text = "Accept Plan",
         onClick = onAccept,
+        enabled = generated.workouts.isNotEmpty(),
         modifier = Modifier.weight(1f),
       )
     }
@@ -381,9 +395,22 @@ private fun PlanReviewScreen(
 private fun ReviewWorkoutCard(
   workout: PlannedWorkout,
   exercises: List<PlannedExercise>,
+  occupiedDays: Set<Int>,
   onDelete: () -> Unit,
+  onReassignDay: (Int) -> Unit,
   modifier: Modifier = Modifier,
 ) {
+  var showDayPicker by remember { mutableStateOf(false) }
+
+  if (showDayPicker) {
+    DayPickerDialog(
+      currentDayOfWeek = workout.dayOfWeek,
+      occupiedDays = occupiedDays,
+      onDaySelected = onReassignDay,
+      onDismiss = { showDayPicker = false },
+    )
+  }
+
   Column(modifier = modifier) {
     // Day header with delete button
     Row(
@@ -391,7 +418,13 @@ private fun ReviewWorkoutCard(
       verticalAlignment = Alignment.CenterVertically,
     ) {
       Text(
-        text = "${dayOfWeekAbbrev(workout.dayOfWeek)} - ${workout.title}",
+        text = dayOfWeekAbbrev(workout.dayOfWeek),
+        style = MaterialTheme.typography.titleSmall,
+        color = MaterialTheme.colorScheme.primary,
+        modifier = Modifier.clickable { showDayPicker = true },
+      )
+      Text(
+        text = " — ${workout.title}",
         style = MaterialTheme.typography.titleSmall,
         color = MaterialTheme.colorScheme.onSurface,
         modifier = Modifier.weight(1f),
@@ -414,6 +447,74 @@ private fun ReviewWorkoutCard(
       Spacer(Modifier.height(6.dp))
     }
   }
+}
+
+@Composable
+private fun DayPickerDialog(
+  currentDayOfWeek: Int,
+  occupiedDays: Set<Int>,
+  onDaySelected: (Int) -> Unit,
+  onDismiss: () -> Unit,
+) {
+  AlertDialog(
+    onDismissRequest = onDismiss,
+    containerColor = SurfaceContainerHighest,
+    title = {
+      Text(
+        text = "MOVE TO",
+        style = MaterialTheme.typography.labelLarge,
+        color = MaterialTheme.colorScheme.primary,
+      )
+    },
+    text = {
+      val dayLabels = listOf("M", "T", "W", "T", "F", "S", "S")
+      Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+      ) {
+        dayLabels.forEachIndexed { index, label ->
+          val dow = index + 1
+          val isCurrent = dow == currentDayOfWeek
+          val isOccupied = dow in occupiedDays && !isCurrent
+          val bgColor = if (isCurrent) MaterialTheme.colorScheme.primary else SurfaceContainerHigh
+          val textColor =
+            when {
+              isCurrent -> MaterialTheme.colorScheme.surface
+              isOccupied -> MaterialTheme.colorScheme.onSurfaceVariant
+              else -> MaterialTheme.colorScheme.onSurface
+            }
+          Box(
+            modifier =
+              Modifier.weight(1f)
+                .clip(RoundedCornerShape(4.dp))
+                .background(bgColor)
+                .then(
+                  if (!isCurrent)
+                    Modifier.clickable {
+                      onDaySelected(dow)
+                      onDismiss()
+                    }
+                  else Modifier
+                )
+                .padding(vertical = 10.dp),
+            contentAlignment = Alignment.Center,
+          ) {
+            Text(label, style = MaterialTheme.typography.labelSmall, color = textColor)
+          }
+        }
+      }
+    },
+    confirmButton = {},
+    dismissButton = {
+      TextButton(onClick = onDismiss) {
+        Text(
+          text = "CANCEL",
+          style = MaterialTheme.typography.labelMedium,
+          color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+      }
+    },
+  )
 }
 
 @Composable
@@ -586,6 +687,7 @@ private fun PreviewPlanSetup() {
         onDayToggled = {},
         onGenerate = {},
         onDeleteWorkout = {},
+        onReassignDay = { _, _ -> },
         onBackToSetup = {},
         onAccept = {},
         onStartWorkout = {},
@@ -610,6 +712,7 @@ private fun PreviewPlanReview() {
         onDayToggled = {},
         onGenerate = {},
         onDeleteWorkout = {},
+        onReassignDay = { _, _ -> },
         onBackToSetup = {},
         onAccept = {},
         onStartWorkout = {},
@@ -638,6 +741,7 @@ private fun PreviewPlanAccepted() {
         onDayToggled = {},
         onGenerate = {},
         onDeleteWorkout = {},
+        onReassignDay = { _, _ -> },
         onBackToSetup = {},
         onAccept = {},
         onStartWorkout = {},

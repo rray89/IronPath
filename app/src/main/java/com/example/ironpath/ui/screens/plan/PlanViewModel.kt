@@ -100,12 +100,30 @@ class PlanViewModel(
     val current = _generatedPlan.value ?: return
     val updatedWorkouts = current.workouts.filter { it.id != workoutId }
     val updatedExercises = current.exercises.filter { it.plannedWorkoutId != workoutId }
-    if (updatedWorkouts.isEmpty()) {
-      // All workouts deleted, go back to setup
-      _generatedPlan.value = null
-    } else {
-      _generatedPlan.value = current.copy(workouts = updatedWorkouts, exercises = updatedExercises)
-    }
+    _generatedPlan.value = current.copy(workouts = updatedWorkouts, exercises = updatedExercises)
+  }
+
+  fun reassignWorkoutDay(workoutId: String, newDayOfWeek: Int) {
+    val current = _generatedPlan.value ?: return
+    val target = current.workouts.find { it.id == workoutId } ?: return
+    val startDate = java.time.LocalDate.parse(current.plan.startDate)
+    val newScheduledDate = startDate.plusDays((newDayOfWeek - 1).toLong()).toString()
+    val occupant = current.workouts.find { it.dayOfWeek == newDayOfWeek && it.id != workoutId }
+    val updatedWorkouts =
+      if (occupant != null) {
+        current.workouts.map { w ->
+          when (w.id) {
+            workoutId -> w.copy(dayOfWeek = newDayOfWeek, scheduledDate = newScheduledDate)
+            occupant.id -> w.copy(dayOfWeek = target.dayOfWeek, scheduledDate = target.scheduledDate)
+            else -> w
+          }
+        }
+      } else {
+        current.workouts.map { w ->
+          if (w.id == workoutId) w.copy(dayOfWeek = newDayOfWeek, scheduledDate = newScheduledDate) else w
+        }
+      }.sortedBy { it.dayOfWeek }
+    _generatedPlan.value = current.copy(workouts = updatedWorkouts)
   }
 
   fun backToSetup() {
