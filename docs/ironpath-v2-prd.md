@@ -152,6 +152,8 @@ No entity schema changes. `PlannedWorkout` already stores `dayOfWeek` (1-7 ISO) 
 
 ## Feature 3: Records edit and delete
 
+**Status: Implemented** — PR #16 (feature/3.1-records-edit-delete)
+
 ### Context
 
 v1 records are add-only. Users cannot fix a typo in an exercise name or remove an incorrect entry. v2 completes the CRUD cycle with edit and delete flows.
