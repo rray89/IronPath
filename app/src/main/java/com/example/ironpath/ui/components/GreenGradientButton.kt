@@ -21,29 +21,34 @@ import androidx.compose.ui.unit.dp
 import com.example.ironpath.ui.theme.GradientEnd
 import com.example.ironpath.ui.theme.GradientStart
 import com.example.ironpath.ui.theme.OnPrimary
+import com.example.ironpath.ui.theme.OnSurface
+import com.example.ironpath.ui.theme.SurfaceContainerHigh
 
 @Composable
 fun GreenGradientButton(
   text: String,
   onClick: () -> Unit,
   modifier: Modifier = Modifier,
+  enabled: Boolean = true,
   leadingIcon: @Composable (() -> Unit)? = null,
   trailingIcon: @Composable (() -> Unit)? = null,
   contentPadding: PaddingValues = PaddingValues(horizontal = 24.dp, vertical = 14.dp),
 ) {
   val shape = RoundedCornerShape(4.dp)
+  val bgBrush =
+    if (enabled) {
+      Brush.linearGradient(colors = listOf(GradientStart, GradientEnd))
+    } else {
+      Brush.linearGradient(colors = listOf(SurfaceContainerHigh, SurfaceContainerHigh))
+    }
+  val textColor = if (enabled) OnPrimary else OnSurface.copy(alpha = 0.4f)
   Box(
     modifier =
       modifier
         .fillMaxWidth()
         .clip(shape)
-        .background(
-          brush =
-            Brush.linearGradient(
-              colors = listOf(GradientStart, GradientEnd),
-            ),
-        )
-        .clickable(onClick = onClick)
+        .background(brush = bgBrush)
+        .then(if (enabled) Modifier.clickable(onClick = onClick) else Modifier)
         .padding(contentPadding),
     contentAlignment = Alignment.Center,
   ) {
@@ -55,7 +60,7 @@ fun GreenGradientButton(
       Text(
         text = text.uppercase(),
         style = MaterialTheme.typography.labelLarge,
-        color = OnPrimary,
+        color = textColor,
       )
       if (trailingIcon != null) {
         Spacer(Modifier.width(8.dp))
