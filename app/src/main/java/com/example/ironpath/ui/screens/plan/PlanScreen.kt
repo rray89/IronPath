@@ -587,8 +587,7 @@ private fun ReviewExerciseRow(
   modifier: Modifier = Modifier,
 ) {
   Row(
-    modifier =
-      modifier.fillMaxWidth().clickable(onClick = onClick).padding(vertical = 2.dp),
+    modifier = modifier.fillMaxWidth().clickable(onClick = onClick).padding(vertical = 2.dp),
     verticalAlignment = Alignment.CenterVertically,
   ) {
     // Up / Down arrows
