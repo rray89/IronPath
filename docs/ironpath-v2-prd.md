@@ -33,6 +33,8 @@ All v1 rules remain in effect unless explicitly modified below. The v1 PRD (`doc
 
 ## Feature 1: Exercise-level plan editing during review
 
+**Status: Implemented** — PR #18 (feature/3.3-exercise-editing-review)
+
 ### Context
 
 v1 Planner Review allows deleting entire workout days and regenerating the full week, but users cannot touch individual exercises. v2 opens exercise-level editing so the generated plan feels customizable before accepting.
@@ -105,6 +107,8 @@ For v2, since editing happens in-memory pre-accept, no DAO changes are strictly 
 ---
 
 ## Feature 2: Review-time day reassignment
+
+**Status: Implemented** — PR #17 (feature/3.2-review-day-reassignment)
 
 ### Context
 

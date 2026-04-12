@@ -46,6 +46,7 @@ Thumbs.db
 
 # Claude Code local settings
 .claude/settings.local.json
+.claude/worktrees/
 
 # Figma export artifacts
 docs/design/*/code.html
