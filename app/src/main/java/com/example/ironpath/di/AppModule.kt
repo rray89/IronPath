@@ -48,7 +48,7 @@ val devModule = module {
 
 val viewModelModule = module {
   viewModel { HomeViewModel(get(), get()) }
-  viewModel { PlanViewModel(get(), get(), get()) }
+  viewModel { PlanViewModel(get(), get(), get(), get()) }
   viewModel { ActiveViewModel(get(), get()) }
   viewModel { HistoryViewModel(get(), get(), get()) }
 }

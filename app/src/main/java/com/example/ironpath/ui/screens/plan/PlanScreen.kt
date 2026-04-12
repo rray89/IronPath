@@ -17,21 +17,31 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.SnackbarDuration
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -39,6 +49,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -67,16 +78,26 @@ fun PlanScreen(
   val uiState by viewModel.planUiState.collectAsStateWithLifecycle()
   val selectedGoal by viewModel.selectedGoal.collectAsStateWithLifecycle()
   val selectedDays by viewModel.selectedDays.collectAsStateWithLifecycle()
+  val undoExercise by viewModel.undoExercise.collectAsStateWithLifecycle()
+  val exerciseSuggestions by viewModel.exerciseSuggestions.collectAsStateWithLifecycle()
 
   PlanContent(
     uiState = uiState,
     selectedGoal = selectedGoal,
     selectedDays = selectedDays,
+    undoExercise = undoExercise,
+    exerciseSuggestions = exerciseSuggestions,
     onGoalSelected = viewModel::setGoal,
     onDayToggled = viewModel::toggleDay,
     onGenerate = viewModel::generatePlan,
     onDeleteWorkout = viewModel::deleteWorkoutFromReview,
     onReassignDay = viewModel::reassignWorkoutDay,
+    onEditExercise = viewModel::updateExerciseInReview,
+    onRemoveExercise = viewModel::removeExerciseFromReview,
+    onAddExercise = viewModel::addExerciseToReview,
+    onMoveExercise = viewModel::moveExerciseInReview,
+    onUndoRemove = viewModel::undoRemoveExercise,
+    onClearUndo = viewModel::clearUndo,
     onBackToSetup = viewModel::backToSetup,
     onAccept = { viewModel.acceptPlan(onPlanAccepted) },
     onStartWorkout = onStartWorkout,
@@ -91,11 +112,19 @@ internal fun PlanContent(
   uiState: PlanUiState,
   selectedGoal: TrainingGoal,
   selectedDays: Set<Int>,
+  undoExercise: Pair<PlannedExercise, PlannedWorkout?>?,
+  exerciseSuggestions: List<String>,
   onGoalSelected: (TrainingGoal) -> Unit,
   onDayToggled: (Int) -> Unit,
   onGenerate: () -> Unit,
   onDeleteWorkout: (String) -> Unit,
   onReassignDay: (String, Int) -> Unit,
+  onEditExercise: (PlannedExercise) -> Unit,
+  onRemoveExercise: (String) -> Unit,
+  onAddExercise: (String, PlannedExercise) -> Unit,
+  onMoveExercise: (String, Int) -> Unit,
+  onUndoRemove: () -> Unit,
+  onClearUndo: () -> Unit,
   onBackToSetup: () -> Unit,
   onAccept: () -> Unit,
   onStartWorkout: () -> Unit,
@@ -119,8 +148,16 @@ internal fun PlanContent(
     is PlanUiState.Review ->
       PlanReviewScreen(
         generated = uiState.generated,
+        undoExercise = undoExercise,
+        exerciseSuggestions = exerciseSuggestions,
         onDeleteWorkout = onDeleteWorkout,
         onReassignDay = onReassignDay,
+        onEditExercise = onEditExercise,
+        onRemoveExercise = onRemoveExercise,
+        onAddExercise = onAddExercise,
+        onMoveExercise = onMoveExercise,
+        onUndoRemove = onUndoRemove,
+        onClearUndo = onClearUndo,
         onBackToSetup = onBackToSetup,
         onAccept = onAccept,
         modifier = modifier,
@@ -156,7 +193,6 @@ private fun PlanSetupScreen(
   ) {
     Spacer(Modifier.height(16.dp))
 
-    // Primary Goal
     Text(
       text = "Primary Goal",
       style = MaterialTheme.typography.titleMedium,
@@ -180,7 +216,6 @@ private fun PlanSetupScreen(
 
     Spacer(Modifier.height(32.dp))
 
-    // Workout Days
     Text(
       text = "Workout Days",
       style = MaterialTheme.typography.titleMedium,
@@ -215,7 +250,6 @@ private fun PlanSetupScreen(
 
     Spacer(Modifier.weight(1f))
 
-    // Generate button
     GreenGradientButton(
       text = "Generate Week",
       onClick = onGenerate,
@@ -306,88 +340,124 @@ private fun DayChip(
 @Composable
 private fun PlanReviewScreen(
   generated: GeneratedPlan,
+  undoExercise: Pair<PlannedExercise, PlannedWorkout?>?,
+  exerciseSuggestions: List<String>,
   onDeleteWorkout: (String) -> Unit,
   onReassignDay: (String, Int) -> Unit,
+  onEditExercise: (PlannedExercise) -> Unit,
+  onRemoveExercise: (String) -> Unit,
+  onAddExercise: (String, PlannedExercise) -> Unit,
+  onMoveExercise: (String, Int) -> Unit,
+  onUndoRemove: () -> Unit,
+  onClearUndo: () -> Unit,
   onBackToSetup: () -> Unit,
   onAccept: () -> Unit,
   modifier: Modifier = Modifier,
 ) {
   val occupiedDays = generated.workouts.map { it.dayOfWeek }.toSet()
-  Column(
-    modifier =
-      modifier.fillMaxSize().padding(horizontal = 24.dp).verticalScroll(rememberScrollState()),
-  ) {
-    Spacer(Modifier.height(16.dp))
+  val snackbarHostState = remember { SnackbarHostState() }
 
-    Text(
-      text = "WEEKLY PLAN",
-      style = MaterialTheme.typography.labelLarge,
-      color = MaterialTheme.colorScheme.primary,
-    )
-    Text(
-      text = "THIS WEEK",
-      style = MaterialTheme.typography.headlineMedium,
-      color = MaterialTheme.colorScheme.onSurface,
-    )
-
-    Spacer(Modifier.height(24.dp))
-
-    // Workouts grouped by day
-    generated.workouts.forEach { workout ->
-      val exercises = generated.exercises.filter { it.plannedWorkoutId == workout.id }
-      ReviewWorkoutCard(
-        workout = workout,
-        exercises = exercises,
-        occupiedDays = occupiedDays,
-        onDelete = { onDeleteWorkout(workout.id) },
-        onReassignDay = { newDay -> onReassignDay(workout.id, newDay) },
-      )
-      Spacer(Modifier.height(20.dp))
+  LaunchedEffect(undoExercise) {
+    if (undoExercise != null) {
+      val result =
+        snackbarHostState.showSnackbar(
+          message = "Exercise removed",
+          actionLabel = "UNDO",
+          duration = SnackbarDuration.Short,
+        )
+      when (result) {
+        SnackbarResult.ActionPerformed -> onUndoRemove()
+        SnackbarResult.Dismissed -> onClearUndo()
+      }
     }
+  }
 
-    Spacer(Modifier.weight(1f))
-
-    // Bottom action row
-    Row(
-      modifier = Modifier.fillMaxWidth(),
-      horizontalArrangement = Arrangement.spacedBy(12.dp),
+  Box(modifier = modifier.fillMaxSize()) {
+    Column(
+      modifier =
+        Modifier.fillMaxSize().padding(horizontal = 24.dp).verticalScroll(rememberScrollState()),
     ) {
-      // Back to Setup button
-      Box(
-        modifier =
-          Modifier.weight(1f)
-            .clip(RoundedCornerShape(4.dp))
-            .background(SurfaceContainerHigh)
-            .clickable(onClick = onBackToSetup)
-            .padding(vertical = 14.dp),
-        contentAlignment = Alignment.Center,
-      ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-          Icon(
-            imageVector = Icons.Default.Refresh,
-            contentDescription = null,
-            modifier = Modifier.size(18.dp),
-            tint = MaterialTheme.colorScheme.onSurface,
-          )
-          Spacer(Modifier.width(8.dp))
-          Text(
-            text = "REGENERATE",
-            style = MaterialTheme.typography.labelLarge,
-            color = MaterialTheme.colorScheme.onSurface,
-          )
-        }
+      Spacer(Modifier.height(16.dp))
+
+      Text(
+        text = "WEEKLY PLAN",
+        style = MaterialTheme.typography.labelLarge,
+        color = MaterialTheme.colorScheme.primary,
+      )
+      Text(
+        text = "THIS WEEK",
+        style = MaterialTheme.typography.headlineMedium,
+        color = MaterialTheme.colorScheme.onSurface,
+      )
+
+      Spacer(Modifier.height(24.dp))
+
+      generated.workouts.forEach { workout ->
+        val exercises =
+          generated.exercises
+            .filter { it.plannedWorkoutId == workout.id }
+            .sortedBy { it.orderIndex }
+        ReviewWorkoutCard(
+          workout = workout,
+          exercises = exercises,
+          occupiedDays = occupiedDays,
+          suggestions = exerciseSuggestions,
+          onDelete = { onDeleteWorkout(workout.id) },
+          onReassignDay = { newDay -> onReassignDay(workout.id, newDay) },
+          onEditExercise = onEditExercise,
+          onRemoveExercise = onRemoveExercise,
+          onAddExercise = { exercise -> onAddExercise(workout.id, exercise) },
+          onMoveExercise = onMoveExercise,
+        )
+        Spacer(Modifier.height(20.dp))
       }
 
-      // Accept button — disabled when all workouts are deleted
-      GreenGradientButton(
-        text = "Accept Plan",
-        onClick = onAccept,
-        enabled = generated.workouts.isNotEmpty(),
-        modifier = Modifier.weight(1f),
-      )
+      Spacer(Modifier.weight(1f))
+
+      Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+      ) {
+        Box(
+          modifier =
+            Modifier.weight(1f)
+              .clip(RoundedCornerShape(4.dp))
+              .background(SurfaceContainerHigh)
+              .clickable(onClick = onBackToSetup)
+              .padding(vertical = 14.dp),
+          contentAlignment = Alignment.Center,
+        ) {
+          Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(
+              imageVector = Icons.Default.Refresh,
+              contentDescription = null,
+              modifier = Modifier.size(18.dp),
+              tint = MaterialTheme.colorScheme.onSurface,
+            )
+            Spacer(Modifier.width(8.dp))
+            Text(
+              text = "REGENERATE",
+              style = MaterialTheme.typography.labelLarge,
+              color = MaterialTheme.colorScheme.onSurface,
+            )
+          }
+        }
+
+        GreenGradientButton(
+          text = "Accept Plan",
+          onClick = onAccept,
+          enabled = generated.workouts.isNotEmpty(),
+          modifier = Modifier.weight(1f),
+        )
+      }
+
+      Spacer(Modifier.height(32.dp))
     }
 
-    Spacer(Modifier.height(32.dp))
+    SnackbarHost(
+      hostState = snackbarHostState,
+      modifier = Modifier.align(Alignment.BottomCenter),
+    )
   }
 }
 
@@ -396,11 +466,18 @@ private fun ReviewWorkoutCard(
   workout: PlannedWorkout,
   exercises: List<PlannedExercise>,
   occupiedDays: Set<Int>,
+  suggestions: List<String>,
   onDelete: () -> Unit,
   onReassignDay: (Int) -> Unit,
+  onEditExercise: (PlannedExercise) -> Unit,
+  onRemoveExercise: (String) -> Unit,
+  onAddExercise: (PlannedExercise) -> Unit,
+  onMoveExercise: (String, Int) -> Unit,
   modifier: Modifier = Modifier,
 ) {
   var showDayPicker by remember { mutableStateOf(false) }
+  var editingExercise by remember { mutableStateOf<PlannedExercise?>(null) }
+  var showAddDialog by remember { mutableStateOf(false) }
 
   if (showDayPicker) {
     DayPickerDialog(
@@ -411,8 +488,31 @@ private fun ReviewWorkoutCard(
     )
   }
 
+  editingExercise?.let { ex ->
+    ExerciseEditorDialog(
+      existingExercise = ex,
+      suggestions = suggestions,
+      onSave = { updated ->
+        onEditExercise(updated)
+        editingExercise = null
+      },
+      onDismiss = { editingExercise = null },
+    )
+  }
+
+  if (showAddDialog) {
+    ExerciseEditorDialog(
+      existingExercise = null,
+      suggestions = suggestions,
+      onSave = { new ->
+        onAddExercise(new)
+        showAddDialog = false
+      },
+      onDismiss = { showAddDialog = false },
+    )
+  }
+
   Column(modifier = modifier) {
-    // Day header with delete button
     Row(
       modifier = Modifier.fillMaxWidth(),
       verticalAlignment = Alignment.CenterVertically,
@@ -441,12 +541,257 @@ private fun ReviewWorkoutCard(
 
     Spacer(Modifier.height(8.dp))
 
-    // Exercises
-    exercises.forEach { exercise ->
-      ReviewExerciseRow(exercise)
-      Spacer(Modifier.height(6.dp))
+    exercises.forEachIndexed { index, exercise ->
+      ReviewExerciseRow(
+        exercise = exercise,
+        isFirst = index == 0,
+        isLast = index == exercises.lastIndex,
+        onClick = { editingExercise = exercise },
+        onRemove = { onRemoveExercise(exercise.id) },
+        onMoveUp = { onMoveExercise(exercise.id, -1) },
+        onMoveDown = { onMoveExercise(exercise.id, +1) },
+      )
+      Spacer(Modifier.height(4.dp))
+    }
+
+    // Add Exercise button
+    TextButton(
+      onClick = { showAddDialog = true },
+      modifier = Modifier.padding(top = 4.dp),
+    ) {
+      Icon(
+        imageVector = Icons.Default.Add,
+        contentDescription = null,
+        modifier = Modifier.size(16.dp),
+        tint = MaterialTheme.colorScheme.primary,
+      )
+      Spacer(Modifier.width(4.dp))
+      Text(
+        text = "ADD EXERCISE",
+        style = MaterialTheme.typography.labelMedium,
+        color = MaterialTheme.colorScheme.primary,
+      )
     }
   }
+}
+
+@Composable
+private fun ReviewExerciseRow(
+  exercise: PlannedExercise,
+  isFirst: Boolean,
+  isLast: Boolean,
+  onClick: () -> Unit,
+  onRemove: () -> Unit,
+  onMoveUp: () -> Unit,
+  onMoveDown: () -> Unit,
+  modifier: Modifier = Modifier,
+) {
+  Row(
+    modifier =
+      modifier.fillMaxWidth().clickable(onClick = onClick).padding(vertical = 2.dp),
+    verticalAlignment = Alignment.CenterVertically,
+  ) {
+    // Up / Down arrows
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+      IconButton(
+        onClick = onMoveUp,
+        enabled = !isFirst,
+        modifier = Modifier.size(20.dp),
+      ) {
+        Icon(
+          imageVector = Icons.Default.KeyboardArrowUp,
+          contentDescription = "Move up",
+          modifier = Modifier.size(14.dp),
+          tint =
+            if (!isFirst) MaterialTheme.colorScheme.onSurfaceVariant
+            else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f),
+        )
+      }
+      IconButton(
+        onClick = onMoveDown,
+        enabled = !isLast,
+        modifier = Modifier.size(20.dp),
+      ) {
+        Icon(
+          imageVector = Icons.Default.KeyboardArrowDown,
+          contentDescription = "Move down",
+          modifier = Modifier.size(14.dp),
+          tint =
+            if (!isLast) MaterialTheme.colorScheme.onSurfaceVariant
+            else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f),
+        )
+      }
+    }
+
+    Spacer(Modifier.width(6.dp))
+
+    // Exercise name
+    Text(
+      text = exercise.name,
+      style = MaterialTheme.typography.bodyMedium,
+      color = MaterialTheme.colorScheme.onSurface,
+      modifier = Modifier.weight(1f),
+    )
+
+    // Compact specs
+    val weightText = if (exercise.weightKg > 0) "${exercise.weightKg.toInt()}kg" else "BW"
+    Text(
+      text = "${exercise.sets}×${exercise.reps} · $weightText",
+      style = MaterialTheme.typography.labelSmall,
+      color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+
+    // Remove button
+    IconButton(onClick = onRemove, modifier = Modifier.size(28.dp)) {
+      Icon(
+        imageVector = Icons.Default.Close,
+        contentDescription = "Remove exercise",
+        modifier = Modifier.size(14.dp),
+        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+      )
+    }
+  }
+}
+
+@Composable
+private fun ExerciseEditorDialog(
+  existingExercise: PlannedExercise?,
+  suggestions: List<String>,
+  onSave: (PlannedExercise) -> Unit,
+  onDismiss: () -> Unit,
+) {
+  val isEditMode = existingExercise != null
+  var exerciseName by remember { mutableStateOf(existingExercise?.name ?: "") }
+  var sets by remember { mutableStateOf(existingExercise?.sets?.toString() ?: "") }
+  var reps by remember { mutableStateOf(existingExercise?.reps?.toString() ?: "") }
+  var weight by remember { mutableStateOf(existingExercise?.weightKg?.toString() ?: "") }
+
+  val setsInt = sets.toIntOrNull()
+  val repsInt = reps.toIntOrNull()
+  val weightDouble = weight.toDoubleOrNull()
+  val isValid =
+    exerciseName.isNotBlank() &&
+      setsInt != null &&
+      setsInt in 1..20 &&
+      repsInt != null &&
+      repsInt in 1..100 &&
+      weightDouble != null &&
+      weightDouble >= 0.0
+
+  val filteredSuggestions =
+    if (exerciseName.isNotBlank()) {
+      suggestions.filter { it.contains(exerciseName, ignoreCase = true) }.take(5)
+    } else emptyList()
+
+  AlertDialog(
+    onDismissRequest = onDismiss,
+    containerColor = SurfaceContainerHighest,
+    title = {
+      Text(
+        text = if (isEditMode) "EDIT EXERCISE" else "ADD EXERCISE",
+        style = MaterialTheme.typography.labelLarge,
+        color = MaterialTheme.colorScheme.primary,
+      )
+    },
+    text = {
+      Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        // Exercise name + suggestions
+        Column {
+          OutlinedTextField(
+            value = exerciseName,
+            onValueChange = { exerciseName = it },
+            label = { Text("Exercise Name") },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth(),
+          )
+          filteredSuggestions.forEach { suggestion ->
+            Text(
+              text = suggestion,
+              style = MaterialTheme.typography.bodySmall,
+              color = MaterialTheme.colorScheme.primary,
+              modifier =
+                Modifier.fillMaxWidth()
+                  .clickable { exerciseName = suggestion }
+                  .padding(horizontal = 4.dp, vertical = 4.dp),
+            )
+          }
+        }
+
+        // Sets / Reps row
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+          OutlinedTextField(
+            value = sets,
+            onValueChange = { sets = it },
+            label = { Text("Sets") },
+            singleLine = true,
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+            modifier = Modifier.weight(1f),
+          )
+          OutlinedTextField(
+            value = reps,
+            onValueChange = { reps = it },
+            label = { Text("Reps") },
+            singleLine = true,
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+            modifier = Modifier.weight(1f),
+          )
+        }
+
+        // Weight
+        OutlinedTextField(
+          value = weight,
+          onValueChange = { weight = it },
+          label = { Text("Weight (kg)") },
+          singleLine = true,
+          keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+          modifier = Modifier.fillMaxWidth(),
+        )
+      }
+    },
+    confirmButton = {
+      TextButton(
+        onClick = {
+          val saved =
+            if (isEditMode) {
+              existingExercise!!.copy(
+                name = exerciseName.trim(),
+                sets = setsInt!!,
+                reps = repsInt!!,
+                weightKg = weightDouble!!,
+              )
+            } else {
+              PlannedExercise(
+                plannedWorkoutId = "",
+                name = exerciseName.trim(),
+                sets = setsInt!!,
+                reps = repsInt!!,
+                weightKg = weightDouble!!,
+                orderIndex = 0,
+              )
+            }
+          onSave(saved)
+        },
+        enabled = isValid,
+      ) {
+        Text(
+          text = if (isEditMode) "UPDATE" else "ADD",
+          style = MaterialTheme.typography.labelMedium,
+          color =
+            if (isValid) MaterialTheme.colorScheme.primary
+            else MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+      }
+    },
+    dismissButton = {
+      TextButton(onClick = onDismiss) {
+        Text(
+          text = "CANCEL",
+          style = MaterialTheme.typography.labelMedium,
+          color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+      }
+    },
+  )
 }
 
 @OptIn(ExperimentalLayoutApi::class)
@@ -518,31 +863,6 @@ private fun DayPickerDialog(
   )
 }
 
-@Composable
-private fun ReviewExerciseRow(
-  exercise: PlannedExercise,
-  modifier: Modifier = Modifier,
-) {
-  Row(
-    modifier = modifier.fillMaxWidth().padding(start = 16.dp),
-    horizontalArrangement = Arrangement.SpaceBetween,
-    verticalAlignment = Alignment.CenterVertically,
-  ) {
-    Text(
-      text = exercise.name,
-      style = MaterialTheme.typography.bodyMedium,
-      color = MaterialTheme.colorScheme.onSurface,
-      modifier = Modifier.weight(1f),
-    )
-    val weightText = if (exercise.weightKg > 0) "${exercise.weightKg.toInt()}KG" else "BW"
-    Text(
-      text = "${exercise.sets} SETS  •  ${exercise.reps} REPS  •  $weightText",
-      style = MaterialTheme.typography.labelSmall,
-      color = MaterialTheme.colorScheme.onSurfaceVariant,
-    )
-  }
-}
-
 // -- Accepted/Lightweight Status Screen --
 
 @Composable
@@ -560,7 +880,6 @@ private fun PlanAcceptedScreen(
     verticalArrangement = Arrangement.Center,
     horizontalAlignment = Alignment.CenterHorizontally,
   ) {
-    // Headline
     Text(
       text =
         if (hasActiveSession) "SESSION IN PROGRESS"
@@ -578,7 +897,6 @@ private fun PlanAcceptedScreen(
         color = MaterialTheme.colorScheme.onSurfaceVariant,
       )
     } else {
-      // Next workout line
       if (nextWorkout != null && todayWorkout == null) {
         Text(
           text = "Next workout: ${dayOfWeekAbbrev(nextWorkout.dayOfWeek)} · ${nextWorkout.title}",
@@ -588,20 +906,15 @@ private fun PlanAcceptedScreen(
         Spacer(Modifier.height(8.dp))
       }
 
-      // Progress line
       Text(
         text = "$planned workouts planned · $completed completed",
         style = MaterialTheme.typography.bodyMedium,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
       )
 
-      // Start Workout CTA — only when there's a workout today and no active session
       if (todayWorkout != null) {
         Spacer(Modifier.height(24.dp))
-        GreenGradientButton(
-          text = "Start Workout",
-          onClick = onStartWorkout,
-        )
+        GreenGradientButton(text = "Start Workout", onClick = onStartWorkout)
       }
     }
   }
@@ -610,11 +923,7 @@ private fun PlanAcceptedScreen(
 // -- Previews --
 
 private val PreviewPlan =
-  WeeklyPlan(
-    id = "preview-plan",
-    startDate = "2026-03-30",
-    endDate = "2026-04-05",
-  )
+  WeeklyPlan(id = "preview-plan", startDate = "2026-03-30", endDate = "2026-04-05")
 
 private val PreviewWorkouts =
   listOf(
@@ -631,7 +940,7 @@ private val PreviewExercises =
       sets = 4,
       reps = 10,
       weightKg = 50.0,
-      orderIndex = 0
+      orderIndex = 0,
     ),
     PlannedExercise(
       plannedWorkoutId = "w1",
@@ -639,15 +948,7 @@ private val PreviewExercises =
       sets = 3,
       reps = 12,
       weightKg = 12.0,
-      orderIndex = 1
-    ),
-    PlannedExercise(
-      plannedWorkoutId = "w1",
-      name = "Tricep Rope Pushdowns",
-      sets = 3,
-      reps = 12,
-      weightKg = 15.0,
-      orderIndex = 2
+      orderIndex = 1,
     ),
     PlannedExercise(
       plannedWorkoutId = "w2",
@@ -655,15 +956,7 @@ private val PreviewExercises =
       sets = 4,
       reps = 10,
       weightKg = 50.0,
-      orderIndex = 0
-    ),
-    PlannedExercise(
-      plannedWorkoutId = "w2",
-      name = "Lat Pulldowns",
-      sets = 3,
-      reps = 12,
-      weightKg = 45.0,
-      orderIndex = 1
+      orderIndex = 0,
     ),
     PlannedExercise(
       plannedWorkoutId = "w3",
@@ -671,7 +964,7 @@ private val PreviewExercises =
       sets = 4,
       reps = 10,
       weightKg = 60.0,
-      orderIndex = 0
+      orderIndex = 0,
     ),
   )
 
@@ -684,11 +977,19 @@ private fun PreviewPlanSetup() {
         uiState = PlanUiState.Setup,
         selectedGoal = TrainingGoal.Strength,
         selectedDays = setOf(1, 3, 5),
+        undoExercise = null,
+        exerciseSuggestions = emptyList(),
         onGoalSelected = {},
         onDayToggled = {},
         onGenerate = {},
         onDeleteWorkout = {},
         onReassignDay = { _, _ -> },
+        onEditExercise = {},
+        onRemoveExercise = {},
+        onAddExercise = { _, _ -> },
+        onMoveExercise = { _, _ -> },
+        onUndoRemove = {},
+        onClearUndo = {},
         onBackToSetup = {},
         onAccept = {},
         onStartWorkout = {},
@@ -703,17 +1004,22 @@ private fun PreviewPlanReview() {
   IronPathTheme {
     Surface(color = MaterialTheme.colorScheme.surface) {
       PlanContent(
-        uiState =
-          PlanUiState.Review(
-            GeneratedPlan(PreviewPlan, PreviewWorkouts, PreviewExercises),
-          ),
+        uiState = PlanUiState.Review(GeneratedPlan(PreviewPlan, PreviewWorkouts, PreviewExercises)),
         selectedGoal = TrainingGoal.Hypertrophy,
         selectedDays = setOf(1, 3, 5),
+        undoExercise = null,
+        exerciseSuggestions = listOf("Barbell Bench Press", "Deadlift", "Squat"),
         onGoalSelected = {},
         onDayToggled = {},
         onGenerate = {},
         onDeleteWorkout = {},
         onReassignDay = { _, _ -> },
+        onEditExercise = {},
+        onRemoveExercise = {},
+        onAddExercise = { _, _ -> },
+        onMoveExercise = { _, _ -> },
+        onUndoRemove = {},
+        onClearUndo = {},
         onBackToSetup = {},
         onAccept = {},
         onStartWorkout = {},
@@ -738,11 +1044,19 @@ private fun PreviewPlanAccepted() {
           ),
         selectedGoal = TrainingGoal.Strength,
         selectedDays = emptySet(),
+        undoExercise = null,
+        exerciseSuggestions = emptyList(),
         onGoalSelected = {},
         onDayToggled = {},
         onGenerate = {},
         onDeleteWorkout = {},
         onReassignDay = { _, _ -> },
+        onEditExercise = {},
+        onRemoveExercise = {},
+        onAddExercise = { _, _ -> },
+        onMoveExercise = { _, _ -> },
+        onUndoRemove = {},
+        onClearUndo = {},
         onBackToSetup = {},
         onAccept = {},
         onStartWorkout = {},
