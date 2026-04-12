@@ -3,7 +3,6 @@ plugins {
   alias(libs.plugins.kotlin.compose)
   alias(libs.plugins.ksp)
   alias(libs.plugins.room)
-  alias(libs.plugins.kover)
 }
 
 android {
@@ -21,6 +20,11 @@ android {
   }
 
   buildTypes {
+    debug {
+      // JaCoCo instrumentation for unit-test coverage (./gradlew testDebugUnitTest)
+      // Report: app/build/reports/coverage/test/debug/index.html
+      enableUnitTestCoverage = true
+    }
     release {
       isMinifyEnabled = false
       proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
@@ -34,6 +38,7 @@ android {
 }
 
 room { schemaDirectory("$projectDir/schemas") }
+
 
 dependencies {
   implementation(libs.androidx.core.ktx)

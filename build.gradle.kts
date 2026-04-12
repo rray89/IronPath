@@ -5,7 +5,6 @@ plugins {
   alias(libs.plugins.ksp) apply false
   alias(libs.plugins.room) apply false
   alias(libs.plugins.spotless)
-  alias(libs.plugins.kover) apply false
 }
 
 spotless {
