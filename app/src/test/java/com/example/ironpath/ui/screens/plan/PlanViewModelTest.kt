@@ -84,8 +84,7 @@ class PlanViewModelTest {
     coEvery { recordRepository.getAllRecordExerciseNames() } returns emptyList()
     coEvery { planRepository.getAllExerciseNames() } returns emptyList()
 
-    viewModel =
-      PlanViewModel(planRepository, planGenerator, sessionRepository, recordRepository)
+    viewModel = PlanViewModel(planRepository, planGenerator, sessionRepository, recordRepository)
   }
 
   // -- generatePlan --
