@@ -28,13 +28,8 @@ class PlanGenerator {
     selectedDays: Set<Int>, // 1=Mon..7=Sun (ISO)
   ): GeneratedPlan {
     val today = LocalDate.now()
-    // If mid-week, generate for next full Monday-Sunday week
-    val nextMonday =
-      if (today.dayOfWeek == DayOfWeek.MONDAY) {
-        today
-      } else {
-        today.with(TemporalAdjusters.next(DayOfWeek.MONDAY))
-      }
+    // Always generate for the upcoming Monday-Sunday week, never the current week
+    val nextMonday = today.with(TemporalAdjusters.next(DayOfWeek.MONDAY))
     val nextSunday = nextMonday.plusDays(6)
 
     val planId = UUID.randomUUID().toString()

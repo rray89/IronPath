@@ -20,6 +20,11 @@ android {
   }
 
   buildTypes {
+    debug {
+      // JaCoCo instrumentation for unit-test coverage (./gradlew testDebugUnitTest)
+      // Report: app/build/reports/coverage/test/debug/index.html
+      enableUnitTestCoverage = true
+    }
     release {
       isMinifyEnabled = false
       proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
@@ -51,6 +56,9 @@ dependencies {
   ksp(libs.androidx.room.compiler)
   implementation(libs.koin.androidx.compose)
   testImplementation(libs.junit)
+  testImplementation(libs.mockk)
+  testImplementation(libs.kotlinx.coroutines.test)
+  testImplementation(libs.turbine)
   androidTestImplementation(libs.androidx.junit)
   androidTestImplementation(libs.androidx.espresso.core)
   androidTestImplementation(platform(libs.androidx.compose.bom))
