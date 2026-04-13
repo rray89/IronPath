@@ -36,7 +36,7 @@ jobs:
       - name: Run unit tests with JaCoCo coverage
         # createDebugUnitTestCoverageReport depends on testDebugUnitTest and generates
         # HTML + XML reports at app/build/reports/coverage/test/debug/
-        run: ./gradlew createDebugUnitTestCoverageReport
+        run: ./gradlew createDebugUnitTestCoverageReport -PenableCoverage
 
       - name: Upload HTML coverage report
         uses: actions/upload-artifact@v4

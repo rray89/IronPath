@@ -86,6 +86,7 @@ Data model (Room entities): WeeklyPlan → PlannedWorkout → PlannedExercise, A
 - The app uses `Theme.IronPath` (no action bar) from `res/values/themes.xml`
 - Figma text has Stitch export artifacts (garbled chars) — always use PRD text, not Figma literals
 - Figma nav shows "Dashboard" in some screens — use "Home" per PRD
+- **TDD required for all new features** — write failing unit tests before implementing any ViewModel method, repository logic, or domain class. Tests live in `app/src/test/`; use the existing MockK + coroutines-test + Turbine setup (see `PlanViewModelTest` as the reference pattern).
 
 ## PR & Branch Naming
 

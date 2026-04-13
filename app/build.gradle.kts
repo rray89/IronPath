@@ -21,9 +21,11 @@ android {
 
   buildTypes {
     debug {
-      // JaCoCo instrumentation for unit-test coverage (./gradlew testDebugUnitTest)
-      // Report: app/build/reports/coverage/test/debug/index.html
-      enableUnitTestCoverage = true
+      // JaCoCo instrumentation for unit-test coverage.
+      // Enabled only when -PenableCoverage is passed (e.g. in CI).
+      // Local: ./gradlew testDebugUnitTest
+      // CI / coverage report: ./gradlew testDebugUnitTest -PenableCoverage
+      enableUnitTestCoverage = project.hasProperty("enableCoverage")
     }
     release {
       isMinifyEnabled = false
@@ -33,6 +35,12 @@ android {
   compileOptions {
     sourceCompatibility = JavaVersion.VERSION_11
     targetCompatibility = JavaVersion.VERSION_11
+  }
+  testOptions {
+    unitTests.all { test ->
+      test.maxHeapSize = "2g"
+      test.jvmArgs("-XX:+UseG1GC", "-XX:MaxMetaspaceSize=512m")
+    }
   }
   buildFeatures { compose = true }
 }
