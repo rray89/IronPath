@@ -110,6 +110,7 @@ class SessionRepositoryTest {
   fun `completeSession deletes session and inserts log within a transaction`() = runTest {
     repository.completeSession("session1", log)
 
+    coVerify(exactly = 1) { database.withTransaction(any<suspend () -> Unit>()) }
     coVerify(exactly = 1) { sessionDao.deleteSession("session1") }
     coVerify(exactly = 1) { historyDao.insertLog(log) }
   }
