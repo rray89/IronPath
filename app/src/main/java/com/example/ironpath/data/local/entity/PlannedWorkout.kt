@@ -7,29 +7,29 @@ import androidx.room.PrimaryKey
 import java.util.UUID
 
 @Entity(
-  tableName = "planned_workouts",
-  foreignKeys =
-    [
-      ForeignKey(
-        entity = WeeklyPlan::class,
-        parentColumns = ["id"],
-        childColumns = ["weeklyPlanId"],
-        onDelete = ForeignKey.CASCADE,
-      ),
-    ],
-  indices = [Index("weeklyPlanId")],
+    tableName = "planned_workouts",
+    foreignKeys =
+        [
+            ForeignKey(
+                entity = WeeklyPlan::class,
+                parentColumns = ["id"],
+                childColumns = ["weeklyPlanId"],
+                onDelete = ForeignKey.CASCADE,
+            ),
+        ],
+    indices = [Index("weeklyPlanId")],
 )
 data class PlannedWorkout(
-  @PrimaryKey val id: String = UUID.randomUUID().toString(),
-  val weeklyPlanId: String,
-  val dayOfWeek: Int, // 1 = Monday .. 7 = Sunday (ISO)
-  val scheduledDate: String, // ISO date yyyy-MM-dd
-  val title: String, // e.g. "Chest/Tris"
-  val status: WorkoutStatus = WorkoutStatus.Upcoming,
+    @PrimaryKey val id: String = UUID.randomUUID().toString(),
+    val weeklyPlanId: String,
+    val dayOfWeek: Int, // 1 = Monday .. 7 = Sunday (ISO)
+    val scheduledDate: String, // ISO date yyyy-MM-dd
+    val title: String, // e.g. "Chest/Tris"
+    val status: WorkoutStatus = WorkoutStatus.Upcoming,
 )
 
 enum class WorkoutStatus {
-  Upcoming,
-  Completed,
-  Skipped
+    Upcoming,
+    Completed,
+    Skipped
 }

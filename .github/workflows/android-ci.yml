@@ -33,6 +33,9 @@ jobs:
       - name: Check Spotless formatting
         run: ./gradlew spotlessCheck
 
+      - name: Assemble debug build
+        run: ./gradlew assembleDebug
+
       - name: Run unit tests with JaCoCo coverage
         # createDebugUnitTestCoverageReport depends on testDebugUnitTest and generates
         # HTML + XML reports at app/build/reports/coverage/test/debug/

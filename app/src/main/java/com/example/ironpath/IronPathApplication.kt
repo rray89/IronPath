@@ -10,11 +10,11 @@ import org.koin.android.ext.koin.androidContext
 import org.koin.core.context.startKoin
 
 class IronPathApplication : Application() {
-  override fun onCreate() {
-    super.onCreate()
-    startKoin {
-      androidContext(this@IronPathApplication)
-      modules(databaseModule, repositoryModule, domainModule, devModule, viewModelModule)
+    override fun onCreate() {
+        super.onCreate()
+        startKoin {
+            androidContext(this@IronPathApplication)
+            modules(databaseModule, repositoryModule, domainModule, devModule, viewModelModule)
+        }
     }
-  }
 }

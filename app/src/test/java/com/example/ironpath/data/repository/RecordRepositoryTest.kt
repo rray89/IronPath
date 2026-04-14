@@ -15,85 +15,85 @@ import org.junit.Test
 
 class RecordRepositoryTest {
 
-  private lateinit var recordDao: RecordDao
-  private lateinit var repository: RecordRepository
+    private lateinit var recordDao: RecordDao
+    private lateinit var repository: RecordRepository
 
-  private val record =
-    PersonalRecord(
-      id = "rec1",
-      exerciseName = "Bench Press",
-      normalizedExerciseName = "bench press",
-      weightKg = 100.0,
-      achievedOn = "2026-04-12",
-    )
+    private val record =
+        PersonalRecord(
+            id = "rec1",
+            exerciseName = "Bench Press",
+            normalizedExerciseName = "bench press",
+            weightKg = 100.0,
+            achievedOn = "2026-04-12",
+        )
 
-  @Before
-  fun setUp() {
-    recordDao = mockk(relaxed = true)
-    repository = RecordRepository(recordDao)
-  }
+    @Before
+    fun setUp() {
+        recordDao = mockk(relaxed = true)
+        repository = RecordRepository(recordDao)
+    }
 
-  // -- isDuplicateExcluding --
+    // -- isDuplicateExcluding --
 
-  @Test
-  fun `isDuplicateExcluding returns true when DAO count is greater than 0`() = runTest {
-    coEvery {
-      recordDao.countDuplicatesExcluding("bench press", "2026-04-12", 100.0, "rec1")
-    } returns 1
+    @Test
+    fun `isDuplicateExcluding returns true when DAO count is greater than 0`() = runTest {
+        coEvery {
+            recordDao.countDuplicatesExcluding("bench press", "2026-04-12", 100.0, "rec1")
+        } returns 1
 
-    val result =
-      repository.isDuplicateExcluding(
-        normalizedName = "bench press",
-        date = "2026-04-12",
-        weight = 100.0,
-        excludeId = "rec1",
-      )
+        val result =
+            repository.isDuplicateExcluding(
+                normalizedName = "bench press",
+                date = "2026-04-12",
+                weight = 100.0,
+                excludeId = "rec1",
+            )
 
-    assertTrue(result)
-  }
+        assertTrue(result)
+    }
 
-  @Test
-  fun `isDuplicateExcluding returns false when DAO count is 0`() = runTest {
-    coEvery { recordDao.countDuplicatesExcluding(any(), any(), any(), any()) } returns 0
+    @Test
+    fun `isDuplicateExcluding returns false when DAO count is 0`() = runTest {
+        coEvery { recordDao.countDuplicatesExcluding(any(), any(), any(), any()) } returns 0
 
-    val result =
-      repository.isDuplicateExcluding(
-        normalizedName = "bench press",
-        date = "2026-04-12",
-        weight = 100.0,
-        excludeId = "rec1",
-      )
+        val result =
+            repository.isDuplicateExcluding(
+                normalizedName = "bench press",
+                date = "2026-04-12",
+                weight = 100.0,
+                excludeId = "rec1",
+            )
 
-    assertFalse(result)
-  }
+        assertFalse(result)
+    }
 
-  // -- CRUD delegation --
+    // -- CRUD delegation --
 
-  @Test
-  fun `insertRecord delegates to recordDao`() = runTest {
-    repository.insertRecord(record)
-    coVerify(exactly = 1) { recordDao.insertRecord(record) }
-  }
+    @Test
+    fun `insertRecord delegates to recordDao`() = runTest {
+        repository.insertRecord(record)
+        coVerify(exactly = 1) { recordDao.insertRecord(record) }
+    }
 
-  @Test
-  fun `updateRecord delegates to recordDao`() = runTest {
-    repository.updateRecord(record)
-    coVerify(exactly = 1) { recordDao.updateRecord(record) }
-  }
+    @Test
+    fun `updateRecord delegates to recordDao`() = runTest {
+        repository.updateRecord(record)
+        coVerify(exactly = 1) { recordDao.updateRecord(record) }
+    }
 
-  @Test
-  fun `deleteRecord delegates to recordDao`() = runTest {
-    repository.deleteRecord("rec1")
-    coVerify(exactly = 1) { recordDao.deleteRecord("rec1") }
-  }
+    @Test
+    fun `deleteRecord delegates to recordDao`() = runTest {
+        repository.deleteRecord("rec1")
+        coVerify(exactly = 1) { recordDao.deleteRecord("rec1") }
+    }
 
-  @Test
-  fun `observeAllRecords returns flow from recordDao`() {
-    val expected = flowOf(listOf(record))
-    every { recordDao.observeAllRecords() } returns expected
+    @Test
+    fun `observeAllRecords returns flow from recordDao`() {
+        val expected = flowOf(listOf(record))
+        every { recordDao.observeAllRecords() } returns expected
 
-    val result = repository.observeAllRecords()
+        val result = repository.observeAllRecords()
 
-    assert(result === expected)
-  }
+        assert(result === expected)
+    }
 }

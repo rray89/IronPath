@@ -1,76 +1,79 @@
 plugins {
-  alias(libs.plugins.android.application)
-  alias(libs.plugins.kotlin.compose)
-  alias(libs.plugins.ksp)
-  alias(libs.plugins.room)
+    alias(libs.plugins.android.application)
+    alias(libs.plugins.kotlin.compose)
+    alias(libs.plugins.ksp)
+    alias(libs.plugins.room)
 }
 
 android {
-  namespace = "com.example.ironpath"
-  compileSdk = 36
+    namespace = "com.example.ironpath"
+    compileSdk = 36
 
-  defaultConfig {
-    applicationId = "com.example.ironpath"
-    minSdk = 29
-    targetSdk = 36
-    versionCode = 1
-    versionName = "1.0"
+    defaultConfig {
+        applicationId = "com.example.ironpath"
+        minSdk = 29
+        targetSdk = 36
+        versionCode = 1
+        versionName = "1.0"
 
-    testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-  }
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+    }
 
-  buildTypes {
-    debug {
-      // JaCoCo instrumentation for unit-test coverage.
-      // Enabled only when -PenableCoverage is passed (e.g. in CI).
-      // Local: ./gradlew testDebugUnitTest
-      // CI / coverage report: ./gradlew testDebugUnitTest -PenableCoverage
-      enableUnitTestCoverage = project.hasProperty("enableCoverage")
+    buildTypes {
+        debug {
+            // JaCoCo instrumentation for unit-test coverage.
+            // Enabled only when -PenableCoverage is passed (e.g. in CI).
+            // Local: ./gradlew testDebugUnitTest
+            // CI / coverage report: ./gradlew testDebugUnitTest -PenableCoverage
+            enableUnitTestCoverage = project.hasProperty("enableCoverage")
+        }
+        release {
+            isMinifyEnabled = false
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro"
+            )
+        }
     }
-    release {
-      isMinifyEnabled = false
-      proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_11
+        targetCompatibility = JavaVersion.VERSION_11
     }
-  }
-  compileOptions {
-    sourceCompatibility = JavaVersion.VERSION_11
-    targetCompatibility = JavaVersion.VERSION_11
-  }
-  testOptions {
-    unitTests.all { test ->
-      test.maxHeapSize = "2g"
-      test.jvmArgs("-XX:+UseG1GC", "-XX:MaxMetaspaceSize=512m")
+    testOptions {
+        unitTests.all { test ->
+            test.maxHeapSize = "2g"
+            test.jvmArgs("-XX:+UseG1GC", "-XX:MaxMetaspaceSize=512m")
+        }
     }
-  }
-  buildFeatures { compose = true }
+    buildFeatures { compose = true }
 }
 
 room { schemaDirectory("$projectDir/schemas") }
 
 dependencies {
-  implementation(libs.androidx.core.ktx)
-  implementation(libs.androidx.lifecycle.runtime.ktx)
-  implementation(libs.androidx.lifecycle.runtime.compose)
-  implementation(libs.androidx.activity.compose)
-  implementation(platform(libs.androidx.compose.bom))
-  implementation(libs.androidx.compose.ui)
-  implementation(libs.androidx.compose.ui.graphics)
-  implementation(libs.androidx.compose.ui.tooling.preview)
-  implementation(libs.androidx.compose.material3)
-  implementation(libs.androidx.compose.material.icons)
-  implementation(libs.androidx.navigation.compose)
-  implementation(libs.androidx.room.runtime)
-  implementation(libs.androidx.room.ktx)
-  ksp(libs.androidx.room.compiler)
-  implementation(libs.koin.androidx.compose)
-  testImplementation(libs.junit)
-  testImplementation(libs.mockk)
-  testImplementation(libs.kotlinx.coroutines.test)
-  testImplementation(libs.turbine)
-  androidTestImplementation(libs.androidx.junit)
-  androidTestImplementation(libs.androidx.espresso.core)
-  androidTestImplementation(platform(libs.androidx.compose.bom))
-  androidTestImplementation(libs.androidx.compose.ui.test.junit4)
-  debugImplementation(libs.androidx.compose.ui.tooling)
-  debugImplementation(libs.androidx.compose.ui.test.manifest)
+    implementation(libs.androidx.core.ktx)
+    implementation(libs.androidx.lifecycle.runtime.ktx)
+    implementation(libs.androidx.lifecycle.runtime.compose)
+    implementation(libs.androidx.activity.compose)
+    implementation(platform(libs.androidx.compose.bom))
+    implementation(libs.androidx.compose.ui)
+    implementation(libs.androidx.compose.ui.graphics)
+    implementation(libs.androidx.compose.ui.tooling.preview)
+    implementation(libs.androidx.compose.material3)
+    implementation(libs.androidx.compose.material.icons)
+    implementation(libs.androidx.navigation.compose)
+    implementation(libs.androidx.room.runtime)
+    implementation(libs.androidx.room.ktx)
+    ksp(libs.androidx.room.compiler)
+    implementation(libs.koin.androidx.compose)
+    testImplementation(libs.junit)
+    testImplementation(libs.mockk)
+    testImplementation(libs.kotlinx.coroutines.test)
+    testImplementation(libs.turbine)
+    androidTestImplementation(libs.androidx.junit)
+    androidTestImplementation(libs.androidx.espresso.core)
+    androidTestImplementation(platform(libs.androidx.compose.bom))
+    androidTestImplementation(libs.androidx.compose.ui.test.junit4)
+    debugImplementation(libs.androidx.compose.ui.tooling)
+    debugImplementation(libs.androidx.compose.ui.test.manifest)
 }

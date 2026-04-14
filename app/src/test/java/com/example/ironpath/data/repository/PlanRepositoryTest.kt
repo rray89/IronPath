@@ -14,82 +14,82 @@ import org.junit.Test
 
 class PlanRepositoryTest {
 
-  private lateinit var planDao: PlanDao
-  private lateinit var repository: PlanRepository
+    private lateinit var planDao: PlanDao
+    private lateinit var repository: PlanRepository
 
-  private val plan = WeeklyPlan(id = "plan1", startDate = "2026-04-14", endDate = "2026-04-20")
+    private val plan = WeeklyPlan(id = "plan1", startDate = "2026-04-14", endDate = "2026-04-20")
 
-  private val workout =
-    PlannedWorkout(
-      id = "w1",
-      weeklyPlanId = "plan1",
-      dayOfWeek = 1,
-      scheduledDate = "2026-04-14",
-      title = "Push A",
-    )
+    private val workout =
+        PlannedWorkout(
+            id = "w1",
+            weeklyPlanId = "plan1",
+            dayOfWeek = 1,
+            scheduledDate = "2026-04-14",
+            title = "Push A",
+        )
 
-  private val exercise =
-    PlannedExercise(
-      id = "ex1",
-      plannedWorkoutId = "w1",
-      name = "Bench Press",
-      sets = 3,
-      reps = 10,
-      weightKg = 60.0,
-      orderIndex = 0,
-    )
+    private val exercise =
+        PlannedExercise(
+            id = "ex1",
+            plannedWorkoutId = "w1",
+            name = "Bench Press",
+            sets = 3,
+            reps = 10,
+            weightKg = 60.0,
+            orderIndex = 0,
+        )
 
-  @Before
-  fun setUp() {
-    planDao = mockk(relaxed = true)
-    repository = PlanRepository(planDao)
-  }
+    @Before
+    fun setUp() {
+        planDao = mockk(relaxed = true)
+        repository = PlanRepository(planDao)
+    }
 
-  @Test
-  fun `observeActivePlan returns flow from planDao`() {
-    val expected = flowOf(plan)
-    every { planDao.observeActivePlan() } returns expected
+    @Test
+    fun `observeActivePlan returns flow from planDao`() {
+        val expected = flowOf(plan)
+        every { planDao.observeActivePlan() } returns expected
 
-    val result = repository.observeActivePlan()
+        val result = repository.observeActivePlan()
 
-    assert(result === expected)
-  }
+        assert(result === expected)
+    }
 
-  @Test
-  fun `observeWorkoutsForPlan returns flow from planDao`() {
-    val expected = flowOf(listOf(workout))
-    every { planDao.observeWorkoutsForPlan("plan1") } returns expected
+    @Test
+    fun `observeWorkoutsForPlan returns flow from planDao`() {
+        val expected = flowOf(listOf(workout))
+        every { planDao.observeWorkoutsForPlan("plan1") } returns expected
 
-    val result = repository.observeWorkoutsForPlan("plan1")
+        val result = repository.observeWorkoutsForPlan("plan1")
 
-    assert(result === expected)
-  }
+        assert(result === expected)
+    }
 
-  @Test
-  fun `createPlan delegates to planDao createPlanWithWorkouts`() = runTest {
-    val workouts = listOf(workout)
-    val exercises = listOf(exercise)
+    @Test
+    fun `createPlan delegates to planDao createPlanWithWorkouts`() = runTest {
+        val workouts = listOf(workout)
+        val exercises = listOf(exercise)
 
-    repository.createPlan(plan, workouts, exercises)
+        repository.createPlan(plan, workouts, exercises)
 
-    coVerify(exactly = 1) { planDao.createPlanWithWorkouts(plan, workouts, exercises) }
-  }
+        coVerify(exactly = 1) { planDao.createPlanWithWorkouts(plan, workouts, exercises) }
+    }
 
-  @Test
-  fun `updateWorkout delegates to planDao`() = runTest {
-    repository.updateWorkout(workout)
-    coVerify(exactly = 1) { planDao.updateWorkout(workout) }
-  }
+    @Test
+    fun `updateWorkout delegates to planDao`() = runTest {
+        repository.updateWorkout(workout)
+        coVerify(exactly = 1) { planDao.updateWorkout(workout) }
+    }
 
-  @Test
-  fun `deleteWorkout delegates to planDao`() = runTest {
-    repository.deleteWorkout("w1")
-    coVerify(exactly = 1) { planDao.deleteWorkout("w1") }
-  }
+    @Test
+    fun `deleteWorkout delegates to planDao`() = runTest {
+        repository.deleteWorkout("w1")
+        coVerify(exactly = 1) { planDao.deleteWorkout("w1") }
+    }
 
-  @Test
-  fun `getAllExerciseNames delegates to planDao`() = runTest {
-    repository.getAllExerciseNames()
-    coVerify(exactly = 1) { planDao.getAllExerciseNames() }
-  }
+    @Test
+    fun `getAllExerciseNames delegates to planDao`() = runTest {
+        repository.getAllExerciseNames()
+        coVerify(exactly = 1) { planDao.getAllExerciseNames() }
+    }
 }
