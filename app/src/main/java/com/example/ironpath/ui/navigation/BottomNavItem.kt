@@ -8,12 +8,12 @@ import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.ui.graphics.vector.ImageVector
 
 enum class BottomNavItem(
-  val route: String,
-  val label: String,
-  val icon: ImageVector,
+    val route: String,
+    val label: String,
+    val icon: ImageVector,
 ) {
-  Home(Route.HOME, "Home", Icons.Default.Home),
-  Plan(Route.PLAN, "Plan", Icons.Default.CalendarMonth),
-  Active(Route.ACTIVE, "Active", Icons.Default.FlashOn),
-  History(Route.HISTORY, "History", Icons.Default.Schedule),
+    Home(Route.HOME, "Home", Icons.Default.Home),
+    Plan(Route.PLAN, "Plan", Icons.Default.CalendarMonth),
+    Active(Route.ACTIVE, "Active", Icons.Default.FlashOn),
+    History(Route.HISTORY, "History", Icons.Default.Schedule),
 }

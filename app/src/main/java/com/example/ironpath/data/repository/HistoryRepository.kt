@@ -6,9 +6,9 @@ import kotlinx.coroutines.flow.Flow
 
 class HistoryRepository(private val historyDao: HistoryDao) {
 
-  fun observeAllLogs(): Flow<List<WorkoutLog>> = historyDao.observeAllLogs()
+    fun observeAllLogs(): Flow<List<WorkoutLog>> = historyDao.observeAllLogs()
 
-  suspend fun getLogById(id: String): WorkoutLog? = historyDao.getLogById(id)
+    suspend fun getLogById(id: String): WorkoutLog? = historyDao.getLogById(id)
 
-  suspend fun insertLog(log: WorkoutLog) = historyDao.insertLog(log)
+    suspend fun insertLog(log: WorkoutLog) = historyDao.insertLog(log)
 }
