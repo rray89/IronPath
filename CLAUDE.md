@@ -90,5 +90,9 @@ Data model (Room entities): WeeklyPlan → PlannedWorkout → PlannedExercise, A
 
 ## PR & Branch Naming
 
-- PR titles: `Feature X.X: <description>` for features, `Bugfix: <description>` for bug fixes
-- Branch names: `feature/X.X-short-name` or `bugfix/short-name`
+- Feature PR titles: `feat<id>: short description`
+- Bug PR titles: `bug<id>: short description`
+- Feature branches: `feat/feat<id>-short-title`
+- Bug branches: `bug/bug<id>-short-title`
+- Follow-up/sub-feature PR titles: `feat<id>.<subid>: short description`
+- Follow-up branches: `feat/feat<id>.<subid>-short-title`
