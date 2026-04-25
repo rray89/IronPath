@@ -49,5 +49,8 @@ Thumbs.db
 .claude/settings.local.json
 .claude/worktrees/
 
+# Local AI handoff notes
+.progress/
+
 # Figma export artifacts
 docs/design/*/code.html
