@@ -82,6 +82,7 @@ class PlanViewModel(
                         PlanUiState.Accepted(
                             planned = workouts.size,
                             completed = workouts.count { it.status.name == "Completed" },
+                            workouts = workouts,
                             todayWorkout = todayWorkout,
                             nextWorkout = nextWorkout,
                             hasActiveSession = session != null,
@@ -269,6 +270,7 @@ sealed interface PlanUiState {
     data class Accepted(
         val planned: Int,
         val completed: Int,
+        val workouts: List<PlannedWorkout>,
         val todayWorkout: PlannedWorkout?,
         val nextWorkout: PlannedWorkout?,
         val hasActiveSession: Boolean,

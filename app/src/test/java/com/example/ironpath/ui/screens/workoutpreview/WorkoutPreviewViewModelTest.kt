@@ -1,0 +1,194 @@
+package com.example.ironpath.ui.screens.workoutpreview
+
+import app.cash.turbine.test
+import com.example.ironpath.data.local.entity.ActiveSession
+import com.example.ironpath.data.local.entity.PlannedExercise
+import com.example.ironpath.data.local.entity.PlannedWorkout
+import com.example.ironpath.data.local.entity.WorkoutStatus
+import com.example.ironpath.data.repository.PlanRepository
+import com.example.ironpath.data.repository.SessionRepository
+import com.example.ironpath.domain.session.StartPlannedWorkoutUseCase
+import com.example.ironpath.util.MainDispatcherRule
+import io.mockk.coEvery
+import io.mockk.coVerify
+import io.mockk.every
+import io.mockk.mockk
+import java.time.LocalDate
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.test.advanceUntilIdle
+import kotlinx.coroutines.test.runTest
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
+import org.junit.Before
+import org.junit.Rule
+import org.junit.Test
+
+@OptIn(ExperimentalCoroutinesApi::class)
+class WorkoutPreviewViewModelTest {
+
+    @get:Rule val mainDispatcherRule = MainDispatcherRule()
+
+    private lateinit var planRepository: PlanRepository
+    private lateinit var sessionRepository: SessionRepository
+    private lateinit var startPlannedWorkout: StartPlannedWorkoutUseCase
+
+    private val exercisesFlow = MutableStateFlow<List<PlannedExercise>>(emptyList())
+    private val activeSessionFlow = MutableStateFlow<ActiveSession?>(null)
+
+    private fun workout(
+        id: String = "workout1",
+        scheduledDate: String = LocalDate.now().toString(),
+        status: WorkoutStatus = WorkoutStatus.Upcoming,
+    ) =
+        PlannedWorkout(
+            id = id,
+            weeklyPlanId = "plan1",
+            dayOfWeek = LocalDate.parse(scheduledDate).dayOfWeek.value,
+            scheduledDate = scheduledDate,
+            title = "Push A",
+            status = status,
+        )
+
+    private fun exercise(id: String, orderIndex: Int) =
+        PlannedExercise(
+            id = id,
+            plannedWorkoutId = "workout1",
+            name = "Exercise $id",
+            sets = 3,
+            reps = 10,
+            weightKg = 50.0,
+            orderIndex = orderIndex,
+        )
+
+    @Before
+    fun setUp() {
+        planRepository = mockk(relaxed = true)
+        sessionRepository = mockk(relaxed = true)
+        startPlannedWorkout = mockk(relaxed = true)
+
+        every { planRepository.observeExercisesForWorkout("workout1") } returns exercisesFlow
+        every { sessionRepository.observeActiveSession() } returns activeSessionFlow
+        coEvery { startPlannedWorkout.invoke(any()) } returns Unit
+    }
+
+    @Test
+    fun `uiState loads workout with ordered exercises and allows starting when scheduled today`() =
+        runTest {
+            val todayWorkout = workout()
+            val laterExercise = exercise("2", orderIndex = 1)
+            val firstExercise = exercise("1", orderIndex = 0)
+            coEvery { planRepository.getWorkoutById("workout1") } returns todayWorkout
+            exercisesFlow.value = listOf(laterExercise, firstExercise)
+
+            val viewModel =
+                WorkoutPreviewViewModel(
+                    workoutId = "workout1",
+                    planRepository = planRepository,
+                    sessionRepository = sessionRepository,
+                    startPlannedWorkout = startPlannedWorkout,
+                )
+
+            viewModel.uiState.test {
+                var state = awaitItem()
+                while (state !is WorkoutPreviewUiState.Ready) state = awaitItem()
+                assertEquals(todayWorkout, state.workout)
+                assertEquals(listOf(firstExercise, laterExercise), state.exercises)
+                assertTrue(state.canStart)
+                assertFalse(state.hasActiveSession)
+                cancelAndIgnoreRemainingEvents()
+            }
+        }
+
+    @Test
+    fun `uiState does not allow starting a future workout`() = runTest {
+        val futureWorkout = workout(scheduledDate = LocalDate.now().plusDays(2).toString())
+        coEvery { planRepository.getWorkoutById("workout1") } returns futureWorkout
+
+        val viewModel =
+            WorkoutPreviewViewModel(
+                workoutId = "workout1",
+                planRepository = planRepository,
+                sessionRepository = sessionRepository,
+                startPlannedWorkout = startPlannedWorkout,
+            )
+
+        viewModel.uiState.test {
+            var state = awaitItem()
+            while (state !is WorkoutPreviewUiState.Ready) state = awaitItem()
+            assertFalse(state.canStart)
+            cancelAndIgnoreRemainingEvents()
+        }
+    }
+
+    @Test
+    fun `startWorkout starts the session and invokes callback only when workout can start`() =
+        runTest {
+            val todayWorkout = workout()
+            coEvery { planRepository.getWorkoutById("workout1") } returns todayWorkout
+            val viewModel =
+                WorkoutPreviewViewModel(
+                    workoutId = "workout1",
+                    planRepository = planRepository,
+                    sessionRepository = sessionRepository,
+                    startPlannedWorkout = startPlannedWorkout,
+                )
+            var callbackInvoked = false
+
+            viewModel.uiState.test {
+                var state = awaitItem()
+                while (state !is WorkoutPreviewUiState.Ready) state = awaitItem()
+                viewModel.startWorkout { callbackInvoked = true }
+                advanceUntilIdle()
+
+                coVerify(exactly = 1) { startPlannedWorkout(todayWorkout) }
+                assertTrue(callbackInvoked)
+                cancelAndIgnoreRemainingEvents()
+            }
+        }
+
+    @Test
+    fun `startWorkout does nothing when workout cannot start`() = runTest {
+        coEvery { planRepository.getWorkoutById("workout1") } returns
+            workout(scheduledDate = LocalDate.now().plusDays(1).toString())
+        val viewModel =
+            WorkoutPreviewViewModel(
+                workoutId = "workout1",
+                planRepository = planRepository,
+                sessionRepository = sessionRepository,
+                startPlannedWorkout = startPlannedWorkout,
+            )
+        var callbackInvoked = false
+
+        viewModel.uiState.test {
+            var state = awaitItem()
+            while (state !is WorkoutPreviewUiState.Ready) state = awaitItem()
+            viewModel.startWorkout { callbackInvoked = true }
+            advanceUntilIdle()
+
+            coVerify(exactly = 0) { startPlannedWorkout(any()) }
+            assertFalse(callbackInvoked)
+            cancelAndIgnoreRemainingEvents()
+        }
+    }
+
+    @Test
+    fun `uiState emits NotFound when workout does not exist`() = runTest {
+        coEvery { planRepository.getWorkoutById("missing") } returns null
+
+        val viewModel =
+            WorkoutPreviewViewModel(
+                workoutId = "missing",
+                planRepository = planRepository,
+                sessionRepository = sessionRepository,
+                startPlannedWorkout = startPlannedWorkout,
+            )
+
+        viewModel.uiState.test {
+            var state = awaitItem()
+            while (state !is WorkoutPreviewUiState.NotFound) state = awaitItem()
+            cancelAndIgnoreRemainingEvents()
+        }
+    }
+}

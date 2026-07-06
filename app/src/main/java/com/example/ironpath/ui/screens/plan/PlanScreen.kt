@@ -23,6 +23,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
@@ -72,6 +73,7 @@ import org.koin.androidx.compose.koinViewModel
 fun PlanScreen(
     onPlanAccepted: () -> Unit,
     onStartWorkout: () -> Unit,
+    onOpenWorkoutPreview: (String) -> Unit,
     modifier: Modifier = Modifier,
     viewModel: PlanViewModel = koinViewModel(),
 ) {
@@ -101,6 +103,7 @@ fun PlanScreen(
         onBackToSetup = viewModel::backToSetup,
         onAccept = { viewModel.acceptPlan(onPlanAccepted) },
         onStartWorkout = onStartWorkout,
+        onOpenWorkoutPreview = onOpenWorkoutPreview,
         modifier = modifier,
     )
 }
@@ -128,6 +131,7 @@ internal fun PlanContent(
     onBackToSetup: () -> Unit,
     onAccept: () -> Unit,
     onStartWorkout: () -> Unit,
+    onOpenWorkoutPreview: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     when (uiState) {
@@ -166,10 +170,12 @@ internal fun PlanContent(
             PlanAcceptedScreen(
                 planned = uiState.planned,
                 completed = uiState.completed,
+                workouts = uiState.workouts,
                 todayWorkout = uiState.todayWorkout,
                 nextWorkout = uiState.nextWorkout,
                 hasActiveSession = uiState.hasActiveSession,
                 onStartWorkout = onStartWorkout,
+                onOpenWorkoutPreview = onOpenWorkoutPreview,
                 modifier = modifier,
             )
     }
@@ -757,7 +763,7 @@ private fun ExerciseEditorDialog(
                 onClick = {
                     val saved =
                         if (isEditMode) {
-                            existingExercise!!.copy(
+                            existingExercise.copy(
                                 name = exerciseName.trim(),
                                 sets = setsInt!!,
                                 reps = repsInt!!,
@@ -874,17 +880,23 @@ private fun DayPickerDialog(
 private fun PlanAcceptedScreen(
     planned: Int,
     completed: Int,
+    workouts: List<PlannedWorkout>,
     todayWorkout: PlannedWorkout?,
     nextWorkout: PlannedWorkout?,
     hasActiveSession: Boolean,
     onStartWorkout: () -> Unit,
+    onOpenWorkoutPreview: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Column(
-        modifier = modifier.fillMaxSize().padding(horizontal = 24.dp),
-        verticalArrangement = Arrangement.Center,
-        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier =
+            modifier
+                .fillMaxSize()
+                .padding(horizontal = 24.dp)
+                .verticalScroll(rememberScrollState()),
     ) {
+        Spacer(Modifier.height(24.dp))
+
         Text(
             text =
                 if (hasActiveSession) "SESSION IN PROGRESS"
@@ -923,6 +935,81 @@ private fun PlanAcceptedScreen(
                 GreenGradientButton(text = "Start Workout", onClick = onStartWorkout)
             }
         }
+
+        Spacer(Modifier.height(32.dp))
+
+        Text(
+            text = "ACCEPTED WEEK",
+            style = MaterialTheme.typography.labelLarge,
+            color = MaterialTheme.colorScheme.primary,
+        )
+        Spacer(Modifier.height(12.dp))
+
+        workouts
+            .sortedBy { it.dayOfWeek }
+            .forEach { workout ->
+                AcceptedWorkoutRow(
+                    workout = workout,
+                    onClick = { onOpenWorkoutPreview(workout.id) },
+                )
+                Spacer(Modifier.height(10.dp))
+            }
+
+        Spacer(Modifier.height(32.dp))
+    }
+}
+
+@Composable
+private fun AcceptedWorkoutRow(
+    workout: PlannedWorkout,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        modifier =
+            modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(4.dp))
+                .background(SurfaceContainerHigh)
+                .clickable(onClick = onClick)
+                .padding(16.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(
+            modifier =
+                Modifier.background(SurfaceContainerHighest, RoundedCornerShape(4.dp))
+                    .padding(horizontal = 10.dp, vertical = 8.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(
+                text = dayOfWeekAbbrev(workout.dayOfWeek),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.primary,
+            )
+        }
+
+        Spacer(Modifier.width(14.dp))
+
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = workout.title.uppercase(),
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+            Spacer(Modifier.height(4.dp))
+            Text(
+                text = workout.scheduledDate,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+
+        Icon(
+            imageVector = Icons.Default.ChevronRight,
+            contentDescription = null,
+            modifier = Modifier.size(18.dp),
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
     }
 }
 
@@ -1006,6 +1093,7 @@ private fun PreviewPlanSetup() {
                 onBackToSetup = {},
                 onAccept = {},
                 onStartWorkout = {},
+                onOpenWorkoutPreview = {},
             )
         }
     }
@@ -1039,6 +1127,7 @@ private fun PreviewPlanReview() {
                 onBackToSetup = {},
                 onAccept = {},
                 onStartWorkout = {},
+                onOpenWorkoutPreview = {},
             )
         }
     }
@@ -1054,6 +1143,7 @@ private fun PreviewPlanAccepted() {
                     PlanUiState.Accepted(
                         planned = 3,
                         completed = 1,
+                        workouts = PreviewWorkouts,
                         todayWorkout = null,
                         nextWorkout = PreviewWorkouts[1],
                         hasActiveSession = false,
@@ -1076,6 +1166,7 @@ private fun PreviewPlanAccepted() {
                 onBackToSetup = {},
                 onAccept = {},
                 onStartWorkout = {},
+                onOpenWorkoutPreview = {},
             )
         }
     }

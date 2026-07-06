@@ -8,11 +8,13 @@ import com.example.ironpath.data.repository.RecordRepository
 import com.example.ironpath.data.repository.SessionRepository
 import com.example.ironpath.dev.DevToolsSeeder
 import com.example.ironpath.domain.planner.PlanGenerator
+import com.example.ironpath.domain.session.StartPlannedWorkoutUseCase
 import com.example.ironpath.ui.screens.active.ActiveViewModel
 import com.example.ironpath.ui.screens.devtools.DevToolsViewModel
 import com.example.ironpath.ui.screens.history.HistoryViewModel
 import com.example.ironpath.ui.screens.home.HomeViewModel
 import com.example.ironpath.ui.screens.plan.PlanViewModel
+import com.example.ironpath.ui.screens.workoutpreview.WorkoutPreviewViewModel
 import org.koin.core.module.dsl.viewModel
 import org.koin.dsl.module
 
@@ -39,7 +41,10 @@ val repositoryModule = module {
     single { RecordRepository(get()) }
 }
 
-val domainModule = module { single { PlanGenerator() } }
+val domainModule = module {
+    single { PlanGenerator() }
+    single { StartPlannedWorkoutUseCase(get(), get()) }
+}
 
 val devModule = module {
     single { DevToolsSeeder(get(), get(), get(), get()) }
@@ -49,6 +54,7 @@ val devModule = module {
 val viewModelModule = module {
     viewModel { HomeViewModel(get(), get()) }
     viewModel { PlanViewModel(get(), get(), get(), get()) }
-    viewModel { ActiveViewModel(get(), get()) }
+    viewModel { ActiveViewModel(get(), get(), get()) }
     viewModel { HistoryViewModel(get(), get(), get()) }
+    viewModel { params -> WorkoutPreviewViewModel(params.get(), get(), get(), get()) }
 }

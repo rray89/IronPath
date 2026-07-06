@@ -1,5 +1,7 @@
 package com.example.ironpath.ui.navigation
 
+import android.net.Uri
+
 object Route {
     const val ENTRY = "entry"
     const val HOME = "home"
@@ -7,4 +9,8 @@ object Route {
     const val ACTIVE = "active"
     const val HISTORY = "history"
     const val DEV_TOOLS = "dev_tools"
+    const val WORKOUT_ID_ARG = "workoutId"
+    const val WORKOUT_PREVIEW = "workout_preview/{$WORKOUT_ID_ARG}"
+
+    fun workoutPreview(workoutId: String): String = "workout_preview/${Uri.encode(workoutId)}"
 }
