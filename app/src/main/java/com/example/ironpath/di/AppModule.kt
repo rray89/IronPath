@@ -12,6 +12,7 @@ import com.example.ironpath.domain.session.StartPlannedWorkoutUseCase
 import com.example.ironpath.ui.screens.active.ActiveViewModel
 import com.example.ironpath.ui.screens.devtools.DevToolsViewModel
 import com.example.ironpath.ui.screens.history.HistoryViewModel
+import com.example.ironpath.ui.screens.history.WorkoutLogDetailViewModel
 import com.example.ironpath.ui.screens.home.HomeViewModel
 import com.example.ironpath.ui.screens.plan.PlanViewModel
 import com.example.ironpath.ui.screens.workoutpreview.WorkoutPreviewViewModel
@@ -25,6 +26,7 @@ val databaseModule = module {
                 IronPathDatabase::class.java,
                 "ironpath.db",
             )
+            .addMigrations(IronPathDatabase.MIGRATION_1_2)
             .build()
     }
 
@@ -47,7 +49,7 @@ val domainModule = module {
 }
 
 val devModule = module {
-    single { DevToolsSeeder(get(), get(), get(), get()) }
+    single { DevToolsSeeder(get(), get(), get()) }
     viewModel { DevToolsViewModel(get()) }
 }
 
@@ -57,4 +59,5 @@ val viewModelModule = module {
     viewModel { ActiveViewModel(get(), get(), get()) }
     viewModel { HistoryViewModel(get(), get(), get()) }
     viewModel { params -> WorkoutPreviewViewModel(params.get(), get(), get(), get()) }
+    viewModel { params -> WorkoutLogDetailViewModel(params.get(), get()) }
 }

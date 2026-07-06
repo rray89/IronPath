@@ -49,6 +49,7 @@ import org.koin.androidx.compose.koinViewModel
 @Composable
 fun HistoryScreen(
     modifier: Modifier = Modifier,
+    onOpenLog: (String) -> Unit = {},
     viewModel: HistoryViewModel = koinViewModel(),
 ) {
     val selectedTab by viewModel.selectedTab.collectAsStateWithLifecycle()
@@ -92,6 +93,7 @@ fun HistoryScreen(
                 onTabSelected = viewModel::selectTab,
                 onAddRecord = viewModel::showAddRecord,
                 onRecordClick = viewModel::showEditRecord,
+                onLogClick = { log -> onOpenLog(log.id) },
                 modifier = modifier,
             )
         }
@@ -108,6 +110,7 @@ internal fun HistoryContent(
     onTabSelected: (HistoryTab) -> Unit,
     onAddRecord: () -> Unit,
     onRecordClick: (PersonalRecord) -> Unit = {},
+    onLogClick: (WorkoutLog) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     Column(
@@ -121,7 +124,7 @@ internal fun HistoryContent(
         Spacer(Modifier.height(16.dp))
 
         when (selectedTab) {
-            HistoryTab.Logs -> LogsContent(logs)
+            HistoryTab.Logs -> LogsContent(logs, onLogClick)
             HistoryTab.Records -> RecordsContent(records, onAddRecord, onRecordClick)
         }
     }
@@ -173,6 +176,7 @@ private fun TabBar(
 @Composable
 private fun LogsContent(
     logs: List<WorkoutLog>,
+    onLogClick: (WorkoutLog) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     if (logs.isEmpty()) {
@@ -182,7 +186,7 @@ private fun LogsContent(
             modifier = modifier.verticalScroll(rememberScrollState()),
         ) {
             logs.forEach { log ->
-                LogRow(log)
+                LogRow(log, onClick = { onLogClick(log) })
                 Spacer(Modifier.height(8.dp))
             }
         }
@@ -231,12 +235,15 @@ private fun LogsEmptyState(modifier: Modifier = Modifier) {
 private fun LogRow(
     log: WorkoutLog,
     modifier: Modifier = Modifier,
+    onClick: () -> Unit = {},
 ) {
     Row(
         modifier =
             modifier
                 .fillMaxWidth()
-                .background(SurfaceContainerLow, RoundedCornerShape(4.dp))
+                .clip(RoundedCornerShape(4.dp))
+                .background(SurfaceContainerLow)
+                .clickable(onClick = onClick)
                 .padding(16.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {

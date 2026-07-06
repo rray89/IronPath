@@ -2,13 +2,14 @@ package com.example.ironpath.dev
 
 import androidx.room.withTransaction
 import com.example.ironpath.data.local.IronPathDatabase
+import com.example.ironpath.data.local.entity.LoggedExercise
+import com.example.ironpath.data.local.entity.LoggedSet
 import com.example.ironpath.data.local.entity.PersonalRecord
 import com.example.ironpath.data.local.entity.PlannedExercise
 import com.example.ironpath.data.local.entity.PlannedWorkout
 import com.example.ironpath.data.local.entity.RecordSource
 import com.example.ironpath.data.local.entity.WeeklyPlan
 import com.example.ironpath.data.local.entity.WorkoutLog
-import com.example.ironpath.data.repository.HistoryRepository
 import com.example.ironpath.data.repository.PlanRepository
 import com.example.ironpath.data.repository.RecordRepository
 import java.time.DayOfWeek
@@ -21,7 +22,6 @@ import kotlinx.coroutines.withContext
 class DevToolsSeeder(
     private val database: IronPathDatabase,
     private val planRepository: PlanRepository,
-    private val historyRepository: HistoryRepository,
     private val recordRepository: RecordRepository,
 ) {
 
@@ -68,7 +68,7 @@ class DevToolsSeeder(
         entries.forEachIndexed { i, (title, exerciseCount, durationMinutes) ->
             val completedAt = now - (i * 2 + 1) * dayMs
             val startedAt = completedAt - durationMinutes * 60_000L
-            historyRepository.insertLog(
+            val log =
                 WorkoutLog(
                     title = title,
                     sourcePlannedWorkoutId = null,
@@ -77,7 +77,14 @@ class DevToolsSeeder(
                     durationMinutes = durationMinutes,
                     exerciseCount = exerciseCount,
                 )
-            )
+            val exercises = sampleLoggedExercises(log.id, title, exerciseCount)
+            val sets = sampleLoggedSets(exercises, completedAt)
+            database.withTransaction {
+                val historyDao = database.historyDao()
+                historyDao.insertLog(log)
+                historyDao.insertLoggedExercises(exercises)
+                historyDao.insertLoggedSets(sets)
+            }
         }
     }
 
@@ -178,6 +185,46 @@ class DevToolsSeeder(
     }
 
     private fun wrapDow(d: Int): Int = ((d - 1) % 7) + 1
+
+    private fun sampleLoggedExercises(
+        logId: String,
+        title: String,
+        exerciseCount: Int,
+    ): List<LoggedExercise> {
+        val names =
+            when {
+                title.contains("Pull") || title.contains("Back") ->
+                    listOf("Pull-Up", "Barbell Row", "Face Pull")
+                title.contains("Legs") -> listOf("Back Squat", "Romanian Deadlift", "Leg Press")
+                else -> listOf("Bench Press", "Incline Dumbbell Press", "Triceps Pressdown")
+            }
+        return names.take(exerciseCount).mapIndexed { index, name ->
+            LoggedExercise(
+                workoutLogId = logId,
+                name = name,
+                plannedSets = 3,
+                plannedReps = if (index == 0) 8 else 10,
+                plannedWeightKg = 60.0 + index * 10.0,
+                orderIndex = index,
+            )
+        }
+    }
+
+    private fun sampleLoggedSets(
+        exercises: List<LoggedExercise>,
+        completedAt: Long,
+    ): List<LoggedSet> =
+        exercises.flatMapIndexed { exerciseIndex, exercise ->
+            (1..exercise.plannedSets).map { setNumber ->
+                LoggedSet(
+                    loggedExerciseId = exercise.id,
+                    setNumber = setNumber,
+                    reps = exercise.plannedReps,
+                    weightKg = exercise.plannedWeightKg + setNumber - 1 + exerciseIndex,
+                    completedAt = completedAt - (exercise.plannedSets - setNumber) * 60_000L,
+                )
+            }
+        }
 }
 
 private data class SeedExercise(

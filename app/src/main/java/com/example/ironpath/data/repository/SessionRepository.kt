@@ -5,6 +5,8 @@ import com.example.ironpath.data.local.IronPathDatabase
 import com.example.ironpath.data.local.dao.HistoryDao
 import com.example.ironpath.data.local.dao.SessionDao
 import com.example.ironpath.data.local.entity.ActiveSession
+import com.example.ironpath.data.local.entity.LoggedExercise
+import com.example.ironpath.data.local.entity.LoggedSet
 import com.example.ironpath.data.local.entity.SessionExercise
 import com.example.ironpath.data.local.entity.SessionSet
 import com.example.ironpath.data.local.entity.WorkoutLog
@@ -51,13 +53,49 @@ class SessionRepository(
     suspend fun updateSet(set: SessionSet) = sessionDao.updateSet(set)
 
     /**
-     * Completes a session: deletes the active session and inserts a workout log. Uses
-     * withTransaction because this spans two DAOs.
+     * Completes a session: snapshots the active session for history detail, deletes the active
+     * session, and inserts a workout log. Uses withTransaction because this spans two DAOs.
      */
     suspend fun completeSession(sessionId: String, log: WorkoutLog) {
         database.withTransaction {
-            sessionDao.deleteSession(sessionId)
+            val sessionExercises = sessionDao.getExercisesForSession(sessionId)
+            val exerciseIds = sessionExercises.map { it.id }
+            val sessionSets =
+                if (exerciseIds.isEmpty()) emptyList()
+                else sessionDao.getSetsForExercises(exerciseIds)
+
             historyDao.insertLog(log)
+            val loggedExercises = sessionExercises.map { it.toLoggedExercise(log.id) }
+            if (loggedExercises.isNotEmpty()) {
+                historyDao.insertLoggedExercises(loggedExercises)
+            }
+            val loggedSets = sessionSets.map { it.toLoggedSet() }
+            if (loggedSets.isNotEmpty()) {
+                historyDao.insertLoggedSets(loggedSets)
+            }
+            sessionDao.deleteSession(sessionId)
         }
     }
+
+    private fun SessionExercise.toLoggedExercise(logId: String): LoggedExercise =
+        LoggedExercise(
+            id = id,
+            workoutLogId = logId,
+            name = name,
+            plannedSets = plannedSets,
+            plannedReps = plannedReps,
+            plannedWeightKg = plannedWeightKg,
+            orderIndex = orderIndex,
+        )
+
+    private fun SessionSet.toLoggedSet(): LoggedSet =
+        LoggedSet(
+            id = id,
+            loggedExerciseId = sessionExerciseId,
+            setNumber = setNumber,
+            reps = reps,
+            weightKg = weightKg,
+            isExtra = isExtra,
+            completedAt = completedAt,
+        )
 }

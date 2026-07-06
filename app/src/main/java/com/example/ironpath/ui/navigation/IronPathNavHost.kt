@@ -13,6 +13,7 @@ import com.example.ironpath.ui.screens.active.ActiveScreen
 import com.example.ironpath.ui.screens.devtools.DevToolsScreen
 import com.example.ironpath.ui.screens.entry.EntryScreen
 import com.example.ironpath.ui.screens.history.HistoryScreen
+import com.example.ironpath.ui.screens.history.WorkoutLogDetailScreen
 import com.example.ironpath.ui.screens.home.HomeScreen
 import com.example.ironpath.ui.screens.plan.PlanScreen
 import com.example.ironpath.ui.screens.workoutpreview.WorkoutPreviewScreen
@@ -101,7 +102,12 @@ fun IronPathNavHost(
                 modifier = Modifier.padding(innerPadding),
             )
         }
-        composable(Route.HISTORY) { HistoryScreen(modifier = Modifier.padding(innerPadding)) }
+        composable(Route.HISTORY) {
+            HistoryScreen(
+                onOpenLog = { logId -> navController.navigate(Route.workoutLogDetail(logId)) },
+                modifier = Modifier.padding(innerPadding),
+            )
+        }
         composable(
             route = Route.WORKOUT_PREVIEW,
             arguments = listOf(navArgument(Route.WORKOUT_ID_ARG) { type = NavType.StringType }),
@@ -117,6 +123,17 @@ fun IronPathNavHost(
                         restoreState = true
                     }
                 },
+                modifier = Modifier.padding(innerPadding),
+            )
+        }
+        composable(
+            route = Route.WORKOUT_LOG_DETAIL,
+            arguments = listOf(navArgument(Route.WORKOUT_LOG_ID_ARG) { type = NavType.StringType }),
+        ) { backStackEntry ->
+            val logId = backStackEntry.arguments?.getString(Route.WORKOUT_LOG_ID_ARG).orEmpty()
+            WorkoutLogDetailScreen(
+                logId = logId,
+                onBack = { navController.popBackStack() },
                 modifier = Modifier.padding(innerPadding),
             )
         }
