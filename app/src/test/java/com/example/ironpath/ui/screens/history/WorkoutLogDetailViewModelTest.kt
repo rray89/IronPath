@@ -1,5 +1,6 @@
 package com.example.ironpath.ui.screens.history
 
+import android.database.sqlite.SQLiteConstraintException
 import app.cash.turbine.test
 import com.example.ironpath.data.local.entity.LoggedExercise
 import com.example.ironpath.data.local.entity.LoggedSet
@@ -15,6 +16,8 @@ import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.mockk
 import io.mockk.slot
+import java.time.Instant
+import java.time.ZoneId
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
@@ -105,9 +108,10 @@ class WorkoutLogDetailViewModelTest {
         val historyRepository = mockk<HistoryRepository>()
         val recordRepository = mockk<RecordRepository>(relaxed = true)
         val insertedRecord = slot<PersonalRecord>()
+        val achievedOn = log.completedAt.expectedRecordDate()
         coEvery { historyRepository.getLogDetail("log1") } returns detail
         coEvery {
-            recordRepository.isDuplicateExcluding("bench press", "1970-01-01", 62.5, "")
+            recordRepository.isDuplicateExcluding("bench press", achievedOn, 62.5, "")
         } returns false
         coEvery { recordRepository.insertRecord(capture(insertedRecord)) } returns Unit
         val viewModel = WorkoutLogDetailViewModel("log1", historyRepository, recordRepository)
@@ -120,7 +124,7 @@ class WorkoutLogDetailViewModelTest {
         assertEquals("Bench Press", record.exerciseName)
         assertEquals("bench press", record.normalizedExerciseName)
         assertEquals(62.5, record.weightKg, 0.0)
-        assertEquals("1970-01-01", record.achievedOn)
+        assertEquals(achievedOn, record.achievedOn)
         assertEquals(RecordSource.Logged, record.sourceType)
         assertEquals("log1", record.sourceWorkoutLogId)
         val state = viewModel.uiState.value as WorkoutLogDetailUiState.Ready
@@ -132,6 +136,7 @@ class WorkoutLogDetailViewModelTest {
     fun `uiState marks sets saved from persisted logged records`() = runTest {
         val historyRepository = mockk<HistoryRepository>()
         val recordRepository = mockk<RecordRepository>(relaxed = true)
+        val achievedOn = log.completedAt.expectedRecordDate()
         coEvery { historyRepository.getLogDetail("log1") } returns detail
         coEvery { recordRepository.getLoggedRecordsForWorkoutLog("log1") } returns
             listOf(
@@ -139,7 +144,7 @@ class WorkoutLogDetailViewModelTest {
                     exerciseName = "Bench Press",
                     normalizedExerciseName = "bench press",
                     weightKg = 62.5,
-                    achievedOn = "1970-01-01",
+                    achievedOn = achievedOn,
                     sourceType = RecordSource.Logged,
                     sourceWorkoutLogId = "log1",
                 ),
@@ -156,6 +161,7 @@ class WorkoutLogDetailViewModelTest {
     fun `saveSetAsRecord treats matching logged duplicate as already saved`() = runTest {
         val historyRepository = mockk<HistoryRepository>()
         val recordRepository = mockk<RecordRepository>(relaxed = true)
+        val achievedOn = log.completedAt.expectedRecordDate()
         coEvery { historyRepository.getLogDetail("log1") } returns detail
         coEvery { recordRepository.getLoggedRecordsForWorkoutLog("log1") } returnsMany
             listOf(
@@ -165,7 +171,7 @@ class WorkoutLogDetailViewModelTest {
                         exerciseName = "Bench Press",
                         normalizedExerciseName = "bench press",
                         weightKg = 62.5,
-                        achievedOn = "1970-01-01",
+                        achievedOn = achievedOn,
                         sourceType = RecordSource.Logged,
                         sourceWorkoutLogId = "log1",
                     ),
@@ -183,6 +189,42 @@ class WorkoutLogDetailViewModelTest {
         assertTrue(state.savedSetIds.contains("lset1"))
         assertEquals("Record already saved from this workout.", state.recordMessage)
     }
+
+    @Test
+    fun `saveSetAsRecord treats insert constraint failure from same log as already saved`() =
+        runTest {
+            val historyRepository = mockk<HistoryRepository>()
+            val recordRepository = mockk<RecordRepository>(relaxed = true)
+            val achievedOn = log.completedAt.expectedRecordDate()
+            val savedRecord =
+                PersonalRecord(
+                    exerciseName = "Bench Press",
+                    normalizedExerciseName = "bench press",
+                    weightKg = 62.5,
+                    achievedOn = achievedOn,
+                    sourceType = RecordSource.Logged,
+                    sourceWorkoutLogId = "log1",
+                )
+            coEvery { historyRepository.getLogDetail("log1") } returns detail
+            coEvery { recordRepository.getLoggedRecordsForWorkoutLog("log1") } returnsMany
+                listOf(emptyList(), listOf(savedRecord))
+            coEvery { recordRepository.isDuplicateExcluding(any(), any(), any(), any()) } returns
+                false
+            coEvery { recordRepository.insertRecord(any()) } throws
+                SQLiteConstraintException("duplicate")
+            val viewModel = WorkoutLogDetailViewModel("log1", historyRepository, recordRepository)
+            advanceUntilIdle()
+
+            viewModel.saveSetAsRecord(
+                detail.exercises.first(),
+                detail.exercises.first().sets.first()
+            )
+            advanceUntilIdle()
+
+            val state = viewModel.uiState.value as WorkoutLogDetailUiState.Ready
+            assertTrue(state.savedSetIds.contains("lset1"))
+            assertEquals("Record already saved from this workout.", state.recordMessage)
+        }
 
     @Test
     fun `saveSetAsRecord does not insert duplicate record`() = runTest {
@@ -221,4 +263,7 @@ class WorkoutLogDetailViewModelTest {
         val state = viewModel.uiState.value as WorkoutLogDetailUiState.Ready
         assertEquals("Only completed weighted sets can become records.", state.recordMessage)
     }
+
+    private fun Long.expectedRecordDate(): String =
+        Instant.ofEpochMilli(this).atZone(ZoneId.systemDefault()).toLocalDate().toString()
 }

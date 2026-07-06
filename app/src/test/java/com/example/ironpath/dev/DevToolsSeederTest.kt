@@ -10,7 +10,10 @@ import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.mockkStatic
+import io.mockk.unmockkAll
 import kotlinx.coroutines.test.runTest
+import org.junit.After
+import org.junit.Assert.assertEquals
 import org.junit.Before
 import org.junit.Test
 
@@ -40,16 +43,34 @@ class DevToolsSeederTest {
             )
     }
 
+    @After
+    fun tearDown() {
+        unmockkAll()
+    }
+
     @Test
     fun `seedHistoryLogs does not append duplicate seed logs`() = runTest {
-        coEvery { historyDao.countLogsWithTitles(any()) } returns 1
+        coEvery { historyDao.countLogsWithSourcePlannedWorkoutId("__dev_seed_history__") } returns 1
 
+        var thrown: IllegalStateException? = null
         try {
             seeder.seedHistoryLogs()
-        } catch (_: IllegalStateException) {
-            // Expected: the seed is already present.
+        } catch (error: IllegalStateException) {
+            thrown = error
         }
 
-        coVerify(exactly = 0) { database.withTransaction(any<suspend () -> Unit>()) }
+        assertEquals("History logs already seeded", thrown?.message)
+        coVerify(exactly = 1) { database.withTransaction(any<suspend () -> Unit>()) }
+        coVerify(exactly = 0) { historyDao.insertLog(any()) }
+    }
+
+    @Test
+    fun `seedHistoryLogs ignores real logs that share seed titles`() = runTest {
+        coEvery { historyDao.countLogsWithTitles(any()) } returns 1
+        coEvery { historyDao.countLogsWithSourcePlannedWorkoutId("__dev_seed_history__") } returns 0
+
+        seeder.seedHistoryLogs()
+
+        coVerify(exactly = 1) { database.withTransaction(any<suspend () -> Unit>()) }
     }
 }

@@ -66,24 +66,24 @@ class DevToolsSeeder(
                 Triple("Back/Bis", 3, 35),
             )
         val historyDao = database.historyDao()
-        if (historyDao.countLogsWithTitles(entries.map { it.first }) > 0) {
-            throw IllegalStateException("History logs already seeded")
-        }
-        entries.forEachIndexed { i, (title, exerciseCount, durationMinutes) ->
-            val completedAt = now - (i * 2 + 1) * dayMs
-            val startedAt = completedAt - durationMinutes * 60_000L
-            val log =
-                WorkoutLog(
-                    title = title,
-                    sourcePlannedWorkoutId = DEV_HISTORY_SOURCE_ID,
-                    startedAt = startedAt,
-                    completedAt = completedAt,
-                    durationMinutes = durationMinutes,
-                    exerciseCount = exerciseCount,
-                )
-            val exercises = sampleLoggedExercises(log.id, title, exerciseCount)
-            val sets = sampleLoggedSets(exercises, completedAt)
-            database.withTransaction {
+        database.withTransaction {
+            if (historyDao.countLogsWithSourcePlannedWorkoutId(DEV_HISTORY_SOURCE_ID) > 0) {
+                throw IllegalStateException("History logs already seeded")
+            }
+            entries.forEachIndexed { i, (title, exerciseCount, durationMinutes) ->
+                val completedAt = now - (i * 2 + 1) * dayMs
+                val startedAt = completedAt - durationMinutes * 60_000L
+                val log =
+                    WorkoutLog(
+                        title = title,
+                        sourcePlannedWorkoutId = DEV_HISTORY_SOURCE_ID,
+                        startedAt = startedAt,
+                        completedAt = completedAt,
+                        durationMinutes = durationMinutes,
+                        exerciseCount = exerciseCount,
+                    )
+                val exercises = sampleLoggedExercises(log.id, title, exerciseCount)
+                val sets = sampleLoggedSets(exercises, completedAt)
                 historyDao.insertLog(log)
                 historyDao.insertLoggedExercises(exercises)
                 historyDao.insertLoggedSets(sets)

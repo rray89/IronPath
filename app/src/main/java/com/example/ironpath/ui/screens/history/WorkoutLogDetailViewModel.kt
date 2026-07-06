@@ -1,5 +1,6 @@
 package com.example.ironpath.ui.screens.history
 
+import android.database.sqlite.SQLiteConstraintException
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.ironpath.data.local.entity.LoggedSet
@@ -74,22 +75,7 @@ class WorkoutLogDetailViewModel(
                     excludeId = "",
                 )
             if (isDuplicate) {
-                val persistedSavedSetIds =
-                    ready.detail.savedSetIdsFor(
-                        recordRepository.getLoggedRecordsForWorkoutLog(ready.detail.log.id),
-                    )
-                val savedSetIds = ready.savedSetIds + persistedSavedSetIds
-                updateReady(
-                    ready.copy(
-                        savedSetIds = savedSetIds,
-                        recordMessage =
-                            if (savedSetIds.contains(set.id)) {
-                                "Record already saved from this workout."
-                            } else {
-                                "A record with this exercise, date, and weight already exists."
-                            },
-                    ),
-                )
+                updateDuplicateRecordState(ready, set)
                 return@launch
             }
 
@@ -103,18 +89,45 @@ class WorkoutLogDetailViewModel(
                     sourceType = RecordSource.Logged,
                     sourceWorkoutLogId = ready.detail.log.id,
                 )
-            recordRepository.insertRecord(record)
-            updateReady(
-                ready.copy(
-                    savedSetIds = ready.savedSetIds + ready.detail.savedSetIdsFor(listOf(record)),
-                    recordMessage = "Record saved from this workout.",
-                ),
-            )
+            try {
+                recordRepository.insertRecord(record)
+                updateReady(
+                    ready.copy(
+                        savedSetIds =
+                            ready.savedSetIds + ready.detail.savedSetIdsFor(listOf(record)),
+                        recordMessage = "Record saved from this workout.",
+                    ),
+                )
+            } catch (_: SQLiteConstraintException) {
+                updateDuplicateRecordState(ready, set)
+            }
         }
     }
 
     private fun updateReady(state: WorkoutLogDetailUiState.Ready) {
         _uiState.value = state
+    }
+
+    private suspend fun updateDuplicateRecordState(
+        ready: WorkoutLogDetailUiState.Ready,
+        set: LoggedSet,
+    ) {
+        val persistedSavedSetIds =
+            ready.detail.savedSetIdsFor(
+                recordRepository.getLoggedRecordsForWorkoutLog(ready.detail.log.id),
+            )
+        val savedSetIds = ready.savedSetIds + persistedSavedSetIds
+        updateReady(
+            ready.copy(
+                savedSetIds = savedSetIds,
+                recordMessage =
+                    if (savedSetIds.contains(set.id)) {
+                        "Record already saved from this workout."
+                    } else {
+                        "A record with this exercise, date, and weight already exists."
+                    },
+            ),
+        )
     }
 
     private fun Long.toRecordDate(): String =
