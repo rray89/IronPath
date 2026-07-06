@@ -6,6 +6,8 @@ import com.example.ironpath.data.local.entity.PlannedWorkout
 import com.example.ironpath.data.local.entity.WeeklyPlan
 import com.example.ironpath.data.repository.PlanRepository
 import com.example.ironpath.data.repository.SessionRepository
+import com.example.ironpath.domain.planner.findNextUpcomingWorkout
+import com.example.ironpath.domain.planner.findWorkoutScheduledToday
 import java.time.LocalDate
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.SharingStarted
@@ -39,20 +41,8 @@ class HomeViewModel(
                     plan == null -> HomeUiState.NoPlan
                     else -> {
                         val today = LocalDate.now()
-                        val todayDow = today.dayOfWeek.value // 1=Monday..7=Sunday (ISO)
-                        val upcomingWorkouts =
-                            workouts
-                                .filter { it.status.name == "Upcoming" }
-                                .sortedBy { it.dayOfWeek }
-
-                        val todayWorkout = upcomingWorkouts.firstOrNull { it.dayOfWeek == todayDow }
-                        val nextWorkout =
-                            if (todayWorkout != null) {
-                                todayWorkout
-                            } else {
-                                upcomingWorkouts.firstOrNull { it.dayOfWeek > todayDow }
-                                    ?: upcomingWorkouts.firstOrNull()
-                            }
+                        val todayWorkout = workouts.findWorkoutScheduledToday(today)
+                        val nextWorkout = todayWorkout ?: workouts.findNextUpcomingWorkout(today)
 
                         val planned = workouts.size
                         val completed = workouts.count { it.status.name == "Completed" }

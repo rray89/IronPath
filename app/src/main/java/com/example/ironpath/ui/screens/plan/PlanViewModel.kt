@@ -10,6 +10,9 @@ import com.example.ironpath.data.repository.SessionRepository
 import com.example.ironpath.domain.planner.GeneratedPlan
 import com.example.ironpath.domain.planner.PlanGenerator
 import com.example.ironpath.domain.planner.TrainingGoal
+import com.example.ironpath.domain.planner.findNextUpcomingWorkout
+import com.example.ironpath.domain.planner.findWorkoutScheduledToday
+import java.time.LocalDate
 import java.util.UUID
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -73,16 +76,9 @@ class PlanViewModel(
                 when {
                     generated != null -> PlanUiState.Review(generated)
                     plan != null -> {
-                        val todayDow = java.time.LocalDate.now().dayOfWeek.value
-                        val upcoming =
-                            workouts
-                                .filter { it.status.name == "Upcoming" }
-                                .sortedBy { it.dayOfWeek }
-                        val todayWorkout = upcoming.firstOrNull { it.dayOfWeek == todayDow }
-                        val nextWorkout =
-                            todayWorkout
-                                ?: upcoming.firstOrNull { it.dayOfWeek > todayDow }
-                                ?: upcoming.firstOrNull()
+                        val today = LocalDate.now()
+                        val todayWorkout = workouts.findWorkoutScheduledToday(today)
+                        val nextWorkout = todayWorkout ?: workouts.findNextUpcomingWorkout(today)
                         PlanUiState.Accepted(
                             planned = workouts.size,
                             completed = workouts.count { it.status.name == "Completed" },
