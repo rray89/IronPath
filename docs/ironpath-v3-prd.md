@@ -55,6 +55,8 @@ v3 does not aim to solve:
 
 ## Feature 1: Accepted workout preview
 
+Status: Implemented in PR #23 (`feat/feat6-workout-preview`).
+
 ### Context
 
 Right now, accepted plans are visible at a summary level, but users cannot properly inspect a scheduled workout before they begin. That makes the plan feel shallower than it really is and makes Home / Plan less informative than they should be.
