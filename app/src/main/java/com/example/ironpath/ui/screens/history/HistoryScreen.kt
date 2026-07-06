@@ -50,7 +50,7 @@ import org.koin.androidx.compose.koinViewModel
 @Composable
 fun HistoryScreen(
     modifier: Modifier = Modifier,
-    onOpenLog: (String) -> Unit = {},
+    onOpenLog: (String, Boolean) -> Unit = { _, _ -> },
     viewModel: HistoryViewModel = koinViewModel(),
 ) {
     val selectedTab by viewModel.selectedTab.collectAsStateWithLifecycle()
@@ -98,12 +98,12 @@ fun HistoryScreen(
                         record.sourceType == RecordSource.Logged &&
                             record.sourceWorkoutLogId != null
                     ) {
-                        onOpenLog(record.sourceWorkoutLogId)
+                        onOpenLog(record.sourceWorkoutLogId, true)
                     } else {
                         viewModel.showEditRecord(record)
                     }
                 },
-                onLogClick = { log -> onOpenLog(log.id) },
+                onLogClick = { log -> onOpenLog(log.id, false) },
                 modifier = modifier,
             )
         }

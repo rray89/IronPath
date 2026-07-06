@@ -65,22 +65,25 @@ class DevToolsSeeder(
                 Triple("Push B", 3, 40),
                 Triple("Back/Bis", 3, 35),
             )
-        entries.forEachIndexed { i, (title, exerciseCount, durationMinutes) ->
-            val completedAt = now - (i * 2 + 1) * dayMs
-            val startedAt = completedAt - durationMinutes * 60_000L
-            val log =
-                WorkoutLog(
-                    title = title,
-                    sourcePlannedWorkoutId = null,
-                    startedAt = startedAt,
-                    completedAt = completedAt,
-                    durationMinutes = durationMinutes,
-                    exerciseCount = exerciseCount,
-                )
-            val exercises = sampleLoggedExercises(log.id, title, exerciseCount)
-            val sets = sampleLoggedSets(exercises, completedAt)
-            database.withTransaction {
-                val historyDao = database.historyDao()
+        val historyDao = database.historyDao()
+        database.withTransaction {
+            if (historyDao.countLogsWithSourcePlannedWorkoutId(DEV_HISTORY_SOURCE_ID) > 0) {
+                throw IllegalStateException("History logs already seeded")
+            }
+            entries.forEachIndexed { i, (title, exerciseCount, durationMinutes) ->
+                val completedAt = now - (i * 2 + 1) * dayMs
+                val startedAt = completedAt - durationMinutes * 60_000L
+                val log =
+                    WorkoutLog(
+                        title = title,
+                        sourcePlannedWorkoutId = DEV_HISTORY_SOURCE_ID,
+                        startedAt = startedAt,
+                        completedAt = completedAt,
+                        durationMinutes = durationMinutes,
+                        exerciseCount = exerciseCount,
+                    )
+                val exercises = sampleLoggedExercises(log.id, title, exerciseCount)
+                val sets = sampleLoggedSets(exercises, completedAt)
                 historyDao.insertLog(log)
                 historyDao.insertLoggedExercises(exercises)
                 historyDao.insertLoggedSets(sets)
@@ -226,6 +229,8 @@ class DevToolsSeeder(
             }
         }
 }
+
+private const val DEV_HISTORY_SOURCE_ID = "__dev_seed_history__"
 
 private data class SeedExercise(
     val name: String,
