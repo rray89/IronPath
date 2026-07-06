@@ -34,6 +34,7 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.ironpath.data.local.entity.PersonalRecord
+import com.example.ironpath.data.local.entity.RecordSource
 import com.example.ironpath.data.local.entity.WorkoutLog
 import com.example.ironpath.ui.components.GreenGradientButton
 import com.example.ironpath.ui.theme.IronPathTheme
@@ -92,7 +93,16 @@ fun HistoryScreen(
                 records = records,
                 onTabSelected = viewModel::selectTab,
                 onAddRecord = viewModel::showAddRecord,
-                onRecordClick = viewModel::showEditRecord,
+                onRecordClick = { record ->
+                    if (
+                        record.sourceType == RecordSource.Logged &&
+                            record.sourceWorkoutLogId != null
+                    ) {
+                        onOpenLog(record.sourceWorkoutLogId)
+                    } else {
+                        viewModel.showEditRecord(record)
+                    }
+                },
                 onLogClick = { log -> onOpenLog(log.id) },
                 modifier = modifier,
             )
@@ -434,6 +444,14 @@ private fun RecordRow(
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+            if (record.sourceType == RecordSource.Logged) {
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    text = "LOGGED",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+            }
         }
 
         Text(

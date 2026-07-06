@@ -59,5 +59,5 @@ val viewModelModule = module {
     viewModel { ActiveViewModel(get(), get(), get()) }
     viewModel { HistoryViewModel(get(), get(), get()) }
     viewModel { params -> WorkoutPreviewViewModel(params.get(), get(), get(), get()) }
-    viewModel { params -> WorkoutLogDetailViewModel(params.get(), get()) }
+    viewModel { params -> WorkoutLogDetailViewModel(params.get(), get(), get()) }
 }
