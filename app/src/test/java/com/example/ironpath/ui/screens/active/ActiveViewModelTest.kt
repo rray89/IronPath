@@ -11,6 +11,7 @@ import com.example.ironpath.data.local.entity.WeeklyPlan
 import com.example.ironpath.data.local.entity.WorkoutStatus
 import com.example.ironpath.data.repository.PlanRepository
 import com.example.ironpath.data.repository.SessionRepository
+import com.example.ironpath.domain.session.StartPlannedWorkoutUseCase
 import com.example.ironpath.util.MainDispatcherRule
 import io.mockk.clearAllMocks
 import io.mockk.coEvery
@@ -38,6 +39,7 @@ class ActiveViewModelTest {
 
     private lateinit var sessionRepository: SessionRepository
     private lateinit var planRepository: PlanRepository
+    private lateinit var startPlannedWorkout: StartPlannedWorkoutUseCase
     private lateinit var viewModel: ActiveViewModel
 
     private val activeSessionFlow = MutableStateFlow<ActiveSession?>(null)
@@ -107,6 +109,7 @@ class ActiveViewModelTest {
     fun setUp() {
         sessionRepository = mockk(relaxed = true)
         planRepository = mockk(relaxed = true)
+        startPlannedWorkout = mockk(relaxed = true)
 
         every { sessionRepository.observeActiveSession() } returns activeSessionFlow
         every { sessionRepository.observeExercisesForSession(any()) } returns flowOf(emptyList())
@@ -115,7 +118,7 @@ class ActiveViewModelTest {
         every { planRepository.observeWorkoutsForPlan(any()) } returns workoutsFlow
         coEvery { sessionRepository.getActiveSession() } returns null
 
-        viewModel = ActiveViewModel(sessionRepository, planRepository)
+        viewModel = ActiveViewModel(sessionRepository, planRepository, startPlannedWorkout)
     }
 
     @After
@@ -228,42 +231,12 @@ class ActiveViewModelTest {
     // -- startSession --
 
     @Test
-    fun `startSession calls sessionRepository startSession with correct session and exercises`() =
-        runTestCancelling {
-            val workout = makeWorkout()
-            coEvery { planRepository.getExercisesForWorkout("workout1") } returns
-                listOf(makePlannedExercise())
-            coEvery { sessionRepository.getExercisesForSession(any()) } returns emptyList()
-
-            viewModel.startSession(workout)
-
-            coVerify {
-                sessionRepository.startSession(
-                    match {
-                        it.sourcePlannedWorkoutId == "workout1" &&
-                            it.workoutTitle == "Workout workout1"
-                    },
-                    match { exercises ->
-                        exercises.size == 1 &&
-                            exercises[0].name == "Bench Press" &&
-                            exercises[0].plannedSets == 3
-                    },
-                )
-            }
-        }
-
-    @Test
-    fun `startSession pre-populates one SessionSet per planned set`() = runTestCancelling {
+    fun `startSession delegates to shared planned workout starter`() = runTestCancelling {
         val workout = makeWorkout()
-        val sessionExercise = makeSessionExercise(sets = 3)
-
-        coEvery { planRepository.getExercisesForWorkout("workout1") } returns
-            listOf(makePlannedExercise())
-        coEvery { sessionRepository.getExercisesForSession(any()) } returns listOf(sessionExercise)
 
         viewModel.startSession(workout)
 
-        coVerify(exactly = 3) { sessionRepository.insertSet(any()) }
+        coVerify(exactly = 1) { startPlannedWorkout(workout) }
     }
 
     // -- updateSet --

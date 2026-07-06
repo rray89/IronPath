@@ -12,6 +12,7 @@ import com.example.ironpath.data.repository.PlanRepository
 import com.example.ironpath.data.repository.SessionRepository
 import com.example.ironpath.domain.planner.findNextUpcomingWorkout
 import com.example.ironpath.domain.planner.findWorkoutScheduledToday
+import com.example.ironpath.domain.session.StartPlannedWorkoutUseCase
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -30,6 +31,7 @@ import kotlinx.coroutines.launch
 class ActiveViewModel(
     private val sessionRepository: SessionRepository,
     private val planRepository: PlanRepository,
+    private val startPlannedWorkout: StartPlannedWorkoutUseCase,
 ) : ViewModel() {
 
     private val activeSession = sessionRepository.observeActiveSession()
@@ -113,40 +115,7 @@ class ActiveViewModel(
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ActiveUiState.Loading)
 
     fun startSession(workout: PlannedWorkout) {
-        viewModelScope.launch {
-            val session =
-                ActiveSession(
-                    sourcePlannedWorkoutId = workout.id,
-                    workoutTitle = workout.title,
-                )
-            val exercises = planRepository.getExercisesForWorkout(workout.id)
-            val sessionExercises =
-                exercises.map { ex ->
-                    SessionExercise(
-                        activeSessionId = session.id,
-                        name = ex.name,
-                        plannedSets = ex.sets,
-                        plannedReps = ex.reps,
-                        plannedWeightKg = ex.weightKg,
-                        orderIndex = ex.orderIndex,
-                    )
-                }
-            sessionRepository.startSession(session, sessionExercises)
-
-            // Pre-populate planned sets for each exercise
-            val createdExercises = sessionRepository.getExercisesForSession(session.id)
-            for (ex in createdExercises) {
-                for (setNum in 1..ex.plannedSets) {
-                    sessionRepository.insertSet(
-                        SessionSet(
-                            sessionExerciseId = ex.id,
-                            setNumber = setNum,
-                            weightKg = ex.plannedWeightKg,
-                        ),
-                    )
-                }
-            }
-        }
+        viewModelScope.launch { startPlannedWorkout(workout) }
     }
 
     fun updateSet(set: SessionSet) {

@@ -5,14 +5,17 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.navigation.NavHostController
+import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
+import androidx.navigation.navArgument
 import com.example.ironpath.ui.screens.active.ActiveScreen
 import com.example.ironpath.ui.screens.devtools.DevToolsScreen
 import com.example.ironpath.ui.screens.entry.EntryScreen
 import com.example.ironpath.ui.screens.history.HistoryScreen
 import com.example.ironpath.ui.screens.home.HomeScreen
 import com.example.ironpath.ui.screens.plan.PlanScreen
+import com.example.ironpath.ui.screens.workoutpreview.WorkoutPreviewScreen
 
 @Composable
 fun IronPathNavHost(
@@ -48,6 +51,9 @@ fun IronPathNavHost(
                         restoreState = true
                     }
                 },
+                onOpenWorkoutPreview = { workoutId ->
+                    navController.navigate(Route.workoutPreview(workoutId))
+                },
                 modifier = Modifier.padding(innerPadding),
             )
         }
@@ -66,6 +72,9 @@ fun IronPathNavHost(
                         launchSingleTop = true
                         restoreState = true
                     }
+                },
+                onOpenWorkoutPreview = { workoutId ->
+                    navController.navigate(Route.workoutPreview(workoutId))
                 },
                 modifier = Modifier.padding(innerPadding),
             )
@@ -93,6 +102,24 @@ fun IronPathNavHost(
             )
         }
         composable(Route.HISTORY) { HistoryScreen(modifier = Modifier.padding(innerPadding)) }
+        composable(
+            route = Route.WORKOUT_PREVIEW,
+            arguments = listOf(navArgument(Route.WORKOUT_ID_ARG) { type = NavType.StringType }),
+        ) { backStackEntry ->
+            val workoutId = backStackEntry.arguments?.getString(Route.WORKOUT_ID_ARG).orEmpty()
+            WorkoutPreviewScreen(
+                workoutId = workoutId,
+                onBack = { navController.popBackStack() },
+                onStarted = {
+                    navController.navigate(Route.ACTIVE) {
+                        popUpTo(Route.HOME) { saveState = true }
+                        launchSingleTop = true
+                        restoreState = true
+                    }
+                },
+                modifier = Modifier.padding(innerPadding),
+            )
+        }
         composable(Route.DEV_TOOLS) {
             DevToolsScreen(
                 onBack = { navController.popBackStack() },

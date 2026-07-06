@@ -1,6 +1,7 @@
 package com.example.ironpath.ui.screens.home
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -17,6 +18,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CalendarMonth
+import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.FlashOn
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
@@ -27,6 +29,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
@@ -46,11 +49,12 @@ import org.koin.androidx.compose.koinViewModel
 fun HomeScreen(
     onNavigateToPlan: () -> Unit,
     onNavigateToActive: () -> Unit,
+    onOpenWorkoutPreview: (String) -> Unit,
     modifier: Modifier = Modifier,
     viewModel: HomeViewModel = koinViewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
-    HomeContent(uiState, onNavigateToPlan, onNavigateToActive, modifier)
+    HomeContent(uiState, onNavigateToPlan, onNavigateToActive, onOpenWorkoutPreview, modifier)
 }
 
 // -- Pure render composable (no ViewModel, previewable) --
@@ -60,6 +64,7 @@ internal fun HomeContent(
     uiState: HomeUiState,
     onNavigateToPlan: () -> Unit,
     onNavigateToActive: () -> Unit,
+    onOpenWorkoutPreview: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     when (uiState) {
@@ -69,7 +74,8 @@ internal fun HomeContent(
             }
         }
         HomeUiState.NoPlan -> HomeEmptyState(onNavigateToPlan, modifier)
-        is HomeUiState.ActivePlan -> HomeActivePlanState(uiState, onNavigateToActive, modifier)
+        is HomeUiState.ActivePlan ->
+            HomeActivePlanState(uiState, onNavigateToActive, onOpenWorkoutPreview, modifier)
         is HomeUiState.WeekComplete -> HomeWeekCompleteState(uiState, onNavigateToPlan, modifier)
     }
 }
@@ -159,6 +165,7 @@ private fun HomeEmptyState(
 private fun HomeActivePlanState(
     state: HomeUiState.ActivePlan,
     onNavigateToActive: () -> Unit,
+    onOpenWorkoutPreview: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Column(
@@ -257,7 +264,7 @@ private fun HomeActivePlanState(
             Spacer(Modifier.height(16.dp))
 
             upcomingWorkouts.forEach { workout ->
-                WorkoutCard(workout)
+                WorkoutCard(workout = workout, onClick = { onOpenWorkoutPreview(workout.id) })
                 Spacer(Modifier.height(12.dp))
             }
         }
@@ -329,13 +336,16 @@ private fun StatItem(
 @Composable
 private fun WorkoutCard(
     workout: PlannedWorkout,
+    onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Row(
         modifier =
             modifier
                 .fillMaxWidth()
-                .background(SurfaceContainerLow, RoundedCornerShape(4.dp))
+                .clip(RoundedCornerShape(4.dp))
+                .background(SurfaceContainerLow)
+                .clickable(onClick = onClick)
                 .padding(16.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -354,7 +364,10 @@ private fun WorkoutCard(
 
         Spacer(Modifier.width(16.dp))
 
-        Row(verticalAlignment = Alignment.CenterVertically) {
+        Row(
+            modifier = Modifier.weight(1f),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
             Text(
                 text = workout.title.uppercase(),
                 style = MaterialTheme.typography.titleSmall,
@@ -368,6 +381,13 @@ private fun WorkoutCard(
                 tint = MaterialTheme.colorScheme.primary,
             )
         }
+        Spacer(Modifier.width(8.dp))
+        Icon(
+            imageVector = Icons.Default.ChevronRight,
+            contentDescription = null,
+            modifier = Modifier.size(18.dp),
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
     }
 }
 
@@ -417,6 +437,7 @@ private fun PreviewHomeNoPlan() {
                 uiState = HomeUiState.NoPlan,
                 onNavigateToPlan = {},
                 onNavigateToActive = {},
+                onOpenWorkoutPreview = {},
             )
         }
     }
@@ -440,6 +461,7 @@ private fun PreviewHomeActivePlanTodayWorkout() {
                     ),
                 onNavigateToPlan = {},
                 onNavigateToActive = {},
+                onOpenWorkoutPreview = {},
             )
         }
     }
@@ -463,6 +485,7 @@ private fun PreviewHomeActivePlanNextWorkout() {
                     ),
                 onNavigateToPlan = {},
                 onNavigateToActive = {},
+                onOpenWorkoutPreview = {},
             )
         }
     }
@@ -477,6 +500,7 @@ private fun PreviewHomeWeekComplete() {
                 uiState = HomeUiState.WeekComplete(planned = 3, completed = 3),
                 onNavigateToPlan = {},
                 onNavigateToActive = {},
+                onOpenWorkoutPreview = {},
             )
         }
     }
