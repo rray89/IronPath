@@ -117,6 +117,8 @@ No schema changes are required if preview reads from the accepted `PlannedWorkou
 
 ## Feature 2: Workout log detail and history review
 
+Status: Implemented in PR #24 (`feat/feat7-workout-log-detail`).
+
 ### Context
 
 History currently proves that workouts were completed, but it does not let users inspect those completed sessions in a meaningful way. That weakens both portfolio storytelling and later record derivation.
