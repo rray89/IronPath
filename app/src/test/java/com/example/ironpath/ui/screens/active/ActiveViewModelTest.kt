@@ -58,12 +58,13 @@ class ActiveViewModelTest {
         id: String = "workout1",
         dayOfWeek: Int = 1,
         status: WorkoutStatus = WorkoutStatus.Upcoming,
+        scheduledDate: String = "2026-04-${13 + dayOfWeek}",
     ) =
         PlannedWorkout(
             id = id,
             weeklyPlanId = "plan1",
             dayOfWeek = dayOfWeek,
-            scheduledDate = "2026-04-${13 + dayOfWeek}",
+            scheduledDate = scheduledDate,
             title = "Workout $id",
             status = status,
         )
@@ -89,6 +90,18 @@ class ActiveViewModelTest {
             plannedWeightKg = 60.0,
             orderIndex = 0,
         )
+
+    private fun dayOfWeekFull(dow: Int): String =
+        when (dow) {
+            1 -> "Monday"
+            2 -> "Tuesday"
+            3 -> "Wednesday"
+            4 -> "Thursday"
+            5 -> "Friday"
+            6 -> "Saturday"
+            7 -> "Sunday"
+            else -> "?"
+        }
 
     @Before
     fun setUp() {
@@ -149,8 +162,13 @@ class ActiveViewModelTest {
     @Test
     fun `uiState emits ReadyToStart when plan has today workout and no active session`() =
         runTestCancelling {
-            val todayDow = LocalDate.now().dayOfWeek.value
-            val todayWorkout = makeWorkout(dayOfWeek = todayDow, status = WorkoutStatus.Upcoming)
+            val today = LocalDate.now()
+            val todayWorkout =
+                makeWorkout(
+                    dayOfWeek = today.dayOfWeek.value,
+                    status = WorkoutStatus.Upcoming,
+                    scheduledDate = today.toString(),
+                )
 
             viewModel.uiState.test {
                 awaitItem() // Loading
@@ -159,6 +177,33 @@ class ActiveViewModelTest {
                 var state = awaitItem()
                 while (state !is ActiveUiState.ReadyToStart) state = awaitItem()
                 assertEquals(todayWorkout, (state as ActiveUiState.ReadyToStart).workout)
+                cancelAndIgnoreRemainingEvents()
+            }
+        }
+
+    @Test
+    fun `uiState emits RestDay when same-weekday workout is scheduled in the future`() =
+        runTestCancelling {
+            val nextWeekSameDay = LocalDate.now().plusWeeks(1)
+            val futureWorkout =
+                makeWorkout(
+                    dayOfWeek = nextWeekSameDay.dayOfWeek.value,
+                    status = WorkoutStatus.Upcoming,
+                    scheduledDate = nextWeekSameDay.toString(),
+                )
+
+            viewModel.uiState.test {
+                awaitItem() // Loading
+                activePlanFlow.value = plan
+                workoutsFlow.value = listOf(futureWorkout)
+                var state = awaitItem()
+                while (state !is ActiveUiState.RestDay || state.nextWorkoutDay == null) {
+                    state = awaitItem()
+                }
+                assertEquals(
+                    dayOfWeekFull(nextWeekSameDay.dayOfWeek.value),
+                    state.nextWorkoutDay,
+                )
                 cancelAndIgnoreRemainingEvents()
             }
         }

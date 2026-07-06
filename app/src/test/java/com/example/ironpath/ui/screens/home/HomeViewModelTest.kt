@@ -47,12 +47,13 @@ class HomeViewModelTest {
         id: String,
         dayOfWeek: Int,
         status: WorkoutStatus = WorkoutStatus.Upcoming,
+        scheduledDate: String = "2026-04-${13 + dayOfWeek}",
     ) =
         PlannedWorkout(
             id = id,
             weeklyPlanId = "plan1",
             dayOfWeek = dayOfWeek,
-            scheduledDate = "2026-04-${13 + dayOfWeek}",
+            scheduledDate = scheduledDate,
             title = "Workout $id",
             status = status,
         )
@@ -165,9 +166,15 @@ class HomeViewModelTest {
     }
 
     @Test
-    fun `uiState todayWorkout is set when a workout matches today dayOfWeek`() = runTest {
-        val todayDow = LocalDate.now().dayOfWeek.value
-        val todayWorkout = makeWorkout("today", todayDow, WorkoutStatus.Upcoming)
+    fun `uiState todayWorkout is set when a workout is scheduled today`() = runTest {
+        val today = LocalDate.now()
+        val todayWorkout =
+            makeWorkout(
+                "today",
+                today.dayOfWeek.value,
+                WorkoutStatus.Upcoming,
+                scheduledDate = today.toString(),
+            )
         viewModel.uiState.test {
             planFlow.value = activePlan
             workoutsFlow.value = listOf(todayWorkout)
@@ -181,7 +188,7 @@ class HomeViewModelTest {
     }
 
     @Test
-    fun `uiState todayWorkout is null when no workout matches today dayOfWeek`() = runTest {
+    fun `uiState todayWorkout is null when no workout is scheduled today`() = runTest {
         val todayDow = LocalDate.now().dayOfWeek.value
         val otherDow = if (todayDow == 1) 2 else 1
         val otherWorkout = makeWorkout("other", otherDow, WorkoutStatus.Upcoming)
@@ -190,6 +197,28 @@ class HomeViewModelTest {
             workoutsFlow.value = listOf(otherWorkout)
             val state = awaitState(HomeUiState.ActivePlan::class.java)
             assertNull(state.todayWorkout)
+            cancelAndIgnoreRemainingEvents()
+        }
+    }
+
+    @Test
+    fun `uiState does not treat future same-weekday workout as today`() = runTest {
+        val nextWeekSameDay = LocalDate.now().plusWeeks(1)
+        val futureWorkout =
+            makeWorkout(
+                "future",
+                nextWeekSameDay.dayOfWeek.value,
+                WorkoutStatus.Upcoming,
+                scheduledDate = nextWeekSameDay.toString(),
+            )
+
+        viewModel.uiState.test {
+            planFlow.value = activePlan
+            workoutsFlow.value = listOf(futureWorkout)
+            var state = awaitState(HomeUiState.ActivePlan::class.java)
+            while (state.nextWorkout == null) state = awaitState(HomeUiState.ActivePlan::class.java)
+            assertNull(state.todayWorkout)
+            assertEquals(futureWorkout, state.nextWorkout)
             cancelAndIgnoreRemainingEvents()
         }
     }

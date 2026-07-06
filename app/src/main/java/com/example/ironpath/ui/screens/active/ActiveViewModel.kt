@@ -10,7 +10,8 @@ import com.example.ironpath.data.local.entity.WorkoutLog
 import com.example.ironpath.data.local.entity.WorkoutStatus
 import com.example.ironpath.data.repository.PlanRepository
 import com.example.ironpath.data.repository.SessionRepository
-import java.time.LocalDate
+import com.example.ironpath.domain.planner.findNextUpcomingWorkout
+import com.example.ironpath.domain.planner.findWorkoutScheduledToday
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -78,19 +79,9 @@ class ActiveViewModel(
             else flowOf(emptyList())
         }
 
-    private val todayWorkout =
-        planWorkouts.map { workouts ->
-            val todayDow = LocalDate.now().dayOfWeek.value
-            workouts.firstOrNull { it.dayOfWeek == todayDow && it.status == WorkoutStatus.Upcoming }
-        }
+    private val todayWorkout = planWorkouts.map { workouts -> workouts.findWorkoutScheduledToday() }
 
-    private val nextWorkout =
-        planWorkouts.map { workouts ->
-            val todayDow = LocalDate.now().dayOfWeek.value
-            val upcoming =
-                workouts.filter { it.status == WorkoutStatus.Upcoming }.sortedBy { it.dayOfWeek }
-            upcoming.firstOrNull { it.dayOfWeek > todayDow } ?: upcoming.firstOrNull()
-        }
+    private val nextWorkout = planWorkouts.map { workouts -> workouts.findNextUpcomingWorkout() }
 
     private val sessionState =
         combine(activeSession, exercises, sets) { session, exs, allSets ->

@@ -1,8 +1,10 @@
 package com.example.ironpath.ui.screens.plan
 
+import app.cash.turbine.test
 import com.example.ironpath.data.local.entity.PlannedExercise
 import com.example.ironpath.data.local.entity.PlannedWorkout
 import com.example.ironpath.data.local.entity.WeeklyPlan
+import com.example.ironpath.data.local.entity.WorkoutStatus
 import com.example.ironpath.data.repository.PlanRepository
 import com.example.ironpath.data.repository.RecordRepository
 import com.example.ironpath.data.repository.SessionRepository
@@ -14,6 +16,8 @@ import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
+import java.time.LocalDate
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
@@ -36,13 +40,20 @@ class PlanViewModelTest {
 
     // -- Builder helpers --
 
-    private fun makeWorkout(id: String, dayOfWeek: Int, planId: String = "plan1") =
+    private fun makeWorkout(
+        id: String,
+        dayOfWeek: Int,
+        planId: String = "plan1",
+        scheduledDate: String = "2026-04-${13 + dayOfWeek}",
+        status: WorkoutStatus = WorkoutStatus.Upcoming,
+    ) =
         PlannedWorkout(
             id = id,
             weeklyPlanId = planId,
             dayOfWeek = dayOfWeek,
-            scheduledDate = "2026-04-${13 + dayOfWeek}", // Mon 4/14 = dayOfWeek 1
+            scheduledDate = scheduledDate,
             title = "Workout $id",
+            status = status,
         )
 
     private fun makeExercise(id: String, workoutId: String, orderIndex: Int = 0) =
@@ -88,6 +99,13 @@ class PlanViewModelTest {
             PlanViewModel(planRepository, planGenerator, sessionRepository, recordRepository)
     }
 
+    private suspend fun <T : PlanUiState> app.cash.turbine.TurbineTestContext<PlanUiState>
+        .awaitState(clazz: Class<T>): T {
+        var item = awaitItem()
+        while (!clazz.isInstance(item)) item = awaitItem()
+        @Suppress("UNCHECKED_CAST") return item as T
+    }
+
     // -- generatePlan --
 
     @Test
@@ -107,6 +125,36 @@ class PlanViewModelTest {
     fun `generatePlan does nothing when no days selected`() = runTest {
         viewModel.generatePlan()
         assertNull(viewModel.generatedPlan.value)
+    }
+
+    @Test
+    fun `accepted state does not treat future same-weekday workout as today`() = runTest {
+        val activePlan = WeeklyPlan(id = "plan1", startDate = "2026-04-14", endDate = "2026-04-20")
+        val activePlanFlow = MutableStateFlow<WeeklyPlan?>(null)
+        val workoutsFlow = MutableStateFlow<List<PlannedWorkout>>(emptyList())
+        val nextWeekSameDay = LocalDate.now().plusWeeks(1)
+        val futureWorkout =
+            makeWorkout(
+                id = "future",
+                dayOfWeek = nextWeekSameDay.dayOfWeek.value,
+                scheduledDate = nextWeekSameDay.toString(),
+            )
+
+        every { planRepository.observeActivePlan() } returns activePlanFlow
+        every { planRepository.observeWorkoutsForPlan("plan1") } returns workoutsFlow
+        every { sessionRepository.observeActiveSession() } returns flowOf(null)
+        viewModel =
+            PlanViewModel(planRepository, planGenerator, sessionRepository, recordRepository)
+
+        viewModel.planUiState.test {
+            activePlanFlow.value = activePlan
+            workoutsFlow.value = listOf(futureWorkout)
+            var state = awaitState(PlanUiState.Accepted::class.java)
+            while (state.nextWorkout == null) state = awaitState(PlanUiState.Accepted::class.java)
+            assertNull(state.todayWorkout)
+            assertEquals(futureWorkout, state.nextWorkout)
+            cancelAndIgnoreRemainingEvents()
+        }
     }
 
     // -- deleteWorkoutFromReview --
