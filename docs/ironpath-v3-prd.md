@@ -173,6 +173,8 @@ v3 likely needs persisted read access to the completed session snapshot rather t
 
 ## Feature 3: Derived records from completed workouts
 
+Status: Implemented in PR #25 (`feat/feat8-derived-records`).
+
 ### Context
 
 Manual records already work, but records derived from completed workouts are the more credible long-term flow. The key constraint is that derived records must not become unclickable dead ends. Users need provenance.
