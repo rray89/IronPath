@@ -1,6 +1,7 @@
 package com.example.ironpath.ui.screens.history
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -58,6 +59,7 @@ fun WorkoutLogDetailScreen(
     WorkoutLogDetailContent(
         uiState = uiState,
         onBack = onBack,
+        onSaveSetAsRecord = viewModel::saveSetAsRecord,
         modifier = modifier,
     )
 }
@@ -66,6 +68,7 @@ fun WorkoutLogDetailScreen(
 internal fun WorkoutLogDetailContent(
     uiState: WorkoutLogDetailUiState,
     onBack: () -> Unit,
+    onSaveSetAsRecord: (LoggedExerciseDetail, LoggedSet) -> Unit = { _, _ -> },
     modifier: Modifier = Modifier,
 ) {
     when (uiState) {
@@ -77,8 +80,9 @@ internal fun WorkoutLogDetailContent(
         WorkoutLogDetailUiState.NotFound -> WorkoutLogDetailNotFound(onBack, modifier)
         is WorkoutLogDetailUiState.Ready ->
             WorkoutLogDetailReady(
-                detail = uiState.detail,
+                state = uiState,
                 onBack = onBack,
+                onSaveSetAsRecord = onSaveSetAsRecord,
                 modifier = modifier,
             )
     }
@@ -112,10 +116,12 @@ private fun WorkoutLogDetailNotFound(
 
 @Composable
 private fun WorkoutLogDetailReady(
-    detail: WorkoutLogDetail,
+    state: WorkoutLogDetailUiState.Ready,
     onBack: () -> Unit,
+    onSaveSetAsRecord: (LoggedExerciseDetail, LoggedSet) -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val detail = state.detail
     Column(
         modifier =
             modifier
@@ -159,6 +165,15 @@ private fun WorkoutLogDetailReady(
 
         WorkoutLogSummary(log = detail.log)
 
+        if (state.recordMessage != null) {
+            Spacer(Modifier.height(12.dp))
+            Text(
+                text = state.recordMessage,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+
         Spacer(Modifier.height(18.dp))
 
         if (detail.exercises.isEmpty()) {
@@ -169,7 +184,12 @@ private fun WorkoutLogDetailReady(
             )
         } else {
             detail.exercises.forEachIndexed { index, exerciseDetail ->
-                LoggedExerciseRow(index = index + 1, detail = exerciseDetail)
+                LoggedExerciseRow(
+                    index = index + 1,
+                    detail = exerciseDetail,
+                    savedSetIds = state.savedSetIds,
+                    onSaveSetAsRecord = onSaveSetAsRecord,
+                )
                 Spacer(Modifier.height(10.dp))
             }
         }
@@ -218,6 +238,8 @@ private fun WorkoutLogSummary(
 private fun LoggedExerciseRow(
     index: Int,
     detail: LoggedExerciseDetail,
+    savedSetIds: Set<String>,
+    onSaveSetAsRecord: (LoggedExerciseDetail, LoggedSet) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Column(
@@ -271,7 +293,11 @@ private fun LoggedExerciseRow(
             detail.sets
                 .sortedBy { it.setNumber }
                 .forEach { set ->
-                    LoggedSetRow(set)
+                    LoggedSetRow(
+                        set = set,
+                        isSaved = savedSetIds.contains(set.id),
+                        onSaveRecord = { onSaveSetAsRecord(detail, set) },
+                    )
                     Spacer(Modifier.height(8.dp))
                 }
         }
@@ -279,7 +305,12 @@ private fun LoggedExerciseRow(
 }
 
 @Composable
-private fun LoggedSetRow(set: LoggedSet) {
+private fun LoggedSetRow(
+    set: LoggedSet,
+    isSaved: Boolean,
+    onSaveRecord: () -> Unit,
+) {
+    val canSave = set.reps != null && set.weightKg != null && set.weightKg > 0.0
     Row(
         modifier =
             Modifier.fillMaxWidth()
@@ -298,6 +329,22 @@ private fun LoggedSetRow(set: LoggedSet) {
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurface,
         )
+        Spacer(Modifier.weight(1f))
+        if (canSave) {
+            Text(
+                text = if (isSaved) "SAVED" else "SAVE RECORD",
+                style = MaterialTheme.typography.labelSmall,
+                color =
+                    if (isSaved) MaterialTheme.colorScheme.onSurfaceVariant
+                    else MaterialTheme.colorScheme.primary,
+                modifier =
+                    if (isSaved) {
+                        Modifier
+                    } else {
+                        Modifier.clickable(onClick = onSaveRecord)
+                    },
+            )
+        }
     }
 }
 
