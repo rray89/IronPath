@@ -11,6 +11,10 @@ object Route {
     const val DEV_TOOLS = "dev_tools"
     const val WORKOUT_ID_ARG = "workoutId"
     const val WORKOUT_PREVIEW = "workout_preview/{$WORKOUT_ID_ARG}"
+    const val WORKOUT_LOG_ID_ARG = "workoutLogId"
+    const val WORKOUT_LOG_DETAIL = "workout_log/{$WORKOUT_LOG_ID_ARG}"
 
     fun workoutPreview(workoutId: String): String = "workout_preview/${Uri.encode(workoutId)}"
+
+    fun workoutLogDetail(logId: String): String = "workout_log/${Uri.encode(logId)}"
 }

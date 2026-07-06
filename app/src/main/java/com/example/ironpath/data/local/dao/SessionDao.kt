@@ -47,6 +47,11 @@ interface SessionDao {
     fun observeSetsForExercises(exerciseIds: List<String>): Flow<List<SessionSet>>
 
     @Query(
+        "SELECT * FROM session_sets WHERE sessionExerciseId IN (:exerciseIds) ORDER BY setNumber"
+    )
+    suspend fun getSetsForExercises(exerciseIds: List<String>): List<SessionSet>
+
+    @Query(
         "SELECT COUNT(*) FROM session_sets WHERE sessionExerciseId IN (:exerciseIds) AND reps IS NOT NULL AND weightKg IS NOT NULL"
     )
     suspend fun countCompletedSets(exerciseIds: List<String>): Int

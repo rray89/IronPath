@@ -5,6 +5,8 @@ import com.example.ironpath.data.local.IronPathDatabase
 import com.example.ironpath.data.local.dao.HistoryDao
 import com.example.ironpath.data.local.dao.SessionDao
 import com.example.ironpath.data.local.entity.ActiveSession
+import com.example.ironpath.data.local.entity.LoggedExercise
+import com.example.ironpath.data.local.entity.LoggedSet
 import com.example.ironpath.data.local.entity.SessionExercise
 import com.example.ironpath.data.local.entity.SessionSet
 import com.example.ironpath.data.local.entity.WorkoutLog
@@ -48,6 +50,9 @@ class SessionRepositoryTest {
             id = "set1",
             sessionExerciseId = "sex1",
             setNumber = 1,
+            reps = 10,
+            weightKg = 60.0,
+            completedAt = 4_000L,
         )
 
     private val log =
@@ -113,5 +118,44 @@ class SessionRepositoryTest {
         coVerify(exactly = 1) { database.withTransaction(any<suspend () -> Unit>()) }
         coVerify(exactly = 1) { sessionDao.deleteSession("session1") }
         coVerify(exactly = 1) { historyDao.insertLog(log) }
+    }
+
+    @Test
+    fun `completeSession snapshots exercises and sets for workout log detail`() = runTest {
+        coEvery { sessionDao.getExercisesForSession("session1") } returns listOf(sessionExercise)
+        coEvery { sessionDao.getSetsForExercises(listOf("sex1")) } returns listOf(sessionSet)
+
+        repository.completeSession("session1", log)
+
+        coVerify(exactly = 1) {
+            historyDao.insertLoggedExercises(
+                listOf(
+                    LoggedExercise(
+                        id = "sex1",
+                        workoutLogId = log.id,
+                        name = "Bench Press",
+                        plannedSets = 3,
+                        plannedReps = 10,
+                        plannedWeightKg = 60.0,
+                        orderIndex = 0,
+                    ),
+                ),
+            )
+        }
+        coVerify(exactly = 1) {
+            historyDao.insertLoggedSets(
+                listOf(
+                    LoggedSet(
+                        id = "set1",
+                        loggedExerciseId = "sex1",
+                        setNumber = 1,
+                        reps = 10,
+                        weightKg = 60.0,
+                        isExtra = false,
+                        completedAt = 4_000L,
+                    ),
+                ),
+            )
+        }
     }
 }
