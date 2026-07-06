@@ -24,6 +24,7 @@ class WorkoutPreviewViewModel(
 
     private val _uiState = MutableStateFlow<WorkoutPreviewUiState>(WorkoutPreviewUiState.Loading)
     val uiState: StateFlow<WorkoutPreviewUiState> = _uiState.asStateFlow()
+    private var startInProgress = false
 
     init {
         loadPreview()
@@ -32,10 +33,16 @@ class WorkoutPreviewViewModel(
     fun startWorkout(onStarted: () -> Unit) {
         val state = _uiState.value as? WorkoutPreviewUiState.Ready ?: return
         if (!state.canStart) return
+        if (startInProgress) return
+        startInProgress = true
 
         viewModelScope.launch {
-            startPlannedWorkout(state.workout)
-            onStarted()
+            try {
+                startPlannedWorkout(state.workout)
+                onStarted()
+            } finally {
+                startInProgress = false
+            }
         }
     }
 

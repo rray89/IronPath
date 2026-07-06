@@ -14,9 +14,11 @@ import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
 import java.time.LocalDate
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.advanceUntilIdle
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -45,10 +47,20 @@ class WorkoutPreviewViewModelTest {
         PlannedWorkout(
             id = id,
             weeklyPlanId = "plan1",
-            dayOfWeek = LocalDate.parse(scheduledDate).dayOfWeek.value,
+            dayOfWeek =
+                runCatching { LocalDate.parse(scheduledDate).dayOfWeek.value }.getOrDefault(1),
             scheduledDate = scheduledDate,
             title = "Push A",
             status = status,
+        )
+
+    private fun activeSession() =
+        ActiveSession(
+            id = "session1",
+            sourcePlannedWorkoutId = "activeWorkout",
+            workoutTitle = "Pull A",
+            startedAt = 1_000L,
+            lastUpdatedAt = 1_000L,
         )
 
     private fun exercise(id: String, orderIndex: Int) =
@@ -123,6 +135,71 @@ class WorkoutPreviewViewModelTest {
     }
 
     @Test
+    fun `uiState does not allow starting when an active session exists`() = runTest {
+        val todayWorkout = workout()
+        activeSessionFlow.value = activeSession()
+        coEvery { planRepository.getWorkoutById("workout1") } returns todayWorkout
+
+        val viewModel =
+            WorkoutPreviewViewModel(
+                workoutId = "workout1",
+                planRepository = planRepository,
+                sessionRepository = sessionRepository,
+                startPlannedWorkout = startPlannedWorkout,
+            )
+
+        viewModel.uiState.test {
+            var state = awaitItem()
+            while (state !is WorkoutPreviewUiState.Ready) state = awaitItem()
+            assertFalse(state.canStart)
+            assertTrue(state.hasActiveSession)
+            cancelAndIgnoreRemainingEvents()
+        }
+    }
+
+    @Test
+    fun `uiState does not allow starting completed workouts`() = runTest {
+        coEvery { planRepository.getWorkoutById("workout1") } returns
+            workout(status = WorkoutStatus.Completed)
+
+        val viewModel =
+            WorkoutPreviewViewModel(
+                workoutId = "workout1",
+                planRepository = planRepository,
+                sessionRepository = sessionRepository,
+                startPlannedWorkout = startPlannedWorkout,
+            )
+
+        viewModel.uiState.test {
+            var state = awaitItem()
+            while (state !is WorkoutPreviewUiState.Ready) state = awaitItem()
+            assertFalse(state.canStart)
+            cancelAndIgnoreRemainingEvents()
+        }
+    }
+
+    @Test
+    fun `uiState does not allow starting workouts with invalid scheduled dates`() = runTest {
+        coEvery { planRepository.getWorkoutById("workout1") } returns
+            workout(scheduledDate = "not-a-date")
+
+        val viewModel =
+            WorkoutPreviewViewModel(
+                workoutId = "workout1",
+                planRepository = planRepository,
+                sessionRepository = sessionRepository,
+                startPlannedWorkout = startPlannedWorkout,
+            )
+
+        viewModel.uiState.test {
+            var state = awaitItem()
+            while (state !is WorkoutPreviewUiState.Ready) state = awaitItem()
+            assertFalse(state.canStart)
+            cancelAndIgnoreRemainingEvents()
+        }
+    }
+
+    @Test
     fun `startWorkout starts the session and invokes callback only when workout can start`() =
         runTest {
             val todayWorkout = workout()
@@ -169,6 +246,35 @@ class WorkoutPreviewViewModelTest {
 
             coVerify(exactly = 0) { startPlannedWorkout(any()) }
             assertFalse(callbackInvoked)
+            cancelAndIgnoreRemainingEvents()
+        }
+    }
+
+    @Test
+    fun `startWorkout ignores repeated taps while a start is already in progress`() = runTest {
+        val todayWorkout = workout()
+        val startCanComplete = CompletableDeferred<Unit>()
+        coEvery { planRepository.getWorkoutById("workout1") } returns todayWorkout
+        coEvery { startPlannedWorkout.invoke(any()) } coAnswers { startCanComplete.await() }
+        val viewModel =
+            WorkoutPreviewViewModel(
+                workoutId = "workout1",
+                planRepository = planRepository,
+                sessionRepository = sessionRepository,
+                startPlannedWorkout = startPlannedWorkout,
+            )
+
+        viewModel.uiState.test {
+            var state = awaitItem()
+            while (state !is WorkoutPreviewUiState.Ready) state = awaitItem()
+            viewModel.startWorkout {}
+            viewModel.startWorkout {}
+            runCurrent()
+
+            coVerify(exactly = 1) { startPlannedWorkout(todayWorkout) }
+
+            startCanComplete.complete(Unit)
+            advanceUntilIdle()
             cancelAndIgnoreRemainingEvents()
         }
     }
