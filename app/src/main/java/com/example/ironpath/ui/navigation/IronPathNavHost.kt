@@ -104,7 +104,9 @@ fun IronPathNavHost(
         }
         composable(Route.HISTORY) {
             HistoryScreen(
-                onOpenLog = { logId -> navController.navigate(Route.workoutLogDetail(logId)) },
+                onOpenLog = { logId, readOnly ->
+                    navController.navigate(Route.workoutLogDetail(logId, readOnly))
+                },
                 modifier = Modifier.padding(innerPadding),
             )
         }
@@ -128,11 +130,21 @@ fun IronPathNavHost(
         }
         composable(
             route = Route.WORKOUT_LOG_DETAIL,
-            arguments = listOf(navArgument(Route.WORKOUT_LOG_ID_ARG) { type = NavType.StringType }),
+            arguments =
+                listOf(
+                    navArgument(Route.WORKOUT_LOG_ID_ARG) { type = NavType.StringType },
+                    navArgument(Route.WORKOUT_LOG_READ_ONLY_ARG) {
+                        type = NavType.BoolType
+                        defaultValue = false
+                    },
+                ),
         ) { backStackEntry ->
             val logId = backStackEntry.arguments?.getString(Route.WORKOUT_LOG_ID_ARG).orEmpty()
+            val readOnly =
+                backStackEntry.arguments?.getBoolean(Route.WORKOUT_LOG_READ_ONLY_ARG) ?: false
             WorkoutLogDetailScreen(
                 logId = logId,
+                recordActionsEnabled = !readOnly,
                 onBack = { navController.popBackStack() },
                 modifier = Modifier.padding(innerPadding),
             )

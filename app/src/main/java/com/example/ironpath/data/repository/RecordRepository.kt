@@ -10,6 +10,9 @@ class RecordRepository(private val recordDao: RecordDao) {
 
     suspend fun getAllRecordExerciseNames(): List<String> = recordDao.getAllRecordExerciseNames()
 
+    suspend fun getLoggedRecordsForWorkoutLog(logId: String): List<PersonalRecord> =
+        recordDao.getLoggedRecordsForWorkoutLog(logId)
+
     suspend fun insertRecord(record: PersonalRecord) = recordDao.insertRecord(record)
 
     suspend fun updateRecord(record: PersonalRecord) = recordDao.updateRecord(record)

@@ -23,6 +23,9 @@ interface HistoryDao {
     @Query("SELECT * FROM workout_logs WHERE id = :id")
     suspend fun getLogById(id: String): WorkoutLog?
 
+    @Query("SELECT COUNT(*) FROM workout_logs WHERE title IN (:titles)")
+    suspend fun countLogsWithTitles(titles: List<String>): Int
+
     @Query("SELECT * FROM logged_exercises WHERE workoutLogId = :logId ORDER BY orderIndex")
     suspend fun getLoggedExercisesForLog(logId: String): List<LoggedExercise>
 

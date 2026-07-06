@@ -52,6 +52,7 @@ fun WorkoutLogDetailScreen(
     logId: String,
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
+    recordActionsEnabled: Boolean = true,
     viewModel: WorkoutLogDetailViewModel = koinViewModel(parameters = { parametersOf(logId) }),
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
@@ -60,6 +61,7 @@ fun WorkoutLogDetailScreen(
         uiState = uiState,
         onBack = onBack,
         onSaveSetAsRecord = viewModel::saveSetAsRecord,
+        recordActionsEnabled = recordActionsEnabled,
         modifier = modifier,
     )
 }
@@ -69,6 +71,7 @@ internal fun WorkoutLogDetailContent(
     uiState: WorkoutLogDetailUiState,
     onBack: () -> Unit,
     onSaveSetAsRecord: (LoggedExerciseDetail, LoggedSet) -> Unit = { _, _ -> },
+    recordActionsEnabled: Boolean = true,
     modifier: Modifier = Modifier,
 ) {
     when (uiState) {
@@ -83,6 +86,7 @@ internal fun WorkoutLogDetailContent(
                 state = uiState,
                 onBack = onBack,
                 onSaveSetAsRecord = onSaveSetAsRecord,
+                recordActionsEnabled = recordActionsEnabled,
                 modifier = modifier,
             )
     }
@@ -119,6 +123,7 @@ private fun WorkoutLogDetailReady(
     state: WorkoutLogDetailUiState.Ready,
     onBack: () -> Unit,
     onSaveSetAsRecord: (LoggedExerciseDetail, LoggedSet) -> Unit,
+    recordActionsEnabled: Boolean,
     modifier: Modifier = Modifier,
 ) {
     val detail = state.detail
@@ -189,6 +194,7 @@ private fun WorkoutLogDetailReady(
                     detail = exerciseDetail,
                     savedSetIds = state.savedSetIds,
                     onSaveSetAsRecord = onSaveSetAsRecord,
+                    recordActionsEnabled = recordActionsEnabled,
                 )
                 Spacer(Modifier.height(10.dp))
             }
@@ -240,6 +246,7 @@ private fun LoggedExerciseRow(
     detail: LoggedExerciseDetail,
     savedSetIds: Set<String>,
     onSaveSetAsRecord: (LoggedExerciseDetail, LoggedSet) -> Unit,
+    recordActionsEnabled: Boolean,
     modifier: Modifier = Modifier,
 ) {
     Column(
@@ -297,6 +304,7 @@ private fun LoggedExerciseRow(
                         set = set,
                         isSaved = savedSetIds.contains(set.id),
                         onSaveRecord = { onSaveSetAsRecord(detail, set) },
+                        recordActionsEnabled = recordActionsEnabled,
                     )
                     Spacer(Modifier.height(8.dp))
                 }
@@ -309,6 +317,7 @@ private fun LoggedSetRow(
     set: LoggedSet,
     isSaved: Boolean,
     onSaveRecord: () -> Unit,
+    recordActionsEnabled: Boolean,
 ) {
     val canSave = set.reps != null && set.weightKg != null && set.weightKg > 0.0
     Row(
@@ -330,7 +339,7 @@ private fun LoggedSetRow(
             color = MaterialTheme.colorScheme.onSurface,
         )
         Spacer(Modifier.weight(1f))
-        if (canSave) {
+        if (canSave && (recordActionsEnabled || isSaved)) {
             Text(
                 text = if (isSaved) "SAVED" else "SAVE RECORD",
                 style = MaterialTheme.typography.labelSmall,
@@ -338,7 +347,7 @@ private fun LoggedSetRow(
                     if (isSaved) MaterialTheme.colorScheme.onSurfaceVariant
                     else MaterialTheme.colorScheme.primary,
                 modifier =
-                    if (isSaved) {
+                    if (isSaved || !recordActionsEnabled) {
                         Modifier
                     } else {
                         Modifier.clickable(onClick = onSaveRecord)

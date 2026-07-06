@@ -129,6 +129,62 @@ class WorkoutLogDetailViewModelTest {
     }
 
     @Test
+    fun `uiState marks sets saved from persisted logged records`() = runTest {
+        val historyRepository = mockk<HistoryRepository>()
+        val recordRepository = mockk<RecordRepository>(relaxed = true)
+        coEvery { historyRepository.getLogDetail("log1") } returns detail
+        coEvery { recordRepository.getLoggedRecordsForWorkoutLog("log1") } returns
+            listOf(
+                PersonalRecord(
+                    exerciseName = "Bench Press",
+                    normalizedExerciseName = "bench press",
+                    weightKg = 62.5,
+                    achievedOn = "1970-01-01",
+                    sourceType = RecordSource.Logged,
+                    sourceWorkoutLogId = "log1",
+                ),
+            )
+
+        val viewModel = WorkoutLogDetailViewModel("log1", historyRepository, recordRepository)
+        advanceUntilIdle()
+
+        val state = viewModel.uiState.value as WorkoutLogDetailUiState.Ready
+        assertTrue(state.savedSetIds.contains("lset1"))
+    }
+
+    @Test
+    fun `saveSetAsRecord treats matching logged duplicate as already saved`() = runTest {
+        val historyRepository = mockk<HistoryRepository>()
+        val recordRepository = mockk<RecordRepository>(relaxed = true)
+        coEvery { historyRepository.getLogDetail("log1") } returns detail
+        coEvery { recordRepository.getLoggedRecordsForWorkoutLog("log1") } returnsMany
+            listOf(
+                emptyList(),
+                listOf(
+                    PersonalRecord(
+                        exerciseName = "Bench Press",
+                        normalizedExerciseName = "bench press",
+                        weightKg = 62.5,
+                        achievedOn = "1970-01-01",
+                        sourceType = RecordSource.Logged,
+                        sourceWorkoutLogId = "log1",
+                    ),
+                ),
+            )
+        coEvery { recordRepository.isDuplicateExcluding(any(), any(), any(), any()) } returns true
+        val viewModel = WorkoutLogDetailViewModel("log1", historyRepository, recordRepository)
+        advanceUntilIdle()
+
+        viewModel.saveSetAsRecord(detail.exercises.first(), detail.exercises.first().sets.first())
+        advanceUntilIdle()
+
+        coVerify(exactly = 0) { recordRepository.insertRecord(any()) }
+        val state = viewModel.uiState.value as WorkoutLogDetailUiState.Ready
+        assertTrue(state.savedSetIds.contains("lset1"))
+        assertEquals("Record already saved from this workout.", state.recordMessage)
+    }
+
+    @Test
     fun `saveSetAsRecord does not insert duplicate record`() = runTest {
         val historyRepository = mockk<HistoryRepository>()
         val recordRepository = mockk<RecordRepository>(relaxed = true)

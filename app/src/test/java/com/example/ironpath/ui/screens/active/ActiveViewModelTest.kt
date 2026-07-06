@@ -21,6 +21,7 @@ import io.mockk.mockk
 import io.mockk.slot
 import io.mockk.unmockkAll
 import java.time.LocalDate
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.flowOf
@@ -340,4 +341,24 @@ class ActiveViewModelTest {
 
         coVerify(exactly = 0) { sessionRepository.completeSession(any(), any()) }
     }
+
+    @Test
+    fun `finishWorkout ignores second request while completion is in progress`() =
+        runTestCancelling {
+            val completionGate = CompletableDeferred<Unit>()
+            coEvery { sessionRepository.getActiveSession() } returns session
+            coEvery { sessionRepository.getExercisesForSession(any()) } returns
+                listOf(makeSessionExercise())
+            coEvery { sessionRepository.countCompletedSets(any()) } returns 1
+            coEvery { sessionRepository.completeSession(any(), any()) } coAnswers
+                {
+                    completionGate.await()
+                }
+
+            viewModel.finishWorkout {}
+            viewModel.finishWorkout {}
+
+            coVerify(exactly = 1) { sessionRepository.completeSession(any(), any()) }
+            completionGate.complete(Unit)
+        }
 }

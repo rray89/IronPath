@@ -37,7 +37,13 @@ class WorkoutLogDetailViewModel(
                 if (detail == null) {
                     WorkoutLogDetailUiState.NotFound
                 } else {
-                    WorkoutLogDetailUiState.Ready(detail)
+                    WorkoutLogDetailUiState.Ready(
+                        detail = detail,
+                        savedSetIds =
+                            detail.savedSetIdsFor(
+                                recordRepository.getLoggedRecordsForWorkoutLog(detail.log.id),
+                            ),
+                    )
                 }
         }
     }
@@ -68,16 +74,26 @@ class WorkoutLogDetailViewModel(
                     excludeId = "",
                 )
             if (isDuplicate) {
+                val persistedSavedSetIds =
+                    ready.detail.savedSetIdsFor(
+                        recordRepository.getLoggedRecordsForWorkoutLog(ready.detail.log.id),
+                    )
+                val savedSetIds = ready.savedSetIds + persistedSavedSetIds
                 updateReady(
                     ready.copy(
+                        savedSetIds = savedSetIds,
                         recordMessage =
-                            "A record with this exercise, date, and weight already exists.",
+                            if (savedSetIds.contains(set.id)) {
+                                "Record already saved from this workout."
+                            } else {
+                                "A record with this exercise, date, and weight already exists."
+                            },
                     ),
                 )
                 return@launch
             }
 
-            recordRepository.insertRecord(
+            val record =
                 PersonalRecord(
                     exerciseName = exerciseName,
                     normalizedExerciseName = normalizedName,
@@ -86,11 +102,11 @@ class WorkoutLogDetailViewModel(
                     note = "${ready.detail.log.title} · set ${set.setNumber}, $reps reps",
                     sourceType = RecordSource.Logged,
                     sourceWorkoutLogId = ready.detail.log.id,
-                ),
-            )
+                )
+            recordRepository.insertRecord(record)
             updateReady(
                 ready.copy(
-                    savedSetIds = ready.savedSetIds + set.id,
+                    savedSetIds = ready.savedSetIds + ready.detail.savedSetIdsFor(listOf(record)),
                     recordMessage = "Record saved from this workout.",
                 ),
             )
@@ -103,7 +119,42 @@ class WorkoutLogDetailViewModel(
 
     private fun Long.toRecordDate(): String =
         Instant.ofEpochMilli(this).atZone(ZoneId.systemDefault()).toLocalDate().toString()
+
+    private fun WorkoutLogDetail.savedSetIdsFor(records: List<PersonalRecord>): Set<String> {
+        val achievedOn = log.completedAt.toRecordDate()
+        val savedKeys =
+            records
+                .filter {
+                    it.sourceType == RecordSource.Logged &&
+                        it.sourceWorkoutLogId == log.id &&
+                        it.achievedOn == achievedOn
+                }
+                .map { SavedRecordKey(it.normalizedExerciseName, it.achievedOn, it.weightKg) }
+                .toSet()
+
+        return exercises
+            .flatMap { exerciseDetail ->
+                val normalizedName = exerciseDetail.exercise.name.normalizedRecordName()
+                exerciseDetail.sets.filter { set ->
+                    val weight = set.weightKg
+                    set.reps != null &&
+                        weight != null &&
+                        weight > 0.0 &&
+                        SavedRecordKey(normalizedName, achievedOn, weight) in savedKeys
+                }
+            }
+            .map { it.id }
+            .toSet()
+    }
+
+    private fun String.normalizedRecordName(): String = lowercase().trim()
 }
+
+private data class SavedRecordKey(
+    val normalizedExerciseName: String,
+    val achievedOn: String,
+    val weightKg: Double,
+)
 
 sealed interface WorkoutLogDetailUiState {
     data object Loading : WorkoutLogDetailUiState

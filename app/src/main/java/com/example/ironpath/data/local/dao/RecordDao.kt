@@ -20,6 +20,11 @@ interface RecordDao {
     suspend fun getRecordById(id: String): PersonalRecord?
 
     @Query(
+        "SELECT * FROM personal_records WHERE sourceType = 'Logged' AND sourceWorkoutLogId = :logId ORDER BY achievedOn DESC, createdAt DESC"
+    )
+    suspend fun getLoggedRecordsForWorkoutLog(logId: String): List<PersonalRecord>
+
+    @Query(
         "SELECT COUNT(*) FROM personal_records WHERE normalizedExerciseName = :normalizedName AND achievedOn = :date AND weightKg = :weight AND id != :excludeId"
     )
     suspend fun countDuplicatesExcluding(

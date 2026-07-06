@@ -35,6 +35,7 @@ class ActiveViewModel(
 ) : ViewModel() {
 
     private val activeSession = sessionRepository.observeActiveSession()
+    private var finishInProgress = false
 
     private val exercises =
         activeSession.flatMapLatest { session ->
@@ -135,37 +136,43 @@ class ActiveViewModel(
     }
 
     fun finishWorkout(onComplete: () -> Unit) {
+        if (finishInProgress) return
+        finishInProgress = true
         viewModelScope.launch {
-            val session = sessionRepository.getActiveSession() ?: return@launch
-            val exs = sessionRepository.getExercisesForSession(session.id)
-            val exerciseIds = exs.map { it.id }
-            val completedSets = sessionRepository.countCompletedSets(exerciseIds)
+            try {
+                val session = sessionRepository.getActiveSession() ?: return@launch
+                val exs = sessionRepository.getExercisesForSession(session.id)
+                val exerciseIds = exs.map { it.id }
+                val completedSets = sessionRepository.countCompletedSets(exerciseIds)
 
-            val now = System.currentTimeMillis()
-            val durationMinutes = ((now - session.startedAt) / 60_000).toInt()
+                val now = System.currentTimeMillis()
+                val durationMinutes = ((now - session.startedAt) / 60_000).toInt()
 
-            val log =
-                WorkoutLog(
-                    title = session.workoutTitle,
-                    sourcePlannedWorkoutId = session.sourcePlannedWorkoutId,
-                    startedAt = session.startedAt,
-                    completedAt = now,
-                    durationMinutes = durationMinutes,
-                    exerciseCount = exs.size,
-                )
+                val log =
+                    WorkoutLog(
+                        title = session.workoutTitle,
+                        sourcePlannedWorkoutId = session.sourcePlannedWorkoutId,
+                        startedAt = session.startedAt,
+                        completedAt = now,
+                        durationMinutes = durationMinutes,
+                        exerciseCount = exs.size,
+                    )
 
-            sessionRepository.completeSession(session.id, log)
+                sessionRepository.completeSession(session.id, log)
 
-            // Mark planned workout as completed if at least one set was logged
-            if (completedSets > 0) {
-                val workout = planRepository.getWorkoutById(session.sourcePlannedWorkoutId)
-                if (workout != null) {
-                    planRepository.updateWorkout(workout.copy(status = WorkoutStatus.Completed))
+                // Mark planned workout as completed if at least one set was logged
+                if (completedSets > 0) {
+                    val workout = planRepository.getWorkoutById(session.sourcePlannedWorkoutId)
+                    if (workout != null) {
+                        planRepository.updateWorkout(workout.copy(status = WorkoutStatus.Completed))
+                    }
                 }
-            }
 
-            _elapsedSeconds.value = 0
-            onComplete()
+                _elapsedSeconds.value = 0
+                onComplete()
+            } finally {
+                finishInProgress = false
+            }
         }
     }
 }
