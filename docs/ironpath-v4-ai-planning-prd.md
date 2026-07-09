@@ -139,7 +139,7 @@ AI planning is only useful if the app gives the model enough structured context.
 Planner Setup should collect or derive:
 
 - goal: strength, hypertrophy, general fitness, return-to-routine, or maintenance
-- training days per week
+- training days per week, capped at 6 in v4 so at least one rest day remains
 - selected training days, with an optional future flexible-mode interpretation
 - training experience: beginner, intermediate, advanced
 - available equipment
@@ -248,7 +248,7 @@ Validator responsibilities:
 
 - nothing unvalidated ever persists.
 - validation runs once when a draft is created and again at final accept.
-- any user edit in Plan Review marks the prior validation result stale and removes or downgrades the "validated" badge until the edited plan passes validation again.
+- any user edit in Plan Review marks the prior validation result stale and removes the "validated" badge until the edited plan passes validation again.
 - if final validation fails, the app blocks acceptance and shows the validator warnings; it does not persist the plan.
 - validator failures should produce user-readable warnings where useful.
 - invalid AI drafts may get one repair attempt if the provider supports it.
@@ -257,7 +257,7 @@ Validator responsibilities:
 
 ### Data model impact
 
-Validation may require adding or formalizing exercise catalog metadata, such as muscle group, equipment, beginner suitability, movement pattern, or injury tags. Avoid Room schema changes unless the existing catalog lives in persisted data and truly needs expansion.
+Validation depends on the minimum exercise catalog defined in Feature 1. Avoid Room schema changes unless the catalog truly needs persisted app data rather than local domain definitions.
 
 ---
 
@@ -275,6 +275,7 @@ Users may:
 - see generation progress
 - see whether the draft came from on-device AI, debug API, or rule-based fallback
 - review the generated week in the existing Plan Review pattern
+- add or replace exercises in an AI-assisted draft through a catalog-backed picker
 - inspect validation warnings when present
 - accept a validated draft
 - regenerate or use the rule-based fallback
@@ -283,6 +284,7 @@ Users may not:
 
 - accept an invalid draft
 - bypass validation
+- add unknown free-text exercises to an AI-assisted draft
 - persist raw AI text as a workout
 - receive medical or injury treatment advice
 - keep a stale "validated" badge after editing an AI draft
@@ -290,6 +292,8 @@ Users may not:
 ### UX rules
 
 - the feature should feel like an extension of Planner Setup and Plan Review, not a separate AI chat product.
+- AI-assisted Plan Review may reuse v2 editing patterns, but exercise add/replace must use known catalog entries so final validation can keep the safety invariant.
+- existing free-text exercise editing remains outside the AI-assisted draft path unless a future PR migrates it to catalog-backed editing too.
 - generated rationale should be short and practical.
 - generated rationale should be length-capped, rendered as plain text, and treated as untrusted model output.
 - AI-generated rationale must not include medical claims.
@@ -380,7 +384,7 @@ No Room schema change is expected.
 2. `feat9.1: add planning engine contracts and minimum exercise catalog`
 3. `feat9.2: add plan draft contract and deterministic validator`
 4. `feat9.3: add structured planning intake and fake AI planning engine`
-5. `feat9.4: add AI-assisted planner review flow with final validation`
+5. `feat9.4: add AI-assisted planner review flow with catalog-backed exercise edits and final validation`
 6. `feat9.5: add on-device provider capability spike`
 7. `feat9.6: add debug-only remote provider experiment`
 8. `feat9.7: polish V4 demo documentation`
@@ -408,6 +412,7 @@ Expected coverage:
 - progression cap rejection
 - injury and forbidden movement rejection
 - stale validation after review edits
+- unknown free-text exercise rejection in AI-assisted review
 - fallback after invalid AI draft
 
 ### ViewModel tests
