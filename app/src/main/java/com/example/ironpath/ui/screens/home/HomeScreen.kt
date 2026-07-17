@@ -398,6 +398,7 @@ private val PreviewPlan =
         id = "preview-plan",
         startDate = "2026-03-30",
         endDate = "2026-04-05",
+        createdAt = 1L,
     )
 
 private val PreviewWorkouts =

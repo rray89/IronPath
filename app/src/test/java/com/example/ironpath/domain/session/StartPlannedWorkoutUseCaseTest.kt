@@ -6,10 +6,15 @@ import com.example.ironpath.data.local.entity.SessionExercise
 import com.example.ironpath.data.local.entity.SessionSet
 import com.example.ironpath.data.repository.PlanRepository
 import com.example.ironpath.data.repository.SessionRepository
+import com.example.ironpath.domain.time.TimeProvider
+import com.example.ironpath.testutil.FakeIdProvider
+import com.example.ironpath.testutil.FakeTimeProvider
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.mockk
 import io.mockk.slot
+import java.time.Instant
+import java.time.ZoneId
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Before
@@ -50,7 +55,69 @@ class StartPlannedWorkoutUseCaseTest {
     fun setUp() {
         planRepository = mockk(relaxed = true)
         sessionRepository = mockk(relaxed = true)
-        startPlannedWorkout = StartPlannedWorkoutUseCase(planRepository, sessionRepository)
+        startPlannedWorkout =
+            StartPlannedWorkoutUseCase(
+                planRepository,
+                sessionRepository,
+                FakeTimeProvider(),
+                FakeIdProvider(),
+            )
+    }
+
+    @Test
+    fun `invoke uses injected time and ids for the active graph`() = runTest {
+        val timeProvider = FakeTimeProvider()
+        val deterministicUseCase =
+            StartPlannedWorkoutUseCase(
+                planRepository,
+                sessionRepository,
+                timeProvider,
+                FakeIdProvider(),
+            )
+        val capturedExercises = slot<List<SessionExercise>>()
+        coEvery { planRepository.getExercisesForWorkout("workout1") } returns
+            listOf(plannedExercise("planned-1", "Bench Press", sets = 1, orderIndex = 0))
+        coEvery { sessionRepository.startSession(any(), capture(capturedExercises)) } returns Unit
+        coEvery { sessionRepository.getExercisesForSession(any()) } returns emptyList()
+
+        deterministicUseCase(workout)
+
+        coVerify {
+            sessionRepository.startSession(
+                match {
+                    it.id == "test-id-1" &&
+                        it.startedAt == timeProvider.epochMillis() &&
+                        it.lastUpdatedAt == timeProvider.epochMillis()
+                },
+                any(),
+            )
+        }
+        assertEquals("test-id-2", capturedExercises.captured.single().id)
+    }
+
+    @Test
+    fun `session start and update timestamps come from one time snapshot`() = runTest {
+        val tickingTimeProvider =
+            object : TimeProvider {
+                private var instant = Instant.parse("2026-07-16T19:00:00Z")
+                override val zoneId: ZoneId = ZoneId.of("America/Vancouver")
+
+                override fun now(): Instant = instant.also { instant = instant.plusMillis(1) }
+            }
+        val capturedSession = slot<com.example.ironpath.data.local.entity.ActiveSession>()
+        coEvery { planRepository.getExercisesForWorkout("workout1") } returns emptyList()
+        coEvery { sessionRepository.startSession(capture(capturedSession), emptyList()) } returns
+            Unit
+        coEvery { sessionRepository.getExercisesForSession(any()) } returns emptyList()
+
+        StartPlannedWorkoutUseCase(
+            planRepository,
+            sessionRepository,
+            tickingTimeProvider,
+            FakeIdProvider(),
+        )(workout)
+
+        assertEquals(capturedSession.captured.startedAt, capturedSession.captured.lastUpdatedAt)
     }
 
     @Test

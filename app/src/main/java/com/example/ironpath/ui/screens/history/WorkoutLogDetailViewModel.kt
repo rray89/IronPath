@@ -11,6 +11,8 @@ import com.example.ironpath.data.repository.HistoryRepository
 import com.example.ironpath.data.repository.LoggedExerciseDetail
 import com.example.ironpath.data.repository.RecordRepository
 import com.example.ironpath.data.repository.WorkoutLogDetail
+import com.example.ironpath.domain.identity.IdProvider
+import com.example.ironpath.domain.time.TimeProvider
 import com.example.ironpath.ui.navigation.Route
 import dagger.hilt.android.lifecycle.HiltViewModel
 import java.time.Instant
@@ -28,6 +30,8 @@ constructor(
     savedStateHandle: SavedStateHandle,
     private val historyRepository: HistoryRepository,
     private val recordRepository: RecordRepository,
+    private val timeProvider: TimeProvider,
+    private val idProvider: IdProvider,
 ) : ViewModel() {
 
     private val logId: String = savedStateHandle.get<String>(Route.WORKOUT_LOG_ID_ARG).orEmpty()
@@ -35,6 +39,9 @@ constructor(
     private val _uiState =
         MutableStateFlow<WorkoutLogDetailUiState>(WorkoutLogDetailUiState.Loading)
     val uiState: StateFlow<WorkoutLogDetailUiState> = _uiState.asStateFlow()
+
+    val zoneId: ZoneId
+        get() = timeProvider.zoneId
 
     init {
         loadDetail()
@@ -90,6 +97,7 @@ constructor(
 
             val record =
                 PersonalRecord(
+                    id = idProvider.newId(),
                     exerciseName = exerciseName,
                     normalizedExerciseName = normalizedName,
                     weightKg = weight,
@@ -97,6 +105,7 @@ constructor(
                     note = "${ready.detail.log.title} · set ${set.setNumber}, $reps reps",
                     sourceType = RecordSource.Logged,
                     sourceWorkoutLogId = ready.detail.log.id,
+                    createdAt = timeProvider.epochMillis(),
                 )
             try {
                 recordRepository.insertRecord(record)
@@ -140,7 +149,7 @@ constructor(
     }
 
     private fun Long.toRecordDate(): String =
-        Instant.ofEpochMilli(this).atZone(ZoneId.systemDefault()).toLocalDate().toString()
+        Instant.ofEpochMilli(this).atZone(timeProvider.zoneId).toLocalDate().toString()
 
     private fun WorkoutLogDetail.savedSetIdsFor(records: List<PersonalRecord>): Set<String> {
         val achievedOn = log.completedAt.toRecordDate()

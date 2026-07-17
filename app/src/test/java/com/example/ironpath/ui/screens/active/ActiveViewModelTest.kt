@@ -12,6 +12,8 @@ import com.example.ironpath.data.local.entity.WorkoutStatus
 import com.example.ironpath.data.repository.PlanRepository
 import com.example.ironpath.data.repository.SessionRepository
 import com.example.ironpath.domain.session.StartPlannedWorkoutUseCase
+import com.example.ironpath.testutil.FakeIdProvider
+import com.example.ironpath.testutil.FakeTimeProvider
 import com.example.ironpath.util.MainDispatcherRule
 import io.mockk.clearAllMocks
 import io.mockk.coEvery
@@ -20,8 +22,9 @@ import io.mockk.every
 import io.mockk.mockk
 import io.mockk.slot
 import io.mockk.unmockkAll
-import java.time.LocalDate
+import java.time.Duration
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.flowOf
@@ -29,11 +32,13 @@ import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
 
+@OptIn(ExperimentalCoroutinesApi::class)
 class ActiveViewModelTest {
 
     @get:Rule val mainDispatcherRule = MainDispatcherRule()
@@ -42,19 +47,28 @@ class ActiveViewModelTest {
     private lateinit var planRepository: PlanRepository
     private lateinit var startPlannedWorkout: StartPlannedWorkoutUseCase
     private lateinit var viewModel: ActiveViewModel
+    private val timeProvider = FakeTimeProvider()
+    private val idProvider = FakeIdProvider()
 
     private val activeSessionFlow = MutableStateFlow<ActiveSession?>(null)
     private val activePlanFlow = MutableStateFlow<WeeklyPlan?>(null)
     private val workoutsFlow = MutableStateFlow<List<PlannedWorkout>>(emptyList())
 
-    private val plan = WeeklyPlan(id = "plan1", startDate = "2026-04-14", endDate = "2026-04-20")
+    private val plan =
+        WeeklyPlan(
+            id = "plan1",
+            startDate = "2026-04-14",
+            endDate = "2026-04-20",
+            createdAt = timeProvider.epochMillis(),
+        )
 
     private val session =
         ActiveSession(
             id = "session1",
             sourcePlannedWorkoutId = "workout1",
             workoutTitle = "Push A",
-            startedAt = System.currentTimeMillis() - 60_000,
+            startedAt = timeProvider.epochMillis() - 60_000,
+            lastUpdatedAt = timeProvider.epochMillis() - 60_000,
         )
 
     private fun makeWorkout(
@@ -119,7 +133,14 @@ class ActiveViewModelTest {
         every { planRepository.observeWorkoutsForPlan(any()) } returns workoutsFlow
         coEvery { sessionRepository.getActiveSession() } returns null
 
-        viewModel = ActiveViewModel(sessionRepository, planRepository, startPlannedWorkout)
+        viewModel =
+            ActiveViewModel(
+                sessionRepository,
+                planRepository,
+                startPlannedWorkout,
+                timeProvider,
+                idProvider,
+            )
     }
 
     @After
@@ -158,7 +179,7 @@ class ActiveViewModelTest {
             activeSessionFlow.value = session
             var state = awaitItem()
             while (state !is ActiveUiState.InSession) state = awaitItem()
-            assertEquals(session, (state as ActiveUiState.InSession).session)
+            assertEquals(session, state.session)
             cancelAndIgnoreRemainingEvents()
         }
     }
@@ -166,7 +187,7 @@ class ActiveViewModelTest {
     @Test
     fun `uiState emits ReadyToStart when plan has today workout and no active session`() =
         runTestCancelling {
-            val today = LocalDate.now()
+            val today = timeProvider.today()
             val todayWorkout =
                 makeWorkout(
                     dayOfWeek = today.dayOfWeek.value,
@@ -180,7 +201,7 @@ class ActiveViewModelTest {
                 workoutsFlow.value = listOf(todayWorkout)
                 var state = awaitItem()
                 while (state !is ActiveUiState.ReadyToStart) state = awaitItem()
-                assertEquals(todayWorkout, (state as ActiveUiState.ReadyToStart).workout)
+                assertEquals(todayWorkout, state.workout)
                 cancelAndIgnoreRemainingEvents()
             }
         }
@@ -188,7 +209,7 @@ class ActiveViewModelTest {
     @Test
     fun `uiState emits RestDay when same-weekday workout is scheduled in the future`() =
         runTestCancelling {
-            val nextWeekSameDay = LocalDate.now().plusWeeks(1)
+            val nextWeekSameDay = timeProvider.today().plusWeeks(1)
             val futureWorkout =
                 makeWorkout(
                     dayOfWeek = nextWeekSameDay.dayOfWeek.value,
@@ -214,7 +235,7 @@ class ActiveViewModelTest {
 
     @Test
     fun `uiState emits RestDay when plan exists but no workout for today`() = runTestCancelling {
-        val todayDow = LocalDate.now().dayOfWeek.value
+        val todayDow = timeProvider.today().dayOfWeek.value
         val otherDow = if (todayDow == 1) 2 else 1
         val otherWorkout = makeWorkout(dayOfWeek = otherDow, status = WorkoutStatus.Upcoming)
 
@@ -224,7 +245,7 @@ class ActiveViewModelTest {
             workoutsFlow.value = listOf(otherWorkout)
             var state = awaitItem()
             while (state !is ActiveUiState.RestDay) state = awaitItem()
-            assertTrue(state is ActiveUiState.RestDay)
+            assertEquals(ActiveUiState.RestDay(nextWorkoutDay = null), state)
             cancelAndIgnoreRemainingEvents()
         }
     }
@@ -244,7 +265,14 @@ class ActiveViewModelTest {
 
     @Test
     fun `updateSet delegates to sessionRepository`() = runTestCancelling {
-        val set = SessionSet(sessionExerciseId = "sex1", setNumber = 1, reps = 10, weightKg = 60.0)
+        val set =
+            SessionSet(
+                id = "set1",
+                sessionExerciseId = "sex1",
+                setNumber = 1,
+                reps = 10,
+                weightKg = 60.0,
+            )
 
         viewModel.updateSet(set)
 
@@ -271,8 +299,8 @@ class ActiveViewModelTest {
     @Test
     fun `finishWorkout calls completeSession with log containing correct title and duration`() =
         runTestCancelling {
-            val startedAt = System.currentTimeMillis() - 120_000 // 2 minutes ago
-            val activeSession = session.copy(startedAt = startedAt)
+            val startedAt = timeProvider.epochMillis() - 120_000
+            val activeSession = session.copy(startedAt = startedAt, lastUpdatedAt = startedAt)
 
             coEvery { sessionRepository.getActiveSession() } returns activeSession
             coEvery { sessionRepository.getExercisesForSession(any()) } returns
@@ -286,7 +314,11 @@ class ActiveViewModelTest {
                 sessionRepository.completeSession(
                     activeSession.id,
                     match { log ->
-                        log.title == "Push A" && log.durationMinutes >= 1 && log.exerciseCount == 1
+                        log.id == "test-id-1" &&
+                            log.title == "Push A" &&
+                            log.completedAt == timeProvider.epochMillis() &&
+                            log.durationMinutes == 2 &&
+                            log.exerciseCount == 1
                     },
                 )
             }
@@ -361,4 +393,53 @@ class ActiveViewModelTest {
             coVerify(exactly = 1) { sessionRepository.completeSession(any(), any()) }
             completionGate.complete(Unit)
         }
+
+    @Test
+    fun `finishWorkout does not invoke callback when repository completion fails`() =
+        runTestCancelling {
+            coEvery { sessionRepository.getActiveSession() } returns session
+            coEvery { sessionRepository.getExercisesForSession(any()) } returns
+                listOf(makeSessionExercise())
+            coEvery { sessionRepository.countCompletedSets(any()) } returns 0
+            coEvery { sessionRepository.completeSession(any(), any()) } throws
+                IllegalStateException("database unavailable")
+            var callbackInvoked = false
+
+            viewModel.finishWorkout { callbackInvoked = true }
+
+            assertFalse(callbackInvoked)
+        }
+
+    @Test
+    fun `finishWorkout allows successful retry after repository completion fails`() =
+        runTestCancelling {
+            var attempts = 0
+            coEvery { sessionRepository.getActiveSession() } returns session
+            coEvery { sessionRepository.getExercisesForSession(any()) } returns
+                listOf(makeSessionExercise())
+            coEvery { sessionRepository.countCompletedSets(any()) } returns 0
+            coEvery { sessionRepository.completeSession(any(), any()) } coAnswers
+                {
+                    attempts++
+                    if (attempts == 1) throw IllegalStateException("database unavailable")
+                }
+            var callbacks = 0
+
+            viewModel.finishWorkout { callbacks++ }
+            viewModel.finishWorkout { callbacks++ }
+
+            coVerify(exactly = 2) { sessionRepository.completeSession(any(), any()) }
+            assertEquals(1, callbacks)
+        }
+
+    @Test
+    fun `elapsed timer uses injected time`() = runTestCancelling {
+        coEvery { sessionRepository.getActiveSession() } returns session
+
+        timeProvider.advanceBy(Duration.ofSeconds(5))
+        mainDispatcherRule.testDispatcher.scheduler.advanceTimeBy(1_000)
+        mainDispatcherRule.testDispatcher.scheduler.runCurrent()
+
+        assertEquals(65L, viewModel.elapsedSeconds.value)
+    }
 }

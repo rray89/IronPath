@@ -306,6 +306,7 @@ private fun PreviewWorkoutPreviewReady() {
                         exercises =
                             listOf(
                                 PlannedExercise(
+                                    id = "preview-exercise-1",
                                     plannedWorkoutId = "w1",
                                     name = "Barbell Bench Press",
                                     sets = 4,
@@ -314,6 +315,7 @@ private fun PreviewWorkoutPreviewReady() {
                                     orderIndex = 0,
                                 ),
                                 PlannedExercise(
+                                    id = "preview-exercise-2",
                                     plannedWorkoutId = "w1",
                                     name = "Incline Dumbbell Press",
                                     sets = 3,

@@ -12,6 +12,8 @@ import com.example.ironpath.data.repository.HistoryRepository
 import com.example.ironpath.data.repository.LoggedExerciseDetail
 import com.example.ironpath.data.repository.RecordRepository
 import com.example.ironpath.data.repository.WorkoutLogDetail
+import com.example.ironpath.testutil.FakeIdProvider
+import com.example.ironpath.testutil.FakeTimeProvider
 import com.example.ironpath.ui.navigation.Route
 import com.example.ironpath.util.MainDispatcherRule
 import io.mockk.coEvery
@@ -34,6 +36,15 @@ class WorkoutLogDetailViewModelTest {
 
     @get:Rule val mainDispatcherRule = MainDispatcherRule()
 
+    private val recordZone = ZoneId.of("Asia/Tokyo")
+    private val recordCreationInstant = Instant.parse("2026-07-16T19:00:00Z")
+    private val logCompletionInstant = Instant.parse("2026-01-01T20:00:00Z")
+
+    private fun timeProvider(): FakeTimeProvider =
+        FakeTimeProvider(instant = recordCreationInstant, zoneId = recordZone)
+
+    private fun idProvider(): FakeIdProvider = FakeIdProvider()
+
     private fun savedStateHandle(logId: String): SavedStateHandle =
         SavedStateHandle(mapOf(Route.WORKOUT_LOG_ID_ARG to logId))
 
@@ -41,8 +52,8 @@ class WorkoutLogDetailViewModelTest {
         WorkoutLog(
             id = "log1",
             title = "Push A",
-            startedAt = 1_000L,
-            completedAt = 4_600L,
+            startedAt = logCompletionInstant.minusSeconds(60).toEpochMilli(),
+            completedAt = logCompletionInstant.toEpochMilli(),
             durationMinutes = 1,
             exerciseCount = 1,
         )
@@ -70,7 +81,8 @@ class WorkoutLogDetailViewModelTest {
                                     setNumber = 1,
                                     reps = 10,
                                     weightKg = 62.5,
-                                    completedAt = 4_000L,
+                                    completedAt =
+                                        logCompletionInstant.minusSeconds(30).toEpochMilli(),
                                 ),
                             ),
                     ),
@@ -88,6 +100,8 @@ class WorkoutLogDetailViewModelTest {
                 savedStateHandle = savedStateHandle("log1"),
                 historyRepository = historyRepository,
                 recordRepository = recordRepository,
+                timeProvider = timeProvider(),
+                idProvider = idProvider(),
             )
 
         viewModel.uiState.test {
@@ -109,6 +123,8 @@ class WorkoutLogDetailViewModelTest {
                 savedStateHandle = savedStateHandle("missing"),
                 historyRepository = historyRepository,
                 recordRepository = recordRepository,
+                timeProvider = timeProvider(),
+                idProvider = idProvider(),
             )
 
         viewModel.uiState.test {
@@ -128,6 +144,8 @@ class WorkoutLogDetailViewModelTest {
                 savedStateHandle = SavedStateHandle(),
                 historyRepository = historyRepository,
                 recordRepository = recordRepository,
+                timeProvider = timeProvider(),
+                idProvider = idProvider(),
             )
 
         advanceUntilIdle()
@@ -136,7 +154,7 @@ class WorkoutLogDetailViewModelTest {
     }
 
     @Test
-    fun `saveSetAsRecord inserts logged source record for completed weighted set`() = runTest {
+    fun `saveSetAsRecord uses injected providers for record metadata`() = runTest {
         val historyRepository = mockk<HistoryRepository>()
         val recordRepository = mockk<RecordRepository>(relaxed = true)
         val insertedRecord = slot<PersonalRecord>()
@@ -151,6 +169,8 @@ class WorkoutLogDetailViewModelTest {
                 savedStateHandle = savedStateHandle("log1"),
                 historyRepository = historyRepository,
                 recordRepository = recordRepository,
+                timeProvider = timeProvider(),
+                idProvider = idProvider(),
             )
         advanceUntilIdle()
 
@@ -162,6 +182,9 @@ class WorkoutLogDetailViewModelTest {
         assertEquals("bench press", record.normalizedExerciseName)
         assertEquals(62.5, record.weightKg, 0.0)
         assertEquals(achievedOn, record.achievedOn)
+        assertEquals("2026-01-02", record.achievedOn)
+        assertEquals("test-id-1", record.id)
+        assertEquals(recordCreationInstant.toEpochMilli(), record.createdAt)
         assertEquals(RecordSource.Logged, record.sourceType)
         assertEquals("log1", record.sourceWorkoutLogId)
         val state = viewModel.uiState.value as WorkoutLogDetailUiState.Ready
@@ -178,12 +201,14 @@ class WorkoutLogDetailViewModelTest {
         coEvery { recordRepository.getLoggedRecordsForWorkoutLog("log1") } returns
             listOf(
                 PersonalRecord(
+                    id = "record-1",
                     exerciseName = "Bench Press",
                     normalizedExerciseName = "bench press",
                     weightKg = 62.5,
                     achievedOn = achievedOn,
                     sourceType = RecordSource.Logged,
                     sourceWorkoutLogId = "log1",
+                    createdAt = 1_000L,
                 ),
             )
 
@@ -192,6 +217,8 @@ class WorkoutLogDetailViewModelTest {
                 savedStateHandle = savedStateHandle("log1"),
                 historyRepository = historyRepository,
                 recordRepository = recordRepository,
+                timeProvider = timeProvider(),
+                idProvider = idProvider(),
             )
         advanceUntilIdle()
 
@@ -210,12 +237,14 @@ class WorkoutLogDetailViewModelTest {
                 emptyList(),
                 listOf(
                     PersonalRecord(
+                        id = "record-1",
                         exerciseName = "Bench Press",
                         normalizedExerciseName = "bench press",
                         weightKg = 62.5,
                         achievedOn = achievedOn,
                         sourceType = RecordSource.Logged,
                         sourceWorkoutLogId = "log1",
+                        createdAt = 1_000L,
                     ),
                 ),
             )
@@ -225,6 +254,8 @@ class WorkoutLogDetailViewModelTest {
                 savedStateHandle = savedStateHandle("log1"),
                 historyRepository = historyRepository,
                 recordRepository = recordRepository,
+                timeProvider = timeProvider(),
+                idProvider = idProvider(),
             )
         advanceUntilIdle()
 
@@ -245,12 +276,14 @@ class WorkoutLogDetailViewModelTest {
             val achievedOn = log.completedAt.expectedRecordDate()
             val savedRecord =
                 PersonalRecord(
+                    id = "record-1",
                     exerciseName = "Bench Press",
                     normalizedExerciseName = "bench press",
                     weightKg = 62.5,
                     achievedOn = achievedOn,
                     sourceType = RecordSource.Logged,
                     sourceWorkoutLogId = "log1",
+                    createdAt = 1_000L,
                 )
             coEvery { historyRepository.getLogDetail("log1") } returns detail
             coEvery { recordRepository.getLoggedRecordsForWorkoutLog("log1") } returnsMany
@@ -264,6 +297,8 @@ class WorkoutLogDetailViewModelTest {
                     savedStateHandle = savedStateHandle("log1"),
                     historyRepository = historyRepository,
                     recordRepository = recordRepository,
+                    timeProvider = timeProvider(),
+                    idProvider = idProvider(),
                 )
             advanceUntilIdle()
 
@@ -289,6 +324,8 @@ class WorkoutLogDetailViewModelTest {
                 savedStateHandle = savedStateHandle("log1"),
                 historyRepository = historyRepository,
                 recordRepository = recordRepository,
+                timeProvider = timeProvider(),
+                idProvider = idProvider(),
             )
         advanceUntilIdle()
 
@@ -315,6 +352,8 @@ class WorkoutLogDetailViewModelTest {
                 savedStateHandle = savedStateHandle("log1"),
                 historyRepository = historyRepository,
                 recordRepository = recordRepository,
+                timeProvider = timeProvider(),
+                idProvider = idProvider(),
             )
         advanceUntilIdle()
 
@@ -327,5 +366,5 @@ class WorkoutLogDetailViewModelTest {
     }
 
     private fun Long.expectedRecordDate(): String =
-        Instant.ofEpochMilli(this).atZone(ZoneId.systemDefault()).toLocalDate().toString()
+        Instant.ofEpochMilli(this).atZone(recordZone).toLocalDate().toString()
 }

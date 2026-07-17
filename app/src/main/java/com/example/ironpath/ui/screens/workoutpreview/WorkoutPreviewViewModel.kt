@@ -9,6 +9,7 @@ import com.example.ironpath.data.local.entity.WorkoutStatus
 import com.example.ironpath.data.repository.PlanRepository
 import com.example.ironpath.data.repository.SessionRepository
 import com.example.ironpath.domain.session.StartPlannedWorkoutUseCase
+import com.example.ironpath.domain.time.TimeProvider
 import com.example.ironpath.ui.navigation.Route
 import dagger.hilt.android.lifecycle.HiltViewModel
 import java.time.LocalDate
@@ -27,6 +28,7 @@ constructor(
     private val planRepository: PlanRepository,
     private val sessionRepository: SessionRepository,
     private val startPlannedWorkout: StartPlannedWorkoutUseCase,
+    private val timeProvider: TimeProvider,
 ) : ViewModel() {
 
     private val workoutId: String = savedStateHandle.get<String>(Route.WORKOUT_ID_ARG).orEmpty()
@@ -67,7 +69,7 @@ constructor(
                     planRepository.observeExercisesForWorkout(workoutId),
                     sessionRepository.observeActiveSession(),
                 ) { exercises, activeSession ->
-                    val today = LocalDate.now()
+                    val today = timeProvider.today()
                     WorkoutPreviewUiState.Ready(
                         workout = workout,
                         exercises = exercises.sortedBy { it.orderIndex },

@@ -1,7 +1,11 @@
 package com.example.ironpath.domain.planner
 
+import com.example.ironpath.testutil.FakeIdProvider
+import com.example.ironpath.testutil.FakeTimeProvider
 import java.time.DayOfWeek
+import java.time.Instant
 import java.time.LocalDate
+import java.time.ZoneId
 import java.time.temporal.TemporalAdjusters
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -9,10 +13,32 @@ import org.junit.Test
 
 class PlanGeneratorTest {
 
-    private val generator = PlanGenerator()
+    private val timeProvider = FakeTimeProvider()
+    private val generator = PlanGenerator(timeProvider, FakeIdProvider())
 
     private val nextMonday: LocalDate =
-        LocalDate.now().with(TemporalAdjusters.next(DayOfWeek.MONDAY))
+        timeProvider.today().with(TemporalAdjusters.next(DayOfWeek.MONDAY))
+
+    @Test
+    fun `generate uses injected date timestamp and stable ids`() {
+        val timeProvider =
+            FakeTimeProvider(
+                instant = Instant.parse("2026-07-16T19:00:00Z"),
+                zoneId = ZoneId.of("America/Vancouver"),
+            )
+        val result =
+            PlanGenerator(timeProvider, FakeIdProvider())
+                .generate(
+                    goal = TrainingGoal.Strength,
+                    selectedDays = setOf(1),
+                )
+
+        assertEquals("test-id-1", result.plan.id)
+        assertEquals("2026-07-20", result.plan.startDate)
+        assertEquals(timeProvider.epochMillis(), result.plan.createdAt)
+        assertEquals("test-id-2", result.workouts.single().id)
+        assertEquals(listOf("test-id-3", "test-id-4", "test-id-5"), result.exercises.map { it.id })
+    }
 
     // -- workout count --
 

@@ -11,12 +11,14 @@ import com.example.ironpath.data.repository.SessionRepository
 import com.example.ironpath.domain.planner.GeneratedPlan
 import com.example.ironpath.domain.planner.PlanGenerator
 import com.example.ironpath.domain.planner.TrainingGoal
+import com.example.ironpath.testutil.FakeIdProvider
+import com.example.ironpath.testutil.FakeTimeProvider
 import com.example.ironpath.util.MainDispatcherRule
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
-import java.time.LocalDate
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
@@ -37,6 +39,8 @@ class PlanViewModelTest {
     private lateinit var sessionRepository: SessionRepository
     private lateinit var recordRepository: RecordRepository
     private lateinit var viewModel: PlanViewModel
+    private lateinit var timeProvider: FakeTimeProvider
+    private lateinit var idProvider: FakeIdProvider
 
     // -- Builder helpers --
 
@@ -71,7 +75,13 @@ class PlanViewModelTest {
         workouts: List<PlannedWorkout>,
         exercises: List<PlannedExercise>,
     ): GeneratedPlan {
-        val plan = WeeklyPlan(id = "plan1", startDate = "2026-04-14", endDate = "2026-04-20")
+        val plan =
+            WeeklyPlan(
+                id = "plan1",
+                startDate = "2026-04-14",
+                endDate = "2026-04-20",
+                createdAt = timeProvider.epochMillis(),
+            )
         return GeneratedPlan(plan = plan, workouts = workouts, exercises = exercises)
     }
 
@@ -88,6 +98,8 @@ class PlanViewModelTest {
         planGenerator = mockk(relaxed = true)
         sessionRepository = mockk(relaxed = true)
         recordRepository = mockk(relaxed = true)
+        timeProvider = FakeTimeProvider()
+        idProvider = FakeIdProvider()
 
         every { planRepository.observeActivePlan() } returns flowOf(null)
         every { planRepository.observeWorkoutsForPlan(any()) } returns flowOf(emptyList())
@@ -96,7 +108,14 @@ class PlanViewModelTest {
         coEvery { planRepository.getAllExerciseNames() } returns emptyList()
 
         viewModel =
-            PlanViewModel(planRepository, planGenerator, sessionRepository, recordRepository)
+            PlanViewModel(
+                planRepository,
+                planGenerator,
+                sessionRepository,
+                recordRepository,
+                timeProvider,
+                idProvider,
+            )
     }
 
     private suspend fun <T : PlanUiState> app.cash.turbine.TurbineTestContext<PlanUiState>
@@ -104,6 +123,24 @@ class PlanViewModelTest {
         var item = awaitItem()
         while (!clazz.isInstance(item)) item = awaitItem()
         @Suppress("UNCHECKED_CAST") return item as T
+    }
+
+    // -- setup actions --
+
+    @Test
+    fun `setGoal updates selected goal`() {
+        viewModel.setGoal(TrainingGoal.Hypertrophy)
+
+        assertEquals(TrainingGoal.Hypertrophy, viewModel.selectedGoal.value)
+    }
+
+    @Test
+    fun `toggleDay adds and removes the selected day`() {
+        viewModel.toggleDay(3)
+        assertEquals(setOf(3), viewModel.selectedDays.value)
+
+        viewModel.toggleDay(3)
+        assertTrue(viewModel.selectedDays.value.isEmpty())
     }
 
     // -- generatePlan --
@@ -128,11 +165,34 @@ class PlanViewModelTest {
     }
 
     @Test
+    fun `generatePlan merges deduplicates and sorts exercise suggestions`() = runTest {
+        val generated = makeGeneratedPlan(listOf(makeWorkout("w1", 1)), emptyList())
+        every { planGenerator.generate(any(), any()) } returns generated
+        coEvery { planRepository.getAllExerciseNames() } returns listOf("Squat", "Bench Press")
+        coEvery { recordRepository.getAllRecordExerciseNames() } returns
+            listOf("Deadlift", "Bench Press")
+
+        viewModel.toggleDay(1)
+        viewModel.generatePlan()
+
+        assertEquals(
+            listOf("Bench Press", "Deadlift", "Squat"),
+            viewModel.exerciseSuggestions.value,
+        )
+    }
+
+    @Test
     fun `accepted state does not treat future same-weekday workout as today`() = runTest {
-        val activePlan = WeeklyPlan(id = "plan1", startDate = "2026-04-14", endDate = "2026-04-20")
+        val activePlan =
+            WeeklyPlan(
+                id = "plan1",
+                startDate = "2026-04-14",
+                endDate = "2026-04-20",
+                createdAt = timeProvider.epochMillis(),
+            )
         val activePlanFlow = MutableStateFlow<WeeklyPlan?>(null)
         val workoutsFlow = MutableStateFlow<List<PlannedWorkout>>(emptyList())
-        val nextWeekSameDay = LocalDate.now().plusWeeks(1)
+        val nextWeekSameDay = timeProvider.today().plusWeeks(1)
         val futureWorkout =
             makeWorkout(
                 id = "future",
@@ -144,7 +204,14 @@ class PlanViewModelTest {
         every { planRepository.observeWorkoutsForPlan("plan1") } returns workoutsFlow
         every { sessionRepository.observeActiveSession() } returns flowOf(null)
         viewModel =
-            PlanViewModel(planRepository, planGenerator, sessionRepository, recordRepository)
+            PlanViewModel(
+                planRepository,
+                planGenerator,
+                sessionRepository,
+                recordRepository,
+                timeProvider,
+                idProvider,
+            )
 
         viewModel.planUiState.test {
             activePlanFlow.value = activePlan
@@ -278,6 +345,19 @@ class PlanViewModelTest {
         assertNull(viewModel.undoExercise.value)
     }
 
+    @Test
+    fun `clearUndo clears pending removed exercise`() = runTest {
+        val w1 = makeWorkout("w1", 1)
+        val ex1 = makeExercise("ex1", "w1")
+        setupReview(makeGeneratedPlan(listOf(w1), listOf(ex1)))
+        viewModel.removeExerciseFromReview("ex1")
+        assertNotNull(viewModel.undoExercise.value)
+
+        viewModel.clearUndo()
+
+        assertNull(viewModel.undoExercise.value)
+    }
+
     // -- addExerciseToReview --
 
     @Test
@@ -347,6 +427,23 @@ class PlanViewModelTest {
         assertEquals(0, viewModel.generatedPlan.value!!.exercises.first().orderIndex)
     }
 
+    // -- review navigation --
+
+    @Test
+    fun `backToSetup clears generated plan`() = runTest {
+        val generated =
+            makeGeneratedPlan(
+                workouts = listOf(makeWorkout("w1", 1)),
+                exercises = emptyList(),
+            )
+        setupReview(generated)
+        assertEquals(generated, viewModel.generatedPlan.value)
+
+        viewModel.backToSetup()
+
+        assertNull(viewModel.generatedPlan.value)
+    }
+
     // -- acceptPlan --
 
     @Test
@@ -366,4 +463,54 @@ class PlanViewModelTest {
             planRepository.createPlan(plan.plan, plan.workouts, plan.exercises)
         }
     }
+
+    @Test
+    fun `acceptPlan ignores duplicate tap while create is in progress`() = runTest {
+        val plan =
+            makeGeneratedPlan(
+                workouts = listOf(makeWorkout("w1", 1)),
+                exercises = listOf(makeExercise("ex1", "w1")),
+            )
+        setupReview(plan)
+        val createGate = CompletableDeferred<Unit>()
+        coEvery { planRepository.createPlan(any(), any(), any()) } coAnswers { createGate.await() }
+        var callbackCount = 0
+
+        viewModel.acceptPlan { callbackCount += 1 }
+        viewModel.acceptPlan { callbackCount += 1 }
+
+        coVerify(exactly = 1) {
+            planRepository.createPlan(plan.plan, plan.workouts, plan.exercises)
+        }
+        createGate.complete(Unit)
+        assertEquals(1, callbackCount)
+    }
+
+    @Test
+    fun `acceptPlan repository failure resets guard for retry and skips failed callback`() =
+        runTest {
+            val plan =
+                makeGeneratedPlan(
+                    workouts = listOf(makeWorkout("w1", 1)),
+                    exercises = listOf(makeExercise("ex1", "w1")),
+                )
+            setupReview(plan)
+            coEvery { planRepository.createPlan(any(), any(), any()) } throws
+                IllegalStateException("database unavailable")
+            var callbackCount = 0
+
+            viewModel.acceptPlan { callbackCount += 1 }
+
+            assertEquals(0, callbackCount)
+            assertEquals(plan, viewModel.generatedPlan.value)
+
+            coEvery { planRepository.createPlan(any(), any(), any()) } returns Unit
+            viewModel.acceptPlan { callbackCount += 1 }
+
+            assertEquals(1, callbackCount)
+            assertNull(viewModel.generatedPlan.value)
+            coVerify(exactly = 2) {
+                planRepository.createPlan(plan.plan, plan.workouts, plan.exercises)
+            }
+        }
 }

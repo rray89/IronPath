@@ -12,10 +12,11 @@ import com.example.ironpath.data.local.entity.WeeklyPlan
 import com.example.ironpath.data.local.entity.WorkoutLog
 import com.example.ironpath.data.repository.PlanRepository
 import com.example.ironpath.data.repository.RecordRepository
+import com.example.ironpath.domain.identity.IdProvider
+import com.example.ironpath.domain.time.TimeProvider
 import java.time.DayOfWeek
 import java.time.LocalDate
 import java.time.temporal.TemporalAdjusters
-import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.Dispatchers
@@ -28,11 +29,13 @@ constructor(
     private val database: IronPathDatabase,
     private val planRepository: PlanRepository,
     private val recordRepository: RecordRepository,
+    private val timeProvider: TimeProvider,
+    private val idProvider: IdProvider,
 ) {
 
     /** Seed a 3-day Strength plan where today is one of the workout days. */
     suspend fun seedPlanForToday() {
-        val today = LocalDate.now()
+        val today = timeProvider.today()
         val todayDow = today.dayOfWeek.value
         val existing = planRepository.getActivePlan()
         if (existing != null) {
@@ -46,7 +49,7 @@ constructor(
 
     /** Seed a 3-day Strength plan where tomorrow is one of the workout days. */
     suspend fun seedPlanForTomorrow() {
-        val tomorrow = LocalDate.now().plusDays(1)
+        val tomorrow = timeProvider.today().plusDays(1)
         val tomorrowDow = tomorrow.dayOfWeek.value
         val existing = planRepository.getActivePlan()
         if (existing != null) {
@@ -60,7 +63,7 @@ constructor(
 
     /** Insert 5 workout log entries spread over the past 2 weeks. */
     suspend fun seedHistoryLogs() {
-        val now = System.currentTimeMillis()
+        val now = timeProvider.epochMillis()
         val dayMs = 24 * 60 * 60 * 1000L
         val entries =
             listOf(
@@ -80,6 +83,7 @@ constructor(
                 val startedAt = completedAt - durationMinutes * 60_000L
                 val log =
                     WorkoutLog(
+                        id = idProvider.newId(),
                         title = title,
                         sourcePlannedWorkoutId = DEV_HISTORY_SOURCE_ID,
                         startedAt = startedAt,
@@ -98,7 +102,8 @@ constructor(
 
     /** Insert 5 personal records for common exercises. */
     suspend fun seedRecords() {
-        val today = LocalDate.now()
+        val today = timeProvider.today()
+        val createdAt = timeProvider.epochMillis()
         val entries =
             listOf(
                 Triple("Barbell Bench Press", 80.0, today.minusDays(1).toString()),
@@ -112,11 +117,13 @@ constructor(
                 entries.forEach { (name, weightKg, achievedOn) ->
                     recordRepository.insertRecord(
                         PersonalRecord(
+                            id = idProvider.newId(),
                             exerciseName = name,
                             normalizedExerciseName = name.lowercase().trim(),
                             weightKg = weightKg,
                             achievedOn = achievedOn,
                             sourceType = RecordSource.Manual,
+                            createdAt = createdAt,
                         )
                     )
                 }
@@ -152,12 +159,13 @@ constructor(
                 .distinct()
                 .sorted()
 
-        val planId = UUID.randomUUID().toString()
+        val planId = idProvider.newId()
         val plan =
             WeeklyPlan(
                 id = planId,
                 startDate = thisMonday.toString(),
                 endDate = thisSunday.toString(),
+                createdAt = timeProvider.epochMillis(),
             )
 
         val workouts = mutableListOf<PlannedWorkout>()
@@ -165,7 +173,7 @@ constructor(
 
         days.forEachIndexed { index, dow ->
             val template = strengthTemplates[index % strengthTemplates.size]
-            val workoutId = UUID.randomUUID().toString()
+            val workoutId = idProvider.newId()
             workouts.add(
                 PlannedWorkout(
                     id = workoutId,
@@ -178,6 +186,7 @@ constructor(
             template.exercises.forEachIndexed { exIndex, ex ->
                 exercises.add(
                     PlannedExercise(
+                        id = idProvider.newId(),
                         plannedWorkoutId = workoutId,
                         name = ex.name,
                         sets = ex.sets,
@@ -208,6 +217,7 @@ constructor(
             }
         return names.take(exerciseCount).mapIndexed { index, name ->
             LoggedExercise(
+                id = idProvider.newId(),
                 workoutLogId = logId,
                 name = name,
                 plannedSets = 3,
@@ -225,6 +235,7 @@ constructor(
         exercises.flatMapIndexed { exerciseIndex, exercise ->
             (1..exercise.plannedSets).map { setNumber ->
                 LoggedSet(
+                    id = idProvider.newId(),
                     loggedExerciseId = exercise.id,
                     setNumber = setNumber,
                     reps = exercise.plannedReps,

@@ -7,15 +7,16 @@ import com.example.ironpath.data.local.entity.PlannedWorkout
 import com.example.ironpath.data.repository.PlanRepository
 import com.example.ironpath.data.repository.RecordRepository
 import com.example.ironpath.data.repository.SessionRepository
+import com.example.ironpath.domain.identity.IdProvider
 import com.example.ironpath.domain.planner.GeneratedPlan
 import com.example.ironpath.domain.planner.PlanGenerator
 import com.example.ironpath.domain.planner.TrainingGoal
 import com.example.ironpath.domain.planner.findNextUpcomingWorkout
 import com.example.ironpath.domain.planner.findWorkoutScheduledToday
+import com.example.ironpath.domain.time.TimeProvider
 import dagger.hilt.android.lifecycle.HiltViewModel
-import java.time.LocalDate
-import java.util.UUID
 import javax.inject.Inject
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -37,7 +38,11 @@ constructor(
     private val planGenerator: PlanGenerator,
     private val sessionRepository: SessionRepository,
     private val recordRepository: RecordRepository,
+    private val timeProvider: TimeProvider,
+    private val idProvider: IdProvider,
 ) : ViewModel() {
+
+    private var acceptInProgress = false
 
     // -- Setup state --
     private val _selectedGoal = MutableStateFlow(TrainingGoal.Strength)
@@ -81,7 +86,7 @@ constructor(
                 when {
                     generated != null -> PlanUiState.Review(generated)
                     plan != null -> {
-                        val today = LocalDate.now()
+                        val today = timeProvider.today()
                         val todayWorkout = workouts.findWorkoutScheduledToday(today)
                         val nextWorkout = todayWorkout ?: workouts.findNextUpcomingWorkout(today)
                         PlanUiState.Accepted(
@@ -209,7 +214,7 @@ constructor(
                 .maxOfOrNull { it.orderIndex } ?: -1
         val newExercise =
             exercise.copy(
-                id = UUID.randomUUID().toString(),
+                id = idProvider.newId(),
                 plannedWorkoutId = workoutId,
                 orderIndex = maxOrder + 1,
             )
@@ -245,16 +250,26 @@ constructor(
     }
 
     fun acceptPlan(onAccepted: () -> Unit) {
+        if (acceptInProgress) return
         val generated = _generatedPlan.value ?: return
+        acceptInProgress = true
         viewModelScope.launch {
-            planRepository.createPlan(
-                plan = generated.plan,
-                workouts = generated.workouts,
-                exercises = generated.exercises,
-            )
-            _generatedPlan.value = null
-            _selectedDays.value = emptySet()
-            onAccepted()
+            try {
+                planRepository.createPlan(
+                    plan = generated.plan,
+                    workouts = generated.workouts,
+                    exercises = generated.exercises,
+                )
+                _generatedPlan.value = null
+                _selectedDays.value = emptySet()
+                onAccepted()
+            } catch (cancellation: CancellationException) {
+                throw cancellation
+            } catch (_: Exception) {
+                // Keep the review available so the user can retry accepting the plan.
+            } finally {
+                acceptInProgress = false
+            }
         }
     }
 

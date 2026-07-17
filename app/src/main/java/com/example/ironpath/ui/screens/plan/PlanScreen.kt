@@ -771,6 +771,7 @@ private fun ExerciseEditorDialog(
                             )
                         } else {
                             PlannedExercise(
+                                id = "",
                                 plannedWorkoutId = "",
                                 name = exerciseName.trim(),
                                 sets = setsInt!!,
@@ -1016,7 +1017,12 @@ private fun AcceptedWorkoutRow(
 // -- Previews --
 
 private val PreviewPlan =
-    WeeklyPlan(id = "preview-plan", startDate = "2026-03-30", endDate = "2026-04-05")
+    WeeklyPlan(
+        id = "preview-plan",
+        startDate = "2026-03-30",
+        endDate = "2026-04-05",
+        createdAt = 1L,
+    )
 
 private val PreviewWorkouts =
     listOf(
@@ -1035,6 +1041,7 @@ private val PreviewWorkouts =
 private val PreviewExercises =
     listOf(
         PlannedExercise(
+            id = "preview-exercise-1",
             plannedWorkoutId = "w1",
             name = "Barbell Bench Press",
             sets = 4,
@@ -1043,6 +1050,7 @@ private val PreviewExercises =
             orderIndex = 0,
         ),
         PlannedExercise(
+            id = "preview-exercise-2",
             plannedWorkoutId = "w1",
             name = "Dumbbell Incline Flys",
             sets = 3,
@@ -1051,6 +1059,7 @@ private val PreviewExercises =
             orderIndex = 1,
         ),
         PlannedExercise(
+            id = "preview-exercise-3",
             plannedWorkoutId = "w2",
             name = "Barbell Rows",
             sets = 4,
@@ -1059,6 +1068,7 @@ private val PreviewExercises =
             orderIndex = 0,
         ),
         PlannedExercise(
+            id = "preview-exercise-4",
             plannedWorkoutId = "w3",
             name = "Barbell Squats",
             sets = 4,

@@ -49,6 +49,7 @@ import com.example.ironpath.data.local.entity.ActiveSession
 import com.example.ironpath.data.local.entity.PlannedWorkout
 import com.example.ironpath.data.local.entity.SessionExercise
 import com.example.ironpath.data.local.entity.SessionSet
+import com.example.ironpath.domain.session.SessionSetInput
 import com.example.ironpath.ui.components.GreenGradientButton
 import com.example.ironpath.ui.theme.IronPathTheme
 import com.example.ironpath.ui.theme.SurfaceContainerHigh
@@ -69,6 +70,7 @@ fun ActiveScreen(
     ActiveContent(
         uiState = uiState,
         elapsedSeconds = elapsed,
+        nowMillis = viewModel::nowMillis,
         onNavigateToPlan = onNavigateToPlan,
         onStartSession = viewModel::startSession,
         onUpdateSet = viewModel::updateSet,
@@ -84,6 +86,7 @@ fun ActiveScreen(
 internal fun ActiveContent(
     uiState: ActiveUiState,
     elapsedSeconds: Long,
+    nowMillis: () -> Long,
     onNavigateToPlan: () -> Unit,
     onStartSession: (PlannedWorkout) -> Unit,
     onUpdateSet: (SessionSet) -> Unit,
@@ -106,6 +109,7 @@ internal fun ActiveContent(
                 exercises = uiState.exercises,
                 sets = uiState.sets,
                 elapsedSeconds = elapsedSeconds,
+                nowMillis = nowMillis,
                 onUpdateSet = onUpdateSet,
                 onAddSet = onAddSet,
                 onFinishWorkout = onFinishWorkout,
@@ -252,6 +256,7 @@ private fun ActiveSessionState(
     exercises: List<SessionExercise>,
     sets: List<SessionSet>,
     elapsedSeconds: Long,
+    nowMillis: () -> Long,
     onUpdateSet: (SessionSet) -> Unit,
     onAddSet: (String, Int) -> Unit,
     onFinishWorkout: () -> Unit,
@@ -294,6 +299,7 @@ private fun ActiveSessionState(
                 exercise = exercise,
                 sets = exerciseSets,
                 onUpdateSet = onUpdateSet,
+                nowMillis = nowMillis,
                 onAddSet = { onAddSet(exercise.id, exerciseSets.size) },
             )
 
@@ -318,6 +324,7 @@ private fun ExerciseSection(
     exercise: SessionExercise,
     sets: List<SessionSet>,
     onUpdateSet: (SessionSet) -> Unit,
+    nowMillis: () -> Long,
     onAddSet: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -378,6 +385,7 @@ private fun ExerciseSection(
                 set = set,
                 planInfo = "${exercise.plannedReps}reps@${exercise.plannedWeightKg.toInt()}kg",
                 onUpdateSet = onUpdateSet,
+                nowMillis = nowMillis,
             )
             Spacer(Modifier.height(4.dp))
         }
@@ -413,6 +421,7 @@ private fun SetRow(
     set: SessionSet,
     planInfo: String,
     onUpdateSet: (SessionSet) -> Unit,
+    nowMillis: () -> Long,
     modifier: Modifier = Modifier,
 ) {
     val isDone = set.reps != null && set.weightKg != null
@@ -450,15 +459,7 @@ private fun SetRow(
                     if (it == it.toLong().toDouble()) it.toInt().toString() else it.toString()
                 } ?: "",
             onValueChange = { text ->
-                val weight = text.toDoubleOrNull()
-                onUpdateSet(
-                    set.copy(
-                        weightKg = weight,
-                        completedAt =
-                            if (weight != null && set.reps != null) System.currentTimeMillis()
-                            else null
-                    )
-                )
+                onUpdateSet(SessionSetInput.withWeight(set, text, nowMillis()))
             },
             modifier = Modifier.weight(1f),
         )
@@ -469,15 +470,7 @@ private fun SetRow(
         CompactNumberField(
             value = set.reps?.toString() ?: "",
             onValueChange = { text ->
-                val reps = text.toIntOrNull()
-                onUpdateSet(
-                    set.copy(
-                        reps = reps,
-                        completedAt =
-                            if (reps != null && set.weightKg != null) System.currentTimeMillis()
-                            else null
-                    )
-                )
+                onUpdateSet(SessionSetInput.withReps(set, text, nowMillis()))
             },
             modifier = Modifier.weight(1f),
         )
@@ -564,6 +557,7 @@ private fun PreviewActiveNoPlan() {
             ActiveContent(
                 uiState = ActiveUiState.NoPlan,
                 elapsedSeconds = 0,
+                nowMillis = { 1L },
                 onNavigateToPlan = {},
                 onStartSession = {},
                 onUpdateSet = {},
@@ -582,6 +576,7 @@ private fun PreviewActiveRestDay() {
             ActiveContent(
                 uiState = ActiveUiState.RestDay(nextWorkoutDay = "Wednesday"),
                 elapsedSeconds = 0,
+                nowMillis = { 1L },
                 onNavigateToPlan = {},
                 onStartSession = {},
                 onUpdateSet = {},
@@ -605,6 +600,8 @@ private fun PreviewActiveInSession() {
                                 id = "s1",
                                 sourcePlannedWorkoutId = "w1",
                                 workoutTitle = "Push A",
+                                startedAt = 1L,
+                                lastUpdatedAt = 1L,
                             ),
                         exercises =
                             listOf(
@@ -658,6 +655,7 @@ private fun PreviewActiveInSession() {
                             ),
                     ),
                 elapsedSeconds = 2892,
+                nowMillis = { 1L },
                 onNavigateToPlan = {},
                 onStartSession = {},
                 onUpdateSet = {},

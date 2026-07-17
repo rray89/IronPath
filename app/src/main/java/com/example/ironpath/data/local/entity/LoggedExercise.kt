@@ -4,7 +4,6 @@ import androidx.room.Entity
 import androidx.room.ForeignKey
 import androidx.room.Index
 import androidx.room.PrimaryKey
-import java.util.UUID
 
 @Entity(
     tableName = "logged_exercises",
@@ -20,7 +19,7 @@ import java.util.UUID
     indices = [Index("workoutLogId")],
 )
 data class LoggedExercise(
-    @PrimaryKey val id: String = UUID.randomUUID().toString(),
+    @PrimaryKey val id: String,
     val workoutLogId: String,
     val name: String,
     val plannedSets: Int,

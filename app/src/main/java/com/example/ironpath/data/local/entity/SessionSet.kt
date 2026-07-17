@@ -4,7 +4,6 @@ import androidx.room.Entity
 import androidx.room.ForeignKey
 import androidx.room.Index
 import androidx.room.PrimaryKey
-import java.util.UUID
 
 @Entity(
     tableName = "session_sets",
@@ -20,7 +19,7 @@ import java.util.UUID
     indices = [Index("sessionExerciseId")],
 )
 data class SessionSet(
-    @PrimaryKey val id: String = UUID.randomUUID().toString(),
+    @PrimaryKey val id: String,
     val sessionExerciseId: String,
     val setNumber: Int,
     val reps: Int? = null,

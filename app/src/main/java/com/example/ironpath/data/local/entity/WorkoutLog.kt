@@ -2,11 +2,10 @@ package com.example.ironpath.data.local.entity
 
 import androidx.room.Entity
 import androidx.room.PrimaryKey
-import java.util.UUID
 
 @Entity(tableName = "workout_logs")
 data class WorkoutLog(
-    @PrimaryKey val id: String = UUID.randomUUID().toString(),
+    @PrimaryKey val id: String,
     val title: String,
     val sourcePlannedWorkoutId: String? = null,
     val startedAt: Long,
