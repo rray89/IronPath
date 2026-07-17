@@ -32,6 +32,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.ironpath.data.local.entity.PersonalRecord
 import com.example.ironpath.data.local.entity.RecordSource
@@ -43,7 +44,6 @@ import com.example.ironpath.ui.theme.SurfaceContainerLow
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
-import org.koin.androidx.compose.koinViewModel
 
 // -- Production entry point --
 
@@ -51,7 +51,7 @@ import org.koin.androidx.compose.koinViewModel
 fun HistoryScreen(
     modifier: Modifier = Modifier,
     onOpenLog: (String, Boolean) -> Unit = { _, _ -> },
-    viewModel: HistoryViewModel = koinViewModel(),
+    viewModel: HistoryViewModel = hiltViewModel(),
 ) {
     val selectedTab by viewModel.selectedTab.collectAsStateWithLifecycle()
     val logs by viewModel.logs.collectAsStateWithLifecycle()

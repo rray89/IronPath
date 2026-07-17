@@ -4,9 +4,12 @@ import com.example.ironpath.data.local.dao.HistoryDao
 import com.example.ironpath.data.local.entity.LoggedExercise
 import com.example.ironpath.data.local.entity.LoggedSet
 import com.example.ironpath.data.local.entity.WorkoutLog
+import javax.inject.Inject
+import javax.inject.Singleton
 import kotlinx.coroutines.flow.Flow
 
-class HistoryRepository(private val historyDao: HistoryDao) {
+@Singleton
+class HistoryRepository @Inject constructor(private val historyDao: HistoryDao) {
 
     fun observeAllLogs(): Flow<List<WorkoutLog>> = historyDao.observeAllLogs()
 

@@ -1,6 +1,7 @@
 package com.example.ironpath.ui.screens.history
 
 import android.database.sqlite.SQLiteConstraintException
+import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.ironpath.data.local.entity.LoggedSet
@@ -10,18 +11,26 @@ import com.example.ironpath.data.repository.HistoryRepository
 import com.example.ironpath.data.repository.LoggedExerciseDetail
 import com.example.ironpath.data.repository.RecordRepository
 import com.example.ironpath.data.repository.WorkoutLogDetail
+import com.example.ironpath.ui.navigation.Route
+import dagger.hilt.android.lifecycle.HiltViewModel
 import java.time.Instant
 import java.time.ZoneId
+import javax.inject.Inject
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
-class WorkoutLogDetailViewModel(
-    private val logId: String,
+@HiltViewModel
+class WorkoutLogDetailViewModel
+@Inject
+constructor(
+    savedStateHandle: SavedStateHandle,
     private val historyRepository: HistoryRepository,
     private val recordRepository: RecordRepository,
 ) : ViewModel() {
+
+    private val logId: String = savedStateHandle.get<String>(Route.WORKOUT_LOG_ID_ARG).orEmpty()
 
     private val _uiState =
         MutableStateFlow<WorkoutLogDetailUiState>(WorkoutLogDetailUiState.Loading)

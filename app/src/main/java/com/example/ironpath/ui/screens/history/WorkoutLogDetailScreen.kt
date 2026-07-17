@@ -31,6 +31,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.ironpath.data.local.entity.LoggedExercise
 import com.example.ironpath.data.local.entity.LoggedSet
@@ -44,16 +45,13 @@ import com.example.ironpath.ui.theme.SurfaceContainerLow
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
-import org.koin.androidx.compose.koinViewModel
-import org.koin.core.parameter.parametersOf
 
 @Composable
 fun WorkoutLogDetailScreen(
-    logId: String,
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
     recordActionsEnabled: Boolean = true,
-    viewModel: WorkoutLogDetailViewModel = koinViewModel(parameters = { parametersOf(logId) }),
+    viewModel: WorkoutLogDetailViewModel = hiltViewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
 

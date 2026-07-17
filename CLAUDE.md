@@ -10,6 +10,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ./gradlew installDebug           # Build and install on connected device
 ./gradlew test                   # Run unit tests
 ./gradlew connectedAndroidTest   # Run instrumented tests on device/emulator
+./gradlew pixel2Api29DebugAndroidTest # Run instrumented tests on the managed API 29 fallback
 ./gradlew clean                  # Clean build artifacts
 ./gradlew lint                   # Run lint checks
 ```
@@ -17,7 +18,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Tech Stack
 
 - **UI:** Jetpack Compose with Material 3
-- **DI:** Koin 4.2.0 (not Hilt) with `koin-androidx-compose`
+- **DI:** Dagger Hilt 2.60.1 with KSP and AndroidX Hilt Compose integration
 - **Database:** Room 2.8.4 with KSP 2.3.6 for annotation processing
 - **Navigation:** Navigation Compose 2.9.0 with string routes
 - **Language:** Kotlin 2.3.20 with JVM target 11
@@ -53,7 +54,7 @@ com.example.ironpath/
 ├── data/
 │   ├── local/               # Room entities, DAOs, database
 │   └── repository/          # PlanRepository, SessionRepository, HistoryRepository, RecordRepository
-├── di/                      # Koin module definitions
+├── di/                      # Hilt modules for third-party/interface bindings
 ├── domain/
 │   └── planner/             # Local plan generation algorithm
 ├── ui/
@@ -86,7 +87,16 @@ Data model (Room entities): WeeklyPlan → PlannedWorkout → PlannedExercise, A
 - The app uses `Theme.IronPath` (no action bar) from `res/values/themes.xml`
 - Figma text has Stitch export artifacts (garbled chars) — always use PRD text, not Figma literals
 - Figma nav shows "Dashboard" in some screens — use "Home" per PRD
-- **TDD required for all new features** — write failing unit tests before implementing any ViewModel method, repository logic, or domain class. Tests live in `app/src/test/`; use the existing MockK + coroutines-test + Turbine setup (see `PlanViewModelTest` as the reference pattern).
+- Owned production classes use constructor injection. Reserve Hilt modules for third-party objects and interface bindings.
+- JVM tests construct subjects directly. Use Hilt only for graph/startup/instrumented integration tests.
+- Every new Hilt binding must compile in debug and release and resolve in the API 29 startup or journey suite.
+- **Production-level tests are required for every feature and bug fix.** Start with a failing test before implementation. Add every applicable layer: JVM domain/ViewModel tests, real Room DAO/transaction/migration tests, isolated Compose/navigation tests, and a critical real-app journey test. Cover happy, empty, validation, error, boundary-time, duplicate/concurrent-action, and recreation behavior where relevant. No change is complete until formatting, lint, debug/release assembly, applicable device tests, and coverage gates pass.
+
+## Test Device Policy
+
+- The default physical target for instrumented tests and smoke tests is Seeker. Confirm it appears as `device` in `adb devices -l` before running. If more than one target is attached, set `ANDROID_SERIAL` to Seeker's current serial; never hardcode the serial in the repository.
+- If Seeker is absent, offline, or unauthorized, use the Gradle-managed API 29 fallback with `./gradlew pixel2Api29DebugAndroidTest`.
+- Android Studio is optional for this workflow. The Gradle wrapper plus Android SDK command-line tools, platform-tools/adb, and the emulator are sufficient.
 
 ## PR & Branch Naming
 

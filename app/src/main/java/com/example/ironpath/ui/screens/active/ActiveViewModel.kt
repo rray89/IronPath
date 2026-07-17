@@ -13,6 +13,8 @@ import com.example.ironpath.data.repository.SessionRepository
 import com.example.ironpath.domain.planner.findNextUpcomingWorkout
 import com.example.ironpath.domain.planner.findWorkoutScheduledToday
 import com.example.ironpath.domain.session.StartPlannedWorkoutUseCase
+import dagger.hilt.android.lifecycle.HiltViewModel
+import javax.inject.Inject
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -28,7 +30,10 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalCoroutinesApi::class)
-class ActiveViewModel(
+@HiltViewModel
+class ActiveViewModel
+@Inject
+constructor(
     private val sessionRepository: SessionRepository,
     private val planRepository: PlanRepository,
     private val startPlannedWorkout: StartPlannedWorkoutUseCase,

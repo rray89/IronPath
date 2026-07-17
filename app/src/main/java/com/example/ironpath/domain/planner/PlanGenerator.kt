@@ -7,6 +7,8 @@ import java.time.DayOfWeek
 import java.time.LocalDate
 import java.time.temporal.TemporalAdjusters
 import java.util.UUID
+import javax.inject.Inject
+import javax.inject.Singleton
 
 enum class TrainingGoal {
     Strength,
@@ -21,7 +23,8 @@ data class GeneratedPlan(
     val exercises: List<PlannedExercise>,
 )
 
-class PlanGenerator {
+@Singleton
+class PlanGenerator @Inject constructor() {
 
     fun generate(
         goal: TrainingGoal,

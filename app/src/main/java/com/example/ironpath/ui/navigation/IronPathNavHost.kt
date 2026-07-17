@@ -113,10 +113,8 @@ fun IronPathNavHost(
         composable(
             route = Route.WORKOUT_PREVIEW,
             arguments = listOf(navArgument(Route.WORKOUT_ID_ARG) { type = NavType.StringType }),
-        ) { backStackEntry ->
-            val workoutId = backStackEntry.arguments?.getString(Route.WORKOUT_ID_ARG).orEmpty()
+        ) {
             WorkoutPreviewScreen(
-                workoutId = workoutId,
                 onBack = { navController.popBackStack() },
                 onStarted = {
                     navController.navigate(Route.ACTIVE) {
@@ -139,11 +137,9 @@ fun IronPathNavHost(
                     },
                 ),
         ) { backStackEntry ->
-            val logId = backStackEntry.arguments?.getString(Route.WORKOUT_LOG_ID_ARG).orEmpty()
             val readOnly =
                 backStackEntry.arguments?.getBoolean(Route.WORKOUT_LOG_READ_ONLY_ARG) ?: false
             WorkoutLogDetailScreen(
-                logId = logId,
                 recordActionsEnabled = !readOnly,
                 onBack = { navController.popBackStack() },
                 modifier = Modifier.padding(innerPadding),

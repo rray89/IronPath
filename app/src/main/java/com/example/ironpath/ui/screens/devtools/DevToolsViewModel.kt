@@ -3,6 +3,8 @@ package com.example.ironpath.ui.screens.devtools
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.ironpath.dev.DevToolsSeeder
+import dagger.hilt.android.lifecycle.HiltViewModel
+import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -10,7 +12,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
-class DevToolsViewModel(private val seeder: DevToolsSeeder) : ViewModel() {
+@HiltViewModel
+class DevToolsViewModel @Inject constructor(private val seeder: DevToolsSeeder) : ViewModel() {
 
     private val _status = MutableStateFlow<String?>(null)
     val status: StateFlow<String?> = _status.asStateFlow()

@@ -16,10 +16,15 @@ import java.time.DayOfWeek
 import java.time.LocalDate
 import java.time.temporal.TemporalAdjusters
 import java.util.UUID
+import javax.inject.Inject
+import javax.inject.Singleton
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
-class DevToolsSeeder(
+@Singleton
+class DevToolsSeeder
+@Inject
+constructor(
     private val database: IronPathDatabase,
     private val planRepository: PlanRepository,
     private val recordRepository: RecordRepository,

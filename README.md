@@ -25,7 +25,7 @@ With IronPath, I wanted to practice more than just Android implementation. This 
 - Jetpack Compose
 - Material 3
 - Room
-- Koin
+- Dagger Hilt
 - Navigation Compose
 
 ## Why I kept the scope narrow
