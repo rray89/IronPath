@@ -13,12 +13,23 @@
     </issue>
 
     <issue
+        id="OldTargetApi"
+        message="Not targeting the latest versions of Android; compatibility modes apply. Consider testing and updating this version. Consult the android.os.Build.VERSION_CODES javadoc for details."
+        errorLine1="        targetSdk = 36"
+        errorLine2="        ~~~~~~~~~~~~~~">
+        <location
+            file="build.gradle.kts"
+            line="19"
+            column="9"/>
+    </issue>
+
+    <issue
         id="AndroidGradlePluginVersion"
         message="A newer version of Gradle than 9.4.1 is available: 9.6.1"
         errorLine1="distributionUrl=https\://services.gradle.org/distributions/gradle-9.4.1-bin.zip"
         errorLine2="                ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
-            file="$HOME/Devlopment/Android/IronPath/gradle/wrapper/gradle-wrapper.properties"
+            file="../gradle/wrapper/gradle-wrapper.properties"
             line="4"
             column="17"/>
     </issue>
@@ -29,7 +40,7 @@
         errorLine1="agp = &quot;9.1.0&quot;"
         errorLine2="      ~~~~~~~">
         <location
-            file="$HOME/Devlopment/Android/IronPath/gradle/libs.versions.toml"
+            file="../gradle/libs.versions.toml"
             line="2"
             column="7"/>
     </issue>
@@ -40,7 +51,7 @@
         errorLine1="coreKtx = &quot;1.18.0&quot;"
         errorLine2="          ~~~~~~~~">
         <location
-            file="$HOME/Devlopment/Android/IronPath/gradle/libs.versions.toml"
+            file="../gradle/libs.versions.toml"
             line="4"
             column="11"/>
     </issue>
@@ -51,7 +62,7 @@
         errorLine1="lifecycleRuntimeKtx = &quot;2.10.0&quot;"
         errorLine2="                      ~~~~~~~~">
         <location
-            file="$HOME/Devlopment/Android/IronPath/gradle/libs.versions.toml"
+            file="../gradle/libs.versions.toml"
             line="8"
             column="23"/>
     </issue>
@@ -62,7 +73,7 @@
         errorLine1="lifecycleRuntimeKtx = &quot;2.10.0&quot;"
         errorLine2="                      ~~~~~~~~">
         <location
-            file="$HOME/Devlopment/Android/IronPath/gradle/libs.versions.toml"
+            file="../gradle/libs.versions.toml"
             line="8"
             column="23"/>
     </issue>
@@ -73,7 +84,7 @@
         errorLine1="composeBom = &quot;2026.03.01&quot;"
         errorLine2="             ~~~~~~~~~~~~">
         <location
-            file="$HOME/Devlopment/Android/IronPath/gradle/libs.versions.toml"
+            file="../gradle/libs.versions.toml"
             line="10"
             column="14"/>
     </issue>
@@ -84,7 +95,7 @@
         errorLine1="androidxHilt = &quot;1.3.0&quot;"
         errorLine2="               ~~~~~~~">
         <location
-            file="$HOME/Devlopment/Android/IronPath/gradle/libs.versions.toml"
+            file="../gradle/libs.versions.toml"
             line="13"
             column="16"/>
     </issue>
@@ -95,7 +106,7 @@
         errorLine1="navigationCompose = &quot;2.9.0&quot;"
         errorLine2="                    ~~~~~~~">
         <location
-            file="$HOME/Devlopment/Android/IronPath/gradle/libs.versions.toml"
+            file="../gradle/libs.versions.toml"
             line="16"
             column="21"/>
     </issue>
@@ -106,7 +117,7 @@
         errorLine1="kotlin = &quot;2.3.20&quot;"
         errorLine2="         ~~~~~~~~">
         <location
-            file="$HOME/Devlopment/Android/IronPath/gradle/libs.versions.toml"
+            file="../gradle/libs.versions.toml"
             line="3"
             column="10"/>
     </issue>
@@ -117,7 +128,7 @@
         errorLine1="coroutines = &quot;1.10.2&quot;"
         errorLine2="             ~~~~~~~~">
         <location
-            file="$HOME/Devlopment/Android/IronPath/gradle/libs.versions.toml"
+            file="../gradle/libs.versions.toml"
             line="14"
             column="14"/>
     </issue>
@@ -128,7 +139,7 @@
         errorLine1="spotless = &quot;6.25.0&quot;"
         errorLine2="           ~~~~~~~~">
         <location
-            file="$HOME/Devlopment/Android/IronPath/gradle/libs.versions.toml"
+            file="../gradle/libs.versions.toml"
             line="18"
             column="12"/>
     </issue>
@@ -139,7 +150,7 @@
         errorLine1="mockk = &quot;1.13.13&quot;"
         errorLine2="        ~~~~~~~~~">
         <location
-            file="$HOME/Devlopment/Android/IronPath/gradle/libs.versions.toml"
+            file="../gradle/libs.versions.toml"
             line="19"
             column="9"/>
     </issue>
@@ -150,7 +161,7 @@
         errorLine1="turbine = &quot;1.2.0&quot;"
         errorLine2="          ~~~~~~~">
         <location
-            file="$HOME/Devlopment/Android/IronPath/gradle/libs.versions.toml"
+            file="../gradle/libs.versions.toml"
             line="20"
             column="11"/>
     </issue>

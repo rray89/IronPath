@@ -3,9 +3,11 @@ package com.example.ironpath.domain
 import com.example.ironpath.domain.identity.UuidIdProvider
 import com.example.ironpath.domain.time.SystemTimeProvider
 import com.example.ironpath.testutil.FakeTimeProvider
+import java.time.Clock
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
+import java.time.ZoneOffset
 import java.util.UUID
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
@@ -31,5 +33,20 @@ class ProviderBoundaryTest {
         assertTrue(timeProvider.zoneId.id.isNotBlank())
         assertNotNull(timeProvider.now())
         assertEquals(id, UUID.fromString(id).toString())
+    }
+
+    @Test
+    fun `system time provider observes timezone changes after construction`() {
+        var currentZone = ZoneId.of("UTC")
+        val provider =
+            SystemTimeProvider(
+                clock = Clock.fixed(Instant.parse("2026-07-16T19:00:00Z"), ZoneOffset.UTC),
+                zoneIdProvider = { currentZone },
+            )
+        assertEquals(ZoneId.of("UTC"), provider.zoneId)
+
+        currentZone = ZoneId.of("America/Vancouver")
+
+        assertEquals(ZoneId.of("America/Vancouver"), provider.zoneId)
     }
 }

@@ -16,11 +16,15 @@ interface TimeProvider {
     fun epochMillis(): Long = now().toEpochMilli()
 }
 
-class SystemTimeProvider @Inject constructor() : TimeProvider {
-    private val clock: Clock = Clock.systemDefaultZone()
+class SystemTimeProvider
+internal constructor(
+    private val clock: Clock,
+    private val zoneIdProvider: () -> ZoneId,
+) : TimeProvider {
+    @Inject constructor() : this(Clock.systemUTC(), ZoneId::systemDefault)
 
     override val zoneId: ZoneId
-        get() = clock.zone
+        get() = zoneIdProvider()
 
     override fun now(): Instant = clock.instant()
 }
