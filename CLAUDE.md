@@ -90,7 +90,7 @@ Data model (Room entities): WeeklyPlan → PlannedWorkout → PlannedExercise, A
 - Owned production classes use constructor injection. Reserve Hilt modules for third-party objects and interface bindings.
 - JVM tests construct subjects directly. Use Hilt only for graph/startup/instrumented integration tests.
 - Every new Hilt binding must compile in debug and release and resolve in the API 29 startup or journey suite.
-- **Production-level tests are required for every feature and bug fix.** Start with a failing test before implementation. Add every applicable layer: JVM domain/ViewModel tests, real Room DAO/transaction/migration tests, isolated Compose/navigation tests, and a critical real-app journey test. Cover happy, empty, validation, error, boundary-time, duplicate/concurrent-action, and recreation behavior where relevant. No change is complete until formatting, lint, debug/release assembly, applicable device tests, and coverage gates pass.
+- **Production-level tests are required for every feature and bug fix.** Start with a failing test and follow `docs/testing-strategy.md`. Select every applicable layer: JVM domain/ViewModel tests, real Room DAO/transaction/migration tests, isolated Compose tests, navigation tests, and a critical real-app journey test. Cover happy, empty, validation, error, boundary-time, duplicate/concurrent action, and recreation behavior where relevant. No feature is complete until Spotless, lint, debug/release assembly, applicable device tests, and core coverage gates pass.
 
 ## Test Device Policy
 

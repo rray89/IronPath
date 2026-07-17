@@ -12,6 +12,7 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertSame
 import org.junit.Before
 import org.junit.Test
 
@@ -51,7 +52,9 @@ class HistoryRepositoryTest {
 
     @Before
     fun setUp() {
-        historyDao = mockk(relaxed = true)
+        historyDao = mockk()
+        coEvery { historyDao.getLogById(any()) } returns null
+        coEvery { historyDao.insertLog(any()) } returns Unit
         repository = HistoryRepository(historyDao)
     }
 
@@ -62,7 +65,7 @@ class HistoryRepositoryTest {
 
         val result = repository.observeAllLogs()
 
-        assert(result === expected)
+        assertSame(expected, result)
     }
 
     @Test

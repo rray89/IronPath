@@ -4,14 +4,11 @@ import com.example.ironpath.data.local.entity.PlannedWorkout
 import com.example.ironpath.data.local.entity.WorkoutStatus
 import java.time.LocalDate
 
-fun List<PlannedWorkout>.findWorkoutScheduledToday(
-    today: LocalDate = LocalDate.now()
-): PlannedWorkout? =
+fun List<PlannedWorkout>.findWorkoutScheduledToday(today: LocalDate): PlannedWorkout? =
     scheduledUpcomingWorkoutsOnOrAfter(today).firstOrNull { it.date == today }?.workout
 
-fun List<PlannedWorkout>.findNextUpcomingWorkout(
-    today: LocalDate = LocalDate.now()
-): PlannedWorkout? = scheduledUpcomingWorkoutsOnOrAfter(today).firstOrNull()?.workout
+fun List<PlannedWorkout>.findNextUpcomingWorkout(today: LocalDate): PlannedWorkout? =
+    scheduledUpcomingWorkoutsOnOrAfter(today).firstOrNull()?.workout
 
 private fun List<PlannedWorkout>.scheduledUpcomingWorkoutsOnOrAfter(
     today: LocalDate,

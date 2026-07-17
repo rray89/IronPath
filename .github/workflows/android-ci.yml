@@ -2,7 +2,7 @@ name: Android CI
 
 on:
   push:
-    branches: [main, "feature/**", "bugfix/**"]
+    branches: [main, "feat/**", "bug/**", "feature/**", "bugfix/**"]
   pull_request:
     branches: [main]
 
@@ -33,13 +33,15 @@ jobs:
       - name: Check Spotless formatting
         run: ./gradlew spotlessCheck
 
-      - name: Assemble debug build
-        run: ./gradlew assembleDebug
+      - name: Lint and assemble debug and release builds
+        run: ./gradlew lintDebug assembleDebug assembleRelease
 
       - name: Run unit tests with JaCoCo coverage
         # createDebugUnitTestCoverageReport depends on testDebugUnitTest and generates
         # HTML + XML reports at app/build/reports/coverage/test/debug/
-        run: ./gradlew createDebugUnitTestCoverageReport -PenableCoverage
+        run: >-
+          ./gradlew createDebugUnitTestCoverageReport verifyCoreCoverage
+          -PenableCoverage
 
       - name: Upload HTML coverage report
         uses: actions/upload-artifact@v4
@@ -108,17 +110,47 @@ jobs:
             }
 
             const fileRows = [];
+            const coreTotals = {
+              line: { covered: 0, missed: 0 },
+              branch: { covered: 0, missed: 0 },
+            };
             for (const [, pkgName, pkgBlock] of packageMatches) {
               const sourceMatches = [...pkgBlock.matchAll(/<sourcefile name="([^"]+)">([\s\S]*?)<\/sourcefile>/g)];
               for (const [, fileName, fileBlock] of sourceMatches) {
                 const line = parseCounter(fileBlock, 'LINE');
                 if (!line || line.total === 0) continue;
+                const path = `${pkgName}/${fileName}`;
                 fileRows.push({
-                  name: `${pkgName}/${fileName}`,
+                  name: path,
                   ...line,
                 });
+                const isCore = path.endsWith('.kt') &&
+                  (path.startsWith('com/example/ironpath/domain/') ||
+                    path.startsWith('com/example/ironpath/data/repository/') ||
+                    (path.startsWith('com/example/ironpath/ui/screens/') &&
+                      path.endsWith('ViewModel.kt') &&
+                      !path.endsWith('DevToolsViewModel.kt')));
+                if (isCore) {
+                  coreTotals.line.covered += line.covered;
+                  coreTotals.line.missed += line.missed;
+                  const branch = parseCounter(fileBlock, 'BRANCH');
+                  if (branch) {
+                    coreTotals.branch.covered += branch.covered;
+                    coreTotals.branch.missed += branch.missed;
+                  }
+                }
               }
             }
+
+            const summarizeCore = ({ covered, missed }) => {
+              const total = covered + missed;
+              const pct = total > 0 ? (covered / total) * 100 : 0;
+              return { covered, total, pct };
+            };
+            const coreCounters = {
+              line: summarizeCore(coreTotals.line),
+              branch: summarizeCore(coreTotals.branch),
+            };
 
             packageRows.sort((a, b) => {
               if (a.pct !== b.pct) return a.pct - b.pct;
@@ -134,6 +166,13 @@ jobs:
             const topFiles = fileRows.slice(0, 20);
 
             let body = '## Coverage Report\n\n';
+            body += '### Core merge gate\n\n';
+            body += 'Scope: domain, repositories, and non-dev ViewModels.\n\n';
+            body += '| Metric | Covered | Total | % | Minimum |\n';
+            body += '|--------|---------|-------|---|---------|\n';
+            body += `| Lines | ${coreCounters.line.covered} | ${coreCounters.line.total} | **${coreCounters.line.pct.toFixed(2)}%** | 85% |\n`;
+            body += `| Branches | ${coreCounters.branch.covered} | ${coreCounters.branch.total} | **${coreCounters.branch.pct.toFixed(2)}%** | 70% |\n`;
+            body += '\n### Overall project coverage\n\n';
             body += '| Metric | Covered | Total | % |\n';
             body += '|--------|---------|-------|---|\n';
             for (const [label, counter] of Object.entries({

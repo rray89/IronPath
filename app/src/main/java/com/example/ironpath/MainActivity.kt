@@ -32,24 +32,28 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import com.example.ironpath.domain.time.TimeProvider
 import com.example.ironpath.ui.navigation.BottomNavItem
 import com.example.ironpath.ui.navigation.IronPathNavHost
 import com.example.ironpath.ui.navigation.Route
 import com.example.ironpath.ui.theme.IronPathTheme
 import dagger.hilt.android.AndroidEntryPoint
+import javax.inject.Inject
 
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
+    @Inject lateinit var timeProvider: TimeProvider
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-        setContent { IronPathTheme { IronPathApp() } }
+        setContent { IronPathTheme { IronPathApp(timeProvider) } }
     }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun IronPathApp() {
+fun IronPathApp(timeProvider: TimeProvider) {
     val navController = rememberNavController()
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = navBackStackEntry?.destination?.route
@@ -79,7 +83,7 @@ fun IronPathApp() {
                                     interactionSource = remember { MutableInteractionSource() },
                                     indication = null,
                                 ) {
-                                    val now = System.currentTimeMillis()
+                                    val now = timeProvider.epochMillis()
                                     if (now - devLastTapAt > 2000L) devTapCount = 0
                                     devTapCount++
                                     devLastTapAt = now

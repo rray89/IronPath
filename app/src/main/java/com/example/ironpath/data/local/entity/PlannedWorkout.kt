@@ -4,7 +4,6 @@ import androidx.room.Entity
 import androidx.room.ForeignKey
 import androidx.room.Index
 import androidx.room.PrimaryKey
-import java.util.UUID
 
 @Entity(
     tableName = "planned_workouts",
@@ -20,7 +19,7 @@ import java.util.UUID
     indices = [Index("weeklyPlanId")],
 )
 data class PlannedWorkout(
-    @PrimaryKey val id: String = UUID.randomUUID().toString(),
+    @PrimaryKey val id: String,
     val weeklyPlanId: String,
     val dayOfWeek: Int, // 1 = Monday .. 7 = Sunday (ISO)
     val scheduledDate: String, // ISO date yyyy-MM-dd

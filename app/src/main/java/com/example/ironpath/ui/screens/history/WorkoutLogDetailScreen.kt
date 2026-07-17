@@ -42,9 +42,8 @@ import com.example.ironpath.ui.components.GreenGradientButton
 import com.example.ironpath.ui.theme.IronPathTheme
 import com.example.ironpath.ui.theme.SurfaceContainerHigh
 import com.example.ironpath.ui.theme.SurfaceContainerLow
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
+import java.time.ZoneId
+import java.time.ZoneOffset
 
 @Composable
 fun WorkoutLogDetailScreen(
@@ -60,6 +59,7 @@ fun WorkoutLogDetailScreen(
         onBack = onBack,
         onSaveSetAsRecord = viewModel::saveSetAsRecord,
         recordActionsEnabled = recordActionsEnabled,
+        zoneId = viewModel.zoneId,
         modifier = modifier,
     )
 }
@@ -70,6 +70,7 @@ internal fun WorkoutLogDetailContent(
     onBack: () -> Unit,
     onSaveSetAsRecord: (LoggedExerciseDetail, LoggedSet) -> Unit = { _, _ -> },
     recordActionsEnabled: Boolean = true,
+    zoneId: ZoneId,
     modifier: Modifier = Modifier,
 ) {
     when (uiState) {
@@ -85,6 +86,7 @@ internal fun WorkoutLogDetailContent(
                 onBack = onBack,
                 onSaveSetAsRecord = onSaveSetAsRecord,
                 recordActionsEnabled = recordActionsEnabled,
+                zoneId = zoneId,
                 modifier = modifier,
             )
     }
@@ -122,6 +124,7 @@ private fun WorkoutLogDetailReady(
     onBack: () -> Unit,
     onSaveSetAsRecord: (LoggedExerciseDetail, LoggedSet) -> Unit,
     recordActionsEnabled: Boolean,
+    zoneId: ZoneId,
     modifier: Modifier = Modifier,
 ) {
     val detail = state.detail
@@ -159,7 +162,7 @@ private fun WorkoutLogDetailReady(
         )
         Spacer(Modifier.height(8.dp))
         Text(
-            text = formatLogDate(detail.log.completedAt),
+            text = formatHistoryEpochDate(detail.log.completedAt, zoneId),
             style = MaterialTheme.typography.bodyLarge,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -365,11 +368,6 @@ private fun formatSetResult(set: LoggedSet): String {
     }
 }
 
-private fun formatLogDate(millis: Long): String {
-    val sdf = SimpleDateFormat("MMM dd, yyyy", Locale.US)
-    return sdf.format(Date(millis))
-}
-
 private fun formatWeight(weightKg: Double): String =
     if (weightKg <= 0.0) {
         "bodyweight"
@@ -430,6 +428,7 @@ private fun PreviewWorkoutLogDetailReady() {
                         ),
                     ),
                 onBack = {},
+                zoneId = ZoneOffset.UTC,
             )
         }
     }

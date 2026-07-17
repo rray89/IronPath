@@ -6,8 +6,14 @@ import com.example.ironpath.data.local.entity.PersonalRecord
 import com.example.ironpath.data.repository.HistoryRepository
 import com.example.ironpath.data.repository.PlanRepository
 import com.example.ironpath.data.repository.RecordRepository
+import com.example.ironpath.domain.identity.IdProvider
+import com.example.ironpath.domain.time.TimeProvider
+import com.example.ironpath.domain.validation.ValidatedRecordDraft
 import dagger.hilt.android.lifecycle.HiltViewModel
+import java.time.LocalDate
+import java.time.ZoneId
 import javax.inject.Inject
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -22,6 +28,8 @@ constructor(
     private val historyRepository: HistoryRepository,
     private val recordRepository: RecordRepository,
     private val planRepository: PlanRepository,
+    private val timeProvider: TimeProvider,
+    private val idProvider: IdProvider,
 ) : ViewModel() {
 
     private val _selectedTab = MutableStateFlow(HistoryTab.Logs)
@@ -41,6 +49,11 @@ constructor(
     private val _addRecordShown = MutableStateFlow(false)
     val addRecordShown: StateFlow<Boolean> = _addRecordShown.asStateFlow()
 
+    private val _addRecordError = MutableStateFlow<String?>(null)
+    val addRecordError: StateFlow<String?> = _addRecordError.asStateFlow()
+
+    private var isSavingRecord = false
+
     // Edit Record state
     private val _editingRecord = MutableStateFlow<PersonalRecord?>(null)
     val editingRecord: StateFlow<PersonalRecord?> = _editingRecord.asStateFlow()
@@ -57,6 +70,11 @@ constructor(
         _selectedTab.value = tab
     }
 
+    fun today(): LocalDate = timeProvider.today()
+
+    val zoneId: ZoneId
+        get() = timeProvider.zoneId
+
     private fun loadSuggestions() {
         viewModelScope.launch {
             val planNames = planRepository.getAllExerciseNames()
@@ -72,6 +90,11 @@ constructor(
 
     fun hideAddRecord() {
         _addRecordShown.value = false
+        _addRecordError.value = null
+    }
+
+    fun clearAddRecordError() {
+        _addRecordError.value = null
     }
 
     fun showEditRecord(record: PersonalRecord) {
@@ -88,11 +111,35 @@ constructor(
         _editRecordError.value = null
     }
 
-    fun saveRecord(record: PersonalRecord, onSaved: () -> Unit) {
+    fun saveRecord(draft: ValidatedRecordDraft, onSaved: () -> Unit) {
+        if (isSavingRecord) return
+        isSavingRecord = true
+        _addRecordError.value = null
         viewModelScope.launch {
-            recordRepository.insertRecord(record)
-            _addRecordShown.value = false
-            onSaved()
+            try {
+                try {
+                    val record =
+                        PersonalRecord(
+                            id = idProvider.newId(),
+                            exerciseName = draft.exerciseName,
+                            normalizedExerciseName = draft.normalizedExerciseName,
+                            weightKg = draft.weightKg,
+                            achievedOn = draft.achievedOn,
+                            note = draft.note,
+                            createdAt = timeProvider.epochMillis(),
+                        )
+                    recordRepository.insertRecord(record)
+                } catch (cancellation: CancellationException) {
+                    throw cancellation
+                } catch (_: Exception) {
+                    _addRecordError.value = "Unable to save record. Please try again."
+                    return@launch
+                }
+                _addRecordShown.value = false
+                onSaved()
+            } finally {
+                isSavingRecord = false
+            }
         }
     }
 

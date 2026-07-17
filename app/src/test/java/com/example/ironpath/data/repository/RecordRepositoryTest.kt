@@ -9,6 +9,7 @@ import io.mockk.mockk
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -25,11 +26,15 @@ class RecordRepositoryTest {
             normalizedExerciseName = "bench press",
             weightKg = 100.0,
             achievedOn = "2026-04-12",
+            createdAt = 1_000L,
         )
 
     @Before
     fun setUp() {
-        recordDao = mockk(relaxed = true)
+        recordDao = mockk()
+        coEvery { recordDao.insertRecord(any()) } returns Unit
+        coEvery { recordDao.updateRecord(any()) } returns Unit
+        coEvery { recordDao.deleteRecord(any()) } returns Unit
         repository = RecordRepository(recordDao)
     }
 
@@ -94,6 +99,6 @@ class RecordRepositoryTest {
 
         val result = repository.observeAllRecords()
 
-        assert(result === expected)
+        assertSame(expected, result)
     }
 }

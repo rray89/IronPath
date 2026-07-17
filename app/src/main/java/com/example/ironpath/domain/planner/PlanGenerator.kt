@@ -3,10 +3,10 @@ package com.example.ironpath.domain.planner
 import com.example.ironpath.data.local.entity.PlannedExercise
 import com.example.ironpath.data.local.entity.PlannedWorkout
 import com.example.ironpath.data.local.entity.WeeklyPlan
+import com.example.ironpath.domain.identity.IdProvider
+import com.example.ironpath.domain.time.TimeProvider
 import java.time.DayOfWeek
-import java.time.LocalDate
 import java.time.temporal.TemporalAdjusters
-import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -24,23 +24,29 @@ data class GeneratedPlan(
 )
 
 @Singleton
-class PlanGenerator @Inject constructor() {
+class PlanGenerator
+@Inject
+constructor(
+    private val timeProvider: TimeProvider,
+    private val idProvider: IdProvider,
+) {
 
     fun generate(
         goal: TrainingGoal,
         selectedDays: Set<Int>, // 1=Mon..7=Sun (ISO)
     ): GeneratedPlan {
-        val today = LocalDate.now()
+        val today = timeProvider.today()
         // Always generate for the upcoming Monday-Sunday week, never the current week
         val nextMonday = today.with(TemporalAdjusters.next(DayOfWeek.MONDAY))
         val nextSunday = nextMonday.plusDays(6)
 
-        val planId = UUID.randomUUID().toString()
+        val planId = idProvider.newId()
         val plan =
             WeeklyPlan(
                 id = planId,
                 startDate = nextMonday.toString(),
                 endDate = nextSunday.toString(),
+                createdAt = timeProvider.epochMillis(),
             )
 
         val sortedDays = selectedDays.sorted()
@@ -51,7 +57,7 @@ class PlanGenerator @Inject constructor() {
 
         sortedDays.forEachIndexed { index, dow ->
             val template = templates[index % templates.size]
-            val workoutId = UUID.randomUUID().toString()
+            val workoutId = idProvider.newId()
             val scheduledDate = nextMonday.plusDays((dow - 1).toLong())
 
             workouts.add(
@@ -67,6 +73,7 @@ class PlanGenerator @Inject constructor() {
             template.exercises.forEachIndexed { exIndex, ex ->
                 exercises.add(
                     PlannedExercise(
+                        id = idProvider.newId(),
                         plannedWorkoutId = workoutId,
                         name = ex.name,
                         sets = ex.sets,

@@ -29,15 +29,19 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.example.ironpath.data.local.entity.PersonalRecord
+import com.example.ironpath.domain.validation.RecordDraftResult
+import com.example.ironpath.domain.validation.RecordDraftValidator
+import com.example.ironpath.domain.validation.RecordField
+import com.example.ironpath.domain.validation.ValidatedRecordDraft
 import com.example.ironpath.ui.components.GreenGradientButton
 import com.example.ironpath.ui.theme.IronPathTheme
 import java.time.LocalDate
-import java.time.format.DateTimeFormatter
 
 @Composable
 internal fun AddRecordScreen(
     suggestions: List<String>,
-    onSave: (PersonalRecord) -> Unit,
+    today: LocalDate,
+    onSave: (ValidatedRecordDraft) -> Unit,
     onCancel: () -> Unit,
     modifier: Modifier = Modifier,
     existingRecord: PersonalRecord? = null,
@@ -46,6 +50,7 @@ internal fun AddRecordScreen(
     onExternalErrorConsumed: () -> Unit = {},
 ) {
     val isEditMode = existingRecord != null
+    val validator = remember { RecordDraftValidator() }
 
     var exerciseName by remember { mutableStateOf(existingRecord?.exerciseName ?: "") }
     var weightText by remember {
@@ -55,13 +60,10 @@ internal fun AddRecordScreen(
             } ?: "",
         )
     }
-    var dateText by remember {
-        mutableStateOf(
-            existingRecord?.achievedOn ?: LocalDate.now().format(DateTimeFormatter.ISO_LOCAL_DATE),
-        )
-    }
+    var dateText by remember { mutableStateOf(existingRecord?.achievedOn ?: today.toString()) }
     var note by remember { mutableStateOf(existingRecord?.note ?: "") }
     var errorMessage by remember { mutableStateOf<String?>(null) }
+    var fieldErrors by remember { mutableStateOf<Map<RecordField, String>>(emptyMap()) }
 
     // Show errors surfaced asynchronously from the ViewModel (e.g. duplicate-record constraint)
     LaunchedEffect(externalError) {
@@ -144,10 +146,16 @@ internal fun AddRecordScreen(
         Spacer(Modifier.height(4.dp))
         OutlinedTextField(
             value = exerciseName,
-            onValueChange = { exerciseName = it },
+            onValueChange = {
+                exerciseName = it
+                fieldErrors = fieldErrors - RecordField.ExerciseName
+            },
             modifier = Modifier.fillMaxWidth(),
             placeholder = { Text("e.g. Deadlift") },
             singleLine = true,
+            isError = RecordField.ExerciseName in fieldErrors,
+            supportingText =
+                fieldErrors[RecordField.ExerciseName]?.let { message -> { Text(message) } },
             colors = fieldColors,
         )
 
@@ -164,11 +172,17 @@ internal fun AddRecordScreen(
                 Spacer(Modifier.height(4.dp))
                 OutlinedTextField(
                     value = weightText,
-                    onValueChange = { weightText = it },
+                    onValueChange = {
+                        weightText = it
+                        fieldErrors = fieldErrors - RecordField.Weight
+                    },
                     modifier = Modifier.fillMaxWidth(),
                     placeholder = { Text("0.0") },
                     singleLine = true,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                    isError = RecordField.Weight in fieldErrors,
+                    supportingText =
+                        fieldErrors[RecordField.Weight]?.let { message -> { Text(message) } },
                     colors = fieldColors,
                 )
             }
@@ -204,10 +218,15 @@ internal fun AddRecordScreen(
         Spacer(Modifier.height(4.dp))
         OutlinedTextField(
             value = dateText,
-            onValueChange = { dateText = it },
+            onValueChange = {
+                dateText = it
+                fieldErrors = fieldErrors - RecordField.Date
+            },
             modifier = Modifier.fillMaxWidth(),
             placeholder = { Text("YYYY-MM-DD") },
             singleLine = true,
+            isError = RecordField.Date in fieldErrors,
+            supportingText = fieldErrors[RecordField.Date]?.let { message -> { Text(message) } },
             colors = fieldColors,
         )
 
@@ -243,44 +262,24 @@ internal fun AddRecordScreen(
         GreenGradientButton(
             text = if (isEditMode) "Update Record" else "Save",
             onClick = {
-                val name = exerciseName.trim()
-                val weight = weightText.toDoubleOrNull()
-                val date =
-                    try {
-                        LocalDate.parse(dateText)
-                    } catch (_: Exception) {
-                        null
-                    }
-
-                when {
-                    name.isEmpty() -> errorMessage = "Exercise name is required"
-                    weight == null || weight <= 0 ->
-                        errorMessage = "Weight must be a positive number"
-                    date == null -> errorMessage = "Invalid date format (use YYYY-MM-DD)"
-                    date.isAfter(LocalDate.now()) -> errorMessage = "Date cannot be in the future"
-                    else -> {
+                when (
+                    val result =
+                        validator.validate(
+                            exerciseName = exerciseName,
+                            weightText = weightText,
+                            dateText = dateText,
+                            note = note,
+                            today = today,
+                        )
+                ) {
+                    is RecordDraftResult.Invalid -> {
+                        fieldErrors = result.errors
                         errorMessage = null
-                        if (isEditMode) {
-                            onSave(
-                                existingRecord.copy(
-                                    exerciseName = name,
-                                    normalizedExerciseName = name.lowercase().trim(),
-                                    weightKg = weight,
-                                    achievedOn = dateText,
-                                    note = note.ifBlank { null },
-                                ),
-                            )
-                        } else {
-                            onSave(
-                                PersonalRecord(
-                                    exerciseName = name,
-                                    normalizedExerciseName = name.lowercase().trim(),
-                                    weightKg = weight,
-                                    achievedOn = dateText,
-                                    note = note.ifBlank { null },
-                                ),
-                            )
-                        }
+                    }
+                    is RecordDraftResult.Valid -> {
+                        fieldErrors = emptyMap()
+                        errorMessage = null
+                        onSave(result.draft)
                     }
                 }
             },
@@ -324,6 +323,7 @@ private fun PreviewAddRecord() {
         Surface(color = MaterialTheme.colorScheme.surface) {
             AddRecordScreen(
                 suggestions = listOf("Bench Press", "Squat", "Deadlift"),
+                today = LocalDate.parse("2026-07-16"),
                 onSave = {},
                 onCancel = {},
             )
@@ -338,15 +338,18 @@ private fun PreviewEditRecord() {
         Surface(color = MaterialTheme.colorScheme.surface) {
             AddRecordScreen(
                 suggestions = listOf("Bench Press", "Squat", "Deadlift"),
+                today = LocalDate.parse("2026-07-16"),
                 onSave = {},
                 onCancel = {},
                 existingRecord =
                     PersonalRecord(
+                        id = "preview-record",
                         exerciseName = "Bench Press",
                         normalizedExerciseName = "bench press",
                         weightKg = 100.0,
                         achievedOn = "2026-03-23",
                         note = "Felt strong",
+                        createdAt = 1L,
                     ),
                 onDelete = {},
             )

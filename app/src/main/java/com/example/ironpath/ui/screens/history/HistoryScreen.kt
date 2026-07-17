@@ -41,9 +41,8 @@ import com.example.ironpath.ui.components.GreenGradientButton
 import com.example.ironpath.ui.theme.IronPathTheme
 import com.example.ironpath.ui.theme.SurfaceContainerHigh
 import com.example.ironpath.ui.theme.SurfaceContainerLow
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
+import java.time.ZoneId
+import java.time.ZoneOffset
 
 // -- Production entry point --
 
@@ -57,6 +56,7 @@ fun HistoryScreen(
     val logs by viewModel.logs.collectAsStateWithLifecycle()
     val records by viewModel.records.collectAsStateWithLifecycle()
     val addRecordShown by viewModel.addRecordShown.collectAsStateWithLifecycle()
+    val addRecordError by viewModel.addRecordError.collectAsStateWithLifecycle()
     val editingRecord by viewModel.editingRecord.collectAsStateWithLifecycle()
     val editRecordError by viewModel.editRecordError.collectAsStateWithLifecycle()
     val suggestions by viewModel.exerciseSuggestions.collectAsStateWithLifecycle()
@@ -69,7 +69,20 @@ fun HistoryScreen(
         editingRecord != null -> {
             AddRecordScreen(
                 suggestions = suggestions,
-                onSave = { record -> viewModel.updateRecord(record) },
+                today = viewModel.today(),
+                onSave = { draft ->
+                    editingRecord?.let { record ->
+                        viewModel.updateRecord(
+                            record.copy(
+                                exerciseName = draft.exerciseName,
+                                normalizedExerciseName = draft.normalizedExerciseName,
+                                weightKg = draft.weightKg,
+                                achievedOn = draft.achievedOn,
+                                note = draft.note,
+                            ),
+                        )
+                    }
+                },
                 onCancel = viewModel::hideEditRecord,
                 existingRecord = editingRecord,
                 onDelete = { editingRecord?.let { viewModel.deleteRecord(it.id) } },
@@ -81,8 +94,11 @@ fun HistoryScreen(
         addRecordShown -> {
             AddRecordScreen(
                 suggestions = suggestions,
-                onSave = { record -> viewModel.saveRecord(record) {} },
+                today = viewModel.today(),
+                onSave = { draft -> viewModel.saveRecord(draft) {} },
                 onCancel = viewModel::hideAddRecord,
+                externalError = addRecordError,
+                onExternalErrorConsumed = viewModel::clearAddRecordError,
                 modifier = modifier,
             )
         }
@@ -104,6 +120,7 @@ fun HistoryScreen(
                     }
                 },
                 onLogClick = { log -> onOpenLog(log.id, false) },
+                zoneId = viewModel.zoneId,
                 modifier = modifier,
             )
         }
@@ -121,6 +138,7 @@ internal fun HistoryContent(
     onAddRecord: () -> Unit,
     onRecordClick: (PersonalRecord) -> Unit = {},
     onLogClick: (WorkoutLog) -> Unit = {},
+    zoneId: ZoneId,
     modifier: Modifier = Modifier,
 ) {
     Column(
@@ -134,7 +152,7 @@ internal fun HistoryContent(
         Spacer(Modifier.height(16.dp))
 
         when (selectedTab) {
-            HistoryTab.Logs -> LogsContent(logs, onLogClick)
+            HistoryTab.Logs -> LogsContent(logs, onLogClick, zoneId)
             HistoryTab.Records -> RecordsContent(records, onAddRecord, onRecordClick)
         }
     }
@@ -187,6 +205,7 @@ private fun TabBar(
 private fun LogsContent(
     logs: List<WorkoutLog>,
     onLogClick: (WorkoutLog) -> Unit,
+    zoneId: ZoneId,
     modifier: Modifier = Modifier,
 ) {
     if (logs.isEmpty()) {
@@ -196,7 +215,7 @@ private fun LogsContent(
             modifier = modifier.verticalScroll(rememberScrollState()),
         ) {
             logs.forEach { log ->
-                LogRow(log, onClick = { onLogClick(log) })
+                LogRow(log, zoneId = zoneId, onClick = { onLogClick(log) })
                 Spacer(Modifier.height(8.dp))
             }
         }
@@ -244,6 +263,7 @@ private fun LogsEmptyState(modifier: Modifier = Modifier) {
 @Composable
 private fun LogRow(
     log: WorkoutLog,
+    zoneId: ZoneId,
     modifier: Modifier = Modifier,
     onClick: () -> Unit = {},
 ) {
@@ -265,7 +285,7 @@ private fun LogRow(
             )
             Spacer(Modifier.height(4.dp))
             Text(
-                text = formatDate(log.completedAt),
+                text = formatHistoryEpochDate(log.completedAt, zoneId),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -462,11 +482,6 @@ private fun RecordRow(
     }
 }
 
-private fun formatDate(millis: Long): String {
-    val sdf = SimpleDateFormat("MMM dd, yyyy", Locale.US)
-    return sdf.format(Date(millis))
-}
-
 // -- Previews --
 
 @Preview(showBackground = true)
@@ -480,6 +495,7 @@ private fun PreviewHistoryLogsEmpty() {
                 records = emptyList(),
                 onTabSelected = {},
                 onAddRecord = {},
+                zoneId = ZoneOffset.UTC,
             )
         }
     }
@@ -495,6 +511,7 @@ private fun PreviewHistoryLogsWithData() {
                 logs =
                     listOf(
                         WorkoutLog(
+                            id = "preview-log-1",
                             title = "Upper Body B",
                             startedAt = 1711800000000,
                             completedAt = 1711803600000,
@@ -502,6 +519,7 @@ private fun PreviewHistoryLogsWithData() {
                             exerciseCount = 5
                         ),
                         WorkoutLog(
+                            id = "preview-log-2",
                             title = "Deadlift Focused",
                             startedAt = 1711627200000,
                             completedAt = 1711630800000,
@@ -512,6 +530,7 @@ private fun PreviewHistoryLogsWithData() {
                 records = emptyList(),
                 onTabSelected = {},
                 onAddRecord = {},
+                zoneId = ZoneOffset.UTC,
             )
         }
     }
@@ -528,6 +547,7 @@ private fun PreviewHistoryRecordsEmpty() {
                 records = emptyList(),
                 onTabSelected = {},
                 onAddRecord = {},
+                zoneId = ZoneOffset.UTC,
             )
         }
     }
@@ -544,20 +564,25 @@ private fun PreviewHistoryRecordsWithData() {
                 records =
                     listOf(
                         PersonalRecord(
+                            id = "preview-record-1",
                             exerciseName = "Bench Press",
                             normalizedExerciseName = "bench press",
                             weightKg = 100.0,
-                            achievedOn = "2026-03-23"
+                            achievedOn = "2026-03-23",
+                            createdAt = 1L,
                         ),
                         PersonalRecord(
+                            id = "preview-record-2",
                             exerciseName = "Squat",
                             normalizedExerciseName = "squat",
                             weightKg = 180.0,
-                            achievedOn = "2026-03-25"
+                            achievedOn = "2026-03-25",
+                            createdAt = 2L,
                         ),
                     ),
                 onTabSelected = {},
                 onAddRecord = {},
+                zoneId = ZoneOffset.UTC,
             )
         }
     }

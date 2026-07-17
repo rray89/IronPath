@@ -17,6 +17,7 @@ import io.mockk.mockk
 import io.mockk.mockkStatic
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
+import org.junit.Assert.assertSame
 import org.junit.Before
 import org.junit.Test
 
@@ -32,6 +33,8 @@ class SessionRepositoryTest {
             id = "session1",
             sourcePlannedWorkoutId = "workout1",
             workoutTitle = "Push A",
+            startedAt = 1_000L,
+            lastUpdatedAt = 1_000L,
         )
 
     private val sessionExercise =
@@ -57,6 +60,7 @@ class SessionRepositoryTest {
 
     private val log =
         WorkoutLog(
+            id = "log1",
             title = "Push A",
             sourcePlannedWorkoutId = "workout1",
             startedAt = 1000L,
@@ -67,9 +71,18 @@ class SessionRepositoryTest {
 
     @Before
     fun setUp() {
-        sessionDao = mockk(relaxed = true)
-        historyDao = mockk(relaxed = true)
-        database = mockk(relaxed = true)
+        sessionDao = mockk()
+        historyDao = mockk()
+        database = mockk()
+
+        coEvery { sessionDao.startNewSession(any(), any()) } returns Unit
+        coEvery { sessionDao.updateSet(any()) } returns Unit
+        coEvery { sessionDao.insertSet(any()) } returns Unit
+        coEvery { sessionDao.getExercisesForSession(any()) } returns emptyList()
+        coEvery { historyDao.insertLog(any()) } returns Unit
+        coEvery { historyDao.insertLoggedExercises(any()) } returns Unit
+        coEvery { historyDao.insertLoggedSets(any()) } returns Unit
+        coEvery { sessionDao.deleteSession(any()) } returns Unit
 
         mockkStatic("androidx.room.RoomDatabaseKt")
         // withTransaction is compiled as a static extension:
@@ -90,7 +103,7 @@ class SessionRepositoryTest {
 
         val result = repository.observeActiveSession()
 
-        assert(result === expected)
+        assertSame(expected, result)
     }
 
     @Test

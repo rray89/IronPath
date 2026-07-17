@@ -7,10 +7,10 @@ import com.example.ironpath.data.local.entity.WeeklyPlan
 import com.example.ironpath.data.local.entity.WorkoutStatus
 import com.example.ironpath.data.repository.PlanRepository
 import com.example.ironpath.data.repository.SessionRepository
+import com.example.ironpath.testutil.FakeTimeProvider
 import com.example.ironpath.util.MainDispatcherRule
 import io.mockk.every
 import io.mockk.mockk
-import java.time.LocalDate
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
@@ -28,19 +28,27 @@ class HomeViewModelTest {
     private lateinit var planRepository: PlanRepository
     private lateinit var sessionRepository: SessionRepository
     private lateinit var viewModel: HomeViewModel
+    private val timeProvider = FakeTimeProvider()
 
     private val planFlow = MutableStateFlow<WeeklyPlan?>(null)
     private val workoutsFlow = MutableStateFlow<List<PlannedWorkout>>(emptyList())
     private val sessionFlow = MutableStateFlow<ActiveSession?>(null)
 
     private val activePlan =
-        WeeklyPlan(id = "plan1", startDate = "2026-04-14", endDate = "2026-04-20")
+        WeeklyPlan(
+            id = "plan1",
+            startDate = "2026-04-14",
+            endDate = "2026-04-20",
+            createdAt = timeProvider.epochMillis(),
+        )
 
     private val fakeSession =
         ActiveSession(
             id = "session1",
             sourcePlannedWorkoutId = "workout1",
             workoutTitle = "Push A",
+            startedAt = timeProvider.epochMillis(),
+            lastUpdatedAt = timeProvider.epochMillis(),
         )
 
     private fun makeWorkout(
@@ -67,7 +75,7 @@ class HomeViewModelTest {
         every { planRepository.observeWorkoutsForPlan(any()) } returns workoutsFlow
         every { sessionRepository.observeActiveSession() } returns sessionFlow
 
-        viewModel = HomeViewModel(planRepository, sessionRepository)
+        viewModel = HomeViewModel(planRepository, sessionRepository, timeProvider)
     }
 
     // Helper: advance through flow emissions until we see the expected state type.
@@ -167,7 +175,7 @@ class HomeViewModelTest {
 
     @Test
     fun `uiState todayWorkout is set when a workout is scheduled today`() = runTest {
-        val today = LocalDate.now()
+        val today = timeProvider.today()
         val todayWorkout =
             makeWorkout(
                 "today",
@@ -189,7 +197,7 @@ class HomeViewModelTest {
 
     @Test
     fun `uiState todayWorkout is null when no workout is scheduled today`() = runTest {
-        val todayDow = LocalDate.now().dayOfWeek.value
+        val todayDow = timeProvider.today().dayOfWeek.value
         val otherDow = if (todayDow == 1) 2 else 1
         val otherWorkout = makeWorkout("other", otherDow, WorkoutStatus.Upcoming)
         viewModel.uiState.test {
@@ -203,7 +211,7 @@ class HomeViewModelTest {
 
     @Test
     fun `uiState does not treat future same-weekday workout as today`() = runTest {
-        val nextWeekSameDay = LocalDate.now().plusWeeks(1)
+        val nextWeekSameDay = timeProvider.today().plusWeeks(1)
         val futureWorkout =
             makeWorkout(
                 "future",
