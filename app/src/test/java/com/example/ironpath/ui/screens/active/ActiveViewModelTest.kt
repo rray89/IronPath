@@ -305,8 +305,6 @@ class ActiveViewModelTest {
             coEvery { sessionRepository.getActiveSession() } returns activeSession
             coEvery { sessionRepository.getExercisesForSession(any()) } returns
                 listOf(makeSessionExercise())
-            coEvery { sessionRepository.countCompletedSets(any()) } returns 3
-
             var callbackInvoked = false
             viewModel.finishWorkout { callbackInvoked = true }
 
@@ -326,31 +324,17 @@ class ActiveViewModelTest {
         }
 
     @Test
-    fun `finishWorkout marks planned workout Completed when completedSets greater than 0`() =
-        runTestCancelling {
-            val workout = makeWorkout()
-            coEvery { sessionRepository.getActiveSession() } returns session
-            coEvery { sessionRepository.getExercisesForSession(any()) } returns
-                listOf(makeSessionExercise())
-            coEvery { sessionRepository.countCompletedSets(any()) } returns 2
-            coEvery { planRepository.getWorkoutById("workout1") } returns workout
-
-            viewModel.finishWorkout {}
-
-            coVerify {
-                planRepository.updateWorkout(match { it.status == WorkoutStatus.Completed })
-            }
-        }
-
-    @Test
-    fun `finishWorkout does NOT update workout when completedSets is 0`() = runTestCancelling {
+    fun `finishWorkout delegates completion without a second plan mutation`() = runTestCancelling {
+        val workout = makeWorkout()
         coEvery { sessionRepository.getActiveSession() } returns session
         coEvery { sessionRepository.getExercisesForSession(any()) } returns
             listOf(makeSessionExercise())
-        coEvery { sessionRepository.countCompletedSets(any()) } returns 0
+        coEvery { planRepository.getWorkoutById("workout1") } returns workout
 
         viewModel.finishWorkout {}
 
+        coVerify(exactly = 1) { sessionRepository.completeSession(any(), any()) }
+        coVerify(exactly = 0) { planRepository.getWorkoutById(any()) }
         coVerify(exactly = 0) { planRepository.updateWorkout(any()) }
     }
 
@@ -358,8 +342,6 @@ class ActiveViewModelTest {
     fun `finishWorkout resets elapsedSeconds to 0`() = runTestCancelling {
         coEvery { sessionRepository.getActiveSession() } returns session
         coEvery { sessionRepository.getExercisesForSession(any()) } returns emptyList()
-        coEvery { sessionRepository.countCompletedSets(any()) } returns 0
-
         viewModel.finishWorkout {}
 
         assertEquals(0L, viewModel.elapsedSeconds.value)
@@ -381,7 +363,6 @@ class ActiveViewModelTest {
             coEvery { sessionRepository.getActiveSession() } returns session
             coEvery { sessionRepository.getExercisesForSession(any()) } returns
                 listOf(makeSessionExercise())
-            coEvery { sessionRepository.countCompletedSets(any()) } returns 1
             coEvery { sessionRepository.completeSession(any(), any()) } coAnswers
                 {
                     completionGate.await()
@@ -400,7 +381,6 @@ class ActiveViewModelTest {
             coEvery { sessionRepository.getActiveSession() } returns session
             coEvery { sessionRepository.getExercisesForSession(any()) } returns
                 listOf(makeSessionExercise())
-            coEvery { sessionRepository.countCompletedSets(any()) } returns 0
             coEvery { sessionRepository.completeSession(any(), any()) } throws
                 IllegalStateException("database unavailable")
             var callbackInvoked = false
@@ -417,7 +397,6 @@ class ActiveViewModelTest {
             coEvery { sessionRepository.getActiveSession() } returns session
             coEvery { sessionRepository.getExercisesForSession(any()) } returns
                 listOf(makeSessionExercise())
-            coEvery { sessionRepository.countCompletedSets(any()) } returns 0
             coEvery { sessionRepository.completeSession(any(), any()) } coAnswers
                 {
                     attempts++

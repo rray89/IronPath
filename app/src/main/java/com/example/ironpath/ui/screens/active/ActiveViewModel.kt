@@ -7,7 +7,6 @@ import com.example.ironpath.data.local.entity.PlannedWorkout
 import com.example.ironpath.data.local.entity.SessionExercise
 import com.example.ironpath.data.local.entity.SessionSet
 import com.example.ironpath.data.local.entity.WorkoutLog
-import com.example.ironpath.data.local.entity.WorkoutStatus
 import com.example.ironpath.data.repository.PlanRepository
 import com.example.ironpath.data.repository.SessionRepository
 import com.example.ironpath.domain.identity.IdProvider
@@ -157,8 +156,6 @@ constructor(
             try {
                 val session = sessionRepository.getActiveSession() ?: return@launch
                 val exs = sessionRepository.getExercisesForSession(session.id)
-                val exerciseIds = exs.map { it.id }
-                val completedSets = sessionRepository.countCompletedSets(exerciseIds)
 
                 val now = timeProvider.epochMillis()
                 val durationMinutes = ((now - session.startedAt) / 60_000).toInt()
@@ -175,14 +172,6 @@ constructor(
                     )
 
                 sessionRepository.completeSession(session.id, log)
-
-                // Mark planned workout as completed if at least one set was logged
-                if (completedSets > 0) {
-                    val workout = planRepository.getWorkoutById(session.sourcePlannedWorkoutId)
-                    if (workout != null) {
-                        planRepository.updateWorkout(workout.copy(status = WorkoutStatus.Completed))
-                    }
-                }
 
                 _elapsedSeconds.value = 0
             } catch (cancellation: CancellationException) {

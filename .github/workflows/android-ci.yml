@@ -264,10 +264,10 @@ jobs:
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
 
-      - name: Run API 29 Hilt startup
+      - name: Run API 29 Hilt and persistence tests
         run: >-
           ./gradlew pixel2Api29DebugAndroidTest
-          -Pandroid.testInstrumentationRunnerArguments.class=com.example.ironpath.di.HiltStartupTest
+          -Pandroid.testInstrumentationRunnerArguments.package=com.example.ironpath
           -Pandroid.testoptions.manageddevices.emulator.gpu=swiftshader_indirect
 
       - name: Upload API 29 Hilt report

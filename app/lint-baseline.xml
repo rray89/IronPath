@@ -124,6 +124,17 @@
 
     <issue
         id="NewerVersionAvailable"
+        message="A newer version of org.jetbrains.kotlinx:kotlinx-serialization-bom than 1.8.1 is available: 1.11.0"
+        errorLine1="serialization = &quot;1.8.1&quot;"
+        errorLine2="                ~~~~~~~">
+        <location
+            file="../gradle/libs.versions.toml"
+            line="15"
+            column="17"/>
+    </issue>
+
+    <issue
+        id="NewerVersionAvailable"
         message="A newer version of org.jetbrains.kotlinx:kotlinx-coroutines-test than 1.10.2 is available: 1.11.0"
         errorLine1="coroutines = &quot;1.10.2&quot;"
         errorLine2="             ~~~~~~~~">
