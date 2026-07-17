@@ -41,9 +41,18 @@ jobs:
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
 
-      - name: Run API 29 and API 36 production matrix
+      # Run the managed devices serially. On a clean hosted runner, parallel setup races while
+      # both devices install the shared Android Emulator package into the same SDK directory.
+      - name: Run API 29 production compatibility
         run: >-
-          ./gradlew :app:productionMatrixGroupDebugAndroidTest
+          ./gradlew :app:pixel2Api29DebugAndroidTest
+          -Pandroid.testInstrumentationRunnerArguments.notClass=com.example.ironpath.accessibility.PlatformAccessibilityChecksTest
+          -Pandroid.testoptions.manageddevices.emulator.gpu=swiftshader_indirect
+
+      - name: Run API 36 production compatibility
+        if: success() || failure()
+        run: >-
+          ./gradlew :app:pixel8Api36DebugAndroidTest
           -Pandroid.testInstrumentationRunnerArguments.notClass=com.example.ironpath.accessibility.PlatformAccessibilityChecksTest
           -Pandroid.testoptions.manageddevices.emulator.gpu=swiftshader_indirect
 
