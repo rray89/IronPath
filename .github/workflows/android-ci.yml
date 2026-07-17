@@ -334,7 +334,7 @@ jobs:
             body += '|--------|---------|-------|---|---------|\n';
             body += `| Lines | ${coreCounters.line.covered} | ${coreCounters.line.total} | **${coreCounters.line.pct.toFixed(2)}%** | 85% |\n`;
             body += `| Branches | ${coreCounters.branch.covered} | ${coreCounters.branch.total} | **${coreCounters.branch.pct.toFixed(2)}%** | 70% |\n`;
-            body += '\n### Overall project coverage\n\n';
+            body += '\n### Overall JVM coverage\n\n';
             body += '| Metric | Covered | Total | % |\n';
             body += '|--------|---------|-------|---|\n';
             for (const [label, counter] of Object.entries({
