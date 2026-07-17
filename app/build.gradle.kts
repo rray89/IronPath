@@ -66,11 +66,13 @@ android {
                     device = "Pixel 2"
                     apiLevel = 29
                     systemImageSource = "aosp"
+                    testedAbi = "x86_64"
                 }
                 create("pixel8Api36") {
                     device = "Pixel 8"
                     apiLevel = 36
                     systemImageSource = "aosp"
+                    testedAbi = "x86_64"
                 }
             }
             groups {

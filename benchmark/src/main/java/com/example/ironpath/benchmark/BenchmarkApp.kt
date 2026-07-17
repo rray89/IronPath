@@ -3,10 +3,10 @@ package com.example.ironpath.benchmark
 import android.content.Intent
 import android.graphics.Rect
 import android.os.SystemClock
-import android.view.KeyEvent
 import androidx.benchmark.macro.MacrobenchmarkScope
 import androidx.test.uiautomator.By
 import androidx.test.uiautomator.BySelector
+import androidx.test.uiautomator.StaleObjectException
 import androidx.test.uiautomator.UiDevice
 import androidx.test.uiautomator.UiObject2
 import androidx.test.uiautomator.Until
@@ -93,19 +93,37 @@ internal fun UiDevice.dismissKeyboardWithoutNavigating(
     requireObject(By.res(anchorResourceId).text(anchorText), FIELD_UPDATE_TIMEOUT_MS)
 }
 
-/** Replaces a focused numeric value using key events and verifies the Compose field updated. */
+/** Replaces a numeric value through accessibility and verifies the Compose field updated. */
 internal fun UiDevice.replaceNumberField(resourceId: String, value: String) {
     require(value.isNotEmpty() && value.all(Char::isDigit)) {
         "Numeric benchmark input must contain digits only: $value"
     }
 
-    requireStableObject(By.res(resourceId)).click()
-    waitForIdle()
-    pressKeyCode(KeyEvent.KEYCODE_MOVE_END)
-    repeat(MAX_NUMBER_FIELD_CHARACTERS) { pressKeyCode(KeyEvent.KEYCODE_DEL) }
-    value.forEach { digit -> pressKeyCode(KeyEvent.KEYCODE_0 + digit.digitToInt()) }
-    waitForIdle()
-    requireObject(By.res(resourceId).text(value), FIELD_UPDATE_TIMEOUT_MS)
+    val selector = By.res(resourceId)
+    var lastStaleObject: StaleObjectException? = null
+
+    repeat(MAX_FIELD_UPDATE_ATTEMPTS) {
+        try {
+            // Opening the IME resizes the activity on hosted emulators. Reacquire the field after
+            // that layout change, then use ACTION_SET_TEXT instead of timing-sensitive key events.
+            // A bounded retry handles a node going stale during the resize/recomposition.
+            requireStableObject(selector).click()
+            waitForIdle()
+            requireObject(selector, FIELD_UPDATE_TIMEOUT_MS).setText(value)
+            waitForIdle()
+            if (wait(Until.findObject(selector.text(value)), FIELD_UPDATE_TIMEOUT_MS) != null)
+                return
+        } catch (error: StaleObjectException) {
+            lastStaleObject = error
+        }
+    }
+
+    val actualValue = findObject(selector)?.text
+    throw IllegalStateException(
+        "Numeric field $resourceId did not update to $value after " +
+            "$MAX_FIELD_UPDATE_ATTEMPTS attempts; actual value=$actualValue",
+        lastStaleObject,
+    )
 }
 
 internal fun UiDevice.scrollUntilFound(
@@ -167,8 +185,8 @@ private fun UiDevice.awaitSeedReady() {
     error("Benchmark seed did not complete within ${SEED_TIMEOUT_MS}ms")
 }
 
-private const val MAX_NUMBER_FIELD_CHARACTERS = 12
 private const val FIELD_UPDATE_TIMEOUT_MS = 5_000L
+private const val MAX_FIELD_UPDATE_ATTEMPTS = 3
 private const val STABLE_OBJECT_TIMEOUT_MS = 5_000L
 private const val STABLE_SAMPLE_INTERVAL_MS = 100L
 private const val REQUIRED_STABLE_SAMPLES = 3

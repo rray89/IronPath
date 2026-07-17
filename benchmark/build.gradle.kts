@@ -28,6 +28,7 @@ android {
                     device = "Pixel 8"
                     apiLevel = 36
                     systemImageSource = "aosp"
+                    testedAbi = "x86_64"
                 }
             }
         }
