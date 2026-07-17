@@ -45,6 +45,15 @@ android {
             test.maxHeapSize = "2g"
             test.jvmArgs("-XX:+UseG1GC", "-XX:MaxMetaspaceSize=512m")
         }
+        managedDevices {
+            localDevices {
+                create("pixel2Api29") {
+                    device = "Pixel 2"
+                    apiLevel = 29
+                    systemImageSource = "aosp"
+                }
+            }
+        }
     }
     buildFeatures { compose = true }
 }
