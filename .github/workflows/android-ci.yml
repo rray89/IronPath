@@ -2,12 +2,175 @@ name: Android CI
 
 on:
   push:
-    branches: [main, "feat/**", "bug/**", "feature/**", "bugfix/**"]
+    branches: [main]
   pull_request:
     branches: [main]
 
+concurrency:
+  group: android-ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  test:
+  static-and-build:
+    name: Static & Build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: "17"
+          distribution: "temurin"
+          cache: gradle
+
+      - name: Grant gradlew execute permission
+        run: chmod +x gradlew
+
+      - name: Create local.properties
+        run: echo "sdk.dir=$ANDROID_HOME" > local.properties
+
+      - name: Run formatting, lint, and production builds
+        run: >-
+          ./gradlew spotlessCheck :app:lintDebug :app:lintBenchmarkRelease
+          assembleDebug assembleRelease
+          :app:assembleBenchmarkRelease :app:assembleNonMinifiedRelease
+          :benchmark:assembleBenchmarkRelease :benchmark:assembleNonMinifiedRelease
+
+      - name: Verify checked-in and packaged release profiles
+        shell: bash
+        run: |
+          profiles=(
+            app/src/release/generated/baselineProfiles/baseline-prof.txt
+            app/src/release/generated/baselineProfiles/startup-prof.txt
+          )
+          for profile in "${profiles[@]}"; do
+            if [[ ! -s "$profile" ]]; then
+              echo "Required release profile is missing or empty: $profile"
+              exit 1
+            fi
+            if ! grep -q 'Lcom/example/ironpath/' "$profile"; then
+              echo "Release profile does not contain IronPath classes: $profile"
+              exit 1
+            fi
+            foreign_rule="$(grep -Ev '^(#|$|[HSP]*Lcom/example/ironpath/)' "$profile" | head -n 1 || true)"
+            if [[ -n "$foreign_rule" ]]; then
+              echo "Release profile contains a rule owned outside IronPath: $profile"
+              echo "$foreign_rule"
+              exit 1
+            fi
+            if grep -q 'Lcom/example/ironpath/benchmark/' "$profile"; then
+              echo "Release profile contains benchmark-only seed code: $profile"
+              exit 1
+            fi
+          done
+
+          rewritten_profile="app/build/intermediates/combined_art_profile/release/compileReleaseArtProfile/baseline-prof.txt"
+          if [[ ! -s "$rewritten_profile" ]]; then
+            echo "R8-rewritten release profile is missing or empty: $rewritten_profile"
+            exit 1
+          fi
+          if ! grep -q '^[HSP]*Lcom/example/ironpath/MainActivity;' "$rewritten_profile"; then
+            echo "R8-rewritten release profile does not retain the IronPath startup entry point"
+            exit 1
+          fi
+          if grep -q 'Lcom/example/ironpath/benchmark/' "$rewritten_profile"; then
+            echo "R8-rewritten release profile contains benchmark-only seed code"
+            exit 1
+          fi
+
+          apk="$(find app/build/outputs/apk/release -name '*.apk' -type f | head -n 1)"
+          if [[ -z "$apk" ]]; then
+            echo "Release APK was not found"
+            exit 1
+          fi
+          profile_size="$(unzip -l "$apk" 'assets/dexopt/baseline.prof' | awk '$4 == "assets/dexopt/baseline.prof" { print $1 }')"
+          if [[ -z "$profile_size" || "$profile_size" -le 0 ]]; then
+            echo "Release APK is missing a non-empty assets/dexopt/baseline.prof"
+            exit 1
+          fi
+          if [[ "$profile_size" -gt 1572864 ]]; then
+            echo "Compiled Baseline Profile is ${profile_size} bytes; maximum is 1572864 bytes"
+            exit 1
+          fi
+          metadata_size="$(unzip -l "$apk" 'assets/dexopt/baseline.profm' | awk '$4 == "assets/dexopt/baseline.profm" { print $1 }')"
+          if [[ -z "$metadata_size" || "$metadata_size" -le 0 ]]; then
+            echo "Release APK is missing non-empty assets/dexopt/baseline.profm metadata"
+            exit 1
+          fi
+          echo "Verified ${apk}: profile=${profile_size} bytes, metadata=${metadata_size} bytes"
+
+      - name: Verify benchmark seed activity isolation
+        shell: bash
+        run: |
+          release_manifests=(
+            app/build/intermediates/merged_manifests/debug/processDebugManifest/AndroidManifest.xml
+            app/build/intermediates/merged_manifests/release/processReleaseManifest/AndroidManifest.xml
+          )
+          for manifest in "${release_manifests[@]}"; do
+            if [[ ! -s "$manifest" ]]; then
+              echo "Expected merged manifest is missing: $manifest"
+              exit 1
+            fi
+            if grep -q 'com.example.ironpath.benchmark.BenchmarkSeedActivity' "$manifest"; then
+              echo "BenchmarkSeedActivity leaked into a production manifest: $manifest"
+              exit 1
+            fi
+            if grep -q '<profileable' "$manifest" || grep -q 'android:shell="true"' "$manifest"; then
+              echo "Profileable shell access leaked into a production manifest: $manifest"
+              exit 1
+            fi
+          done
+
+          synthetic_manifests=(
+            app/build/intermediates/merged_manifests/benchmarkRelease/processBenchmarkReleaseManifest/AndroidManifest.xml
+            app/build/intermediates/merged_manifests/nonMinifiedRelease/processNonMinifiedReleaseManifest/AndroidManifest.xml
+          )
+          for manifest in "${synthetic_manifests[@]}"; do
+            if [[ ! -s "$manifest" ]]; then
+              echo "Expected synthetic merged manifest is missing: $manifest"
+              exit 1
+            fi
+            if ! grep -q 'com.example.ironpath.benchmark.BenchmarkSeedActivity' "$manifest"; then
+              echo "BenchmarkSeedActivity is missing from its synthetic test manifest: $manifest"
+              exit 1
+            fi
+            if ! grep -q '<profileable' "$manifest" || ! grep -q 'android:shell="true"' "$manifest"; then
+              echo "Synthetic test manifest is missing profileable shell access: $manifest"
+              exit 1
+            fi
+          done
+
+      - name: Upload lint reports
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: lint-reports
+          path: |
+            app/build/reports/lint-results-debug.html
+            app/build/reports/lint-results-debug.xml
+            app/build/reports/lint-results-debug.txt
+            app/build/reports/lint-results-benchmarkRelease.html
+            app/build/reports/lint-results-benchmarkRelease.xml
+            app/build/reports/lint-results-benchmarkRelease.txt
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Upload release obfuscation mappings
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: release-obfuscation-mappings
+          path: |
+            app/build/outputs/mapping/release/
+            app/build/outputs/mapping/benchmarkRelease/
+          if-no-files-found: error
+          retention-days: 14
+
+  unit-and-coverage:
     name: Unit Tests & Coverage
     runs-on: ubuntu-latest
     permissions:
@@ -30,20 +193,14 @@ jobs:
       - name: Create local.properties
         run: echo "sdk.dir=$ANDROID_HOME" > local.properties
 
-      - name: Check Spotless formatting
-        run: ./gradlew spotlessCheck
-
-      - name: Lint and assemble debug and release builds
-        run: ./gradlew lintDebug assembleDebug assembleRelease
-
       - name: Run unit tests with JaCoCo coverage
         # createDebugUnitTestCoverageReport depends on testDebugUnitTest and generates
         # HTML + XML reports at app/build/reports/coverage/test/debug/
         run: >-
-          ./gradlew createDebugUnitTestCoverageReport verifyCoreCoverage
+          ./gradlew testDebugUnitTest createDebugUnitTestCoverageReport verifyCoreCoverage
           -PenableCoverage
 
-      - name: Upload HTML coverage report
+      - name: Upload JaCoCo XML and HTML report
         uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -52,17 +209,22 @@ jobs:
           if-no-files-found: warn
           retention-days: 14
 
-      - name: Upload test results
+      - name: Upload unit-test XML and HTML results
         uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: test-results
-          path: app/build/reports/tests/testDebugUnitTest/
+          name: unit-test-results
+          path: |
+            app/build/test-results/testDebugUnitTest/
+            app/build/reports/tests/testDebugUnitTest/
           if-no-files-found: warn
           retention-days: 14
 
       - name: Post coverage summary
-        if: github.event_name == 'pull_request'
+        if: >-
+          github.event_name == 'pull_request' &&
+          github.event.pull_request.head.repo.full_name == github.repository
+        continue-on-error: true
         uses: actions/github-script@v7
         with:
           script: |
@@ -264,13 +426,13 @@ jobs:
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
 
-      - name: Run API 29 Hilt and persistence tests
+      - name: Run API 29 production instrumentation suite
         run: >-
           ./gradlew pixel2Api29DebugAndroidTest
-          -Pandroid.testInstrumentationRunnerArguments.package=com.example.ironpath
+          -Pandroid.testInstrumentationRunnerArguments.notClass=com.example.ironpath.accessibility.PlatformAccessibilityChecksTest
           -Pandroid.testoptions.manageddevices.emulator.gpu=swiftshader_indirect
 
-      - name: Upload API 29 Hilt report
+      - name: Upload API 29 HTML reports
         uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -279,11 +441,13 @@ jobs:
           if-no-files-found: warn
           retention-days: 14
 
-      - name: Upload API 29 Hilt results
+      - name: Upload API 29 XML results, logcat, and additional outputs
         uses: actions/upload-artifact@v4
         if: always()
         with:
           name: api29-hilt-smoke-results
-          path: app/build/outputs/androidTest-results/managedDevice/
+          path: |
+            app/build/outputs/androidTest-results/managedDevice/
+            app/build/outputs/managed_device_android_test_additional_output/
           if-no-files-found: warn
           retention-days: 14

@@ -8,9 +8,12 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.FitnessCenter
 import androidx.compose.material3.Icon
@@ -20,9 +23,15 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.disabled
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.example.ironpath.ui.components.GreenGradientButton
+import com.example.ironpath.ui.testing.TestTags
 import com.example.ironpath.ui.theme.AmbientGlow
 import com.example.ironpath.ui.theme.SurfaceContainerHigh
 
@@ -43,10 +52,13 @@ fun EntryScreen(
             },
     ) {
         Column(
-            modifier = Modifier.fillMaxSize().padding(horizontal = 32.dp),
+            modifier =
+                Modifier.fillMaxSize()
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = 32.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            Spacer(Modifier.weight(1f))
+            Spacer(Modifier.height(48.dp))
 
             // Logo icon in bracketed container
             Box(
@@ -98,12 +110,13 @@ fun EntryScreen(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
 
-            Spacer(Modifier.weight(1f))
+            Spacer(Modifier.height(48.dp))
 
             // Get Started button
             GreenGradientButton(
                 text = "Get Started",
                 onClick = onGetStarted,
+                modifier = Modifier.testTag(TestTags.ENTRY_GET_STARTED),
             )
 
             Spacer(Modifier.height(16.dp))
@@ -112,11 +125,16 @@ fun EntryScreen(
             Box(
                 modifier =
                     Modifier.fillMaxWidth()
+                        .heightIn(min = 48.dp)
                         .border(
                             width = 1.dp,
                             color = MaterialTheme.colorScheme.primary,
                             shape = RoundedCornerShape(4.dp),
                         )
+                        .semantics(mergeDescendants = true) {
+                            disabled()
+                            role = Role.Button
+                        }
                         .padding(vertical = 14.dp),
                 contentAlignment = Alignment.Center,
             ) {

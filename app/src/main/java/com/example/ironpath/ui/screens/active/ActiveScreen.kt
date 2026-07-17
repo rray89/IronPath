@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -39,6 +40,9 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.TextRange
@@ -133,7 +137,12 @@ private fun ActiveNoPlanState(
     modifier: Modifier = Modifier,
 ) {
     Column(
-        modifier = modifier.fillMaxSize(),
+        modifier =
+            modifier
+                .fillMaxSize()
+                .padding(horizontal = 24.dp)
+                .verticalScroll(rememberScrollState())
+                .padding(vertical = 24.dp),
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
@@ -183,7 +192,12 @@ private fun ActiveRestDayState(
     modifier: Modifier = Modifier,
 ) {
     Column(
-        modifier = modifier.fillMaxSize(),
+        modifier =
+            modifier
+                .fillMaxSize()
+                .padding(horizontal = 24.dp)
+                .verticalScroll(rememberScrollState())
+                .padding(vertical = 24.dp),
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
@@ -228,7 +242,12 @@ private fun ActiveReadyState(
     modifier: Modifier = Modifier,
 ) {
     Column(
-        modifier = modifier.fillMaxSize(),
+        modifier =
+            modifier
+                .fillMaxSize()
+                .padding(horizontal = 24.dp)
+                .verticalScroll(rememberScrollState())
+                .padding(vertical = 24.dp),
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
@@ -319,6 +338,7 @@ private fun ActiveSessionState(
         GreenGradientButton(
             text = "Complete Workout",
             onClick = onFinishWorkout,
+            modifier = Modifier.testTag(TestTags.ACTIVE_COMPLETE),
         )
 
         Spacer(Modifier.height(32.dp))
@@ -390,6 +410,7 @@ private fun ExerciseSection(
         sets.forEach { set ->
             SetRow(
                 set = set,
+                exerciseName = exercise.name,
                 planInfo = "${exercise.plannedReps}reps@${exercise.plannedWeightKg.toInt()}kg",
                 onUpdateSet = onUpdateSet,
                 nowMillis = nowMillis,
@@ -401,15 +422,16 @@ private fun ExerciseSection(
         Row(
             modifier =
                 Modifier.fillMaxWidth()
+                    .heightIn(min = 48.dp)
                     .clip(RoundedCornerShape(4.dp))
-                    .clickable(onClick = onAddSet)
+                    .clickable(role = Role.Button, onClick = onAddSet)
                     .padding(vertical = 8.dp),
             horizontalArrangement = Arrangement.Center,
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Icon(
                 imageVector = Icons.Default.Add,
-                contentDescription = "Add set",
+                contentDescription = null,
                 modifier = Modifier.size(16.dp),
                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -426,6 +448,7 @@ private fun ExerciseSection(
 @Composable
 private fun SetRow(
     set: SessionSet,
+    exerciseName: String,
     planInfo: String,
     onUpdateSet: (SessionSet) -> Unit,
     nowMillis: () -> Long,
@@ -439,9 +462,10 @@ private fun SetRow(
                 .fillMaxWidth()
                 .testTag(TestTags.set(set.id))
                 .semantics {
-                    if (set.isExtra) {
-                        stateDescription = "Extra set"
-                    }
+                    val setLabel =
+                        if (set.isExtra) "extra set ${set.setNumber}" else "set ${set.setNumber}"
+                    val completion = if (isDone) "complete" else "incomplete"
+                    stateDescription = "$exerciseName $setLabel, $completion"
                 }
                 .background(SurfaceContainerLow, RoundedCornerShape(4.dp))
                 .padding(horizontal = 4.dp, vertical = 4.dp),
@@ -474,7 +498,9 @@ private fun SetRow(
             onValueChange = { text ->
                 onUpdateSet(SessionSetInput.withWeight(set, text, nowMillis()))
             },
-            modifier = Modifier.weight(1f).testTag(TestTags.setWeight(set.id)),
+            accessibilityLabel = "Weight for $exerciseName set ${set.setNumber}",
+            fieldTestTag = TestTags.setWeight(set.id),
+            modifier = Modifier.weight(1f),
         )
 
         Spacer(Modifier.width(4.dp))
@@ -485,7 +511,9 @@ private fun SetRow(
             onValueChange = { text ->
                 onUpdateSet(SessionSetInput.withReps(set, text, nowMillis()))
             },
-            modifier = Modifier.weight(1f).testTag(TestTags.setReps(set.id)),
+            accessibilityLabel = "Repetitions for $exerciseName set ${set.setNumber}",
+            fieldTestTag = TestTags.setReps(set.id),
+            modifier = Modifier.weight(1f),
         )
 
         // Done indicator (passive — auto-filled when both kg and reps are entered)
@@ -496,7 +524,7 @@ private fun SetRow(
             if (isDone) {
                 Icon(
                     imageVector = Icons.Default.Check,
-                    contentDescription = "Set complete",
+                    contentDescription = null,
                     modifier = Modifier.size(20.dp),
                     tint = MaterialTheme.colorScheme.primary,
                 )
@@ -509,6 +537,8 @@ private fun SetRow(
 private fun CompactNumberField(
     value: String,
     onValueChange: (String) -> Unit,
+    accessibilityLabel: String,
+    fieldTestTag: String,
     modifier: Modifier = Modifier,
 ) {
     // Use TextFieldValue to preserve cursor position across recompositions
@@ -531,7 +561,11 @@ private fun CompactNumberField(
         },
         modifier =
             modifier
-                .height(40.dp)
+                .heightIn(min = 48.dp)
+                .semantics(mergeDescendants = true) {
+                    contentDescription = accessibilityLabel
+                    this[SemanticsProperties.TestTag] = fieldTestTag
+                }
                 .onFocusChanged { isFocused = it.isFocused }
                 .border(1.dp, borderColor, RoundedCornerShape(4.dp))
                 .padding(horizontal = 8.dp),

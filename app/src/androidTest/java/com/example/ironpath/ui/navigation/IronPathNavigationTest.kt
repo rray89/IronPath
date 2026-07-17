@@ -2,6 +2,7 @@ package com.example.ironpath.ui.navigation
 
 import androidx.activity.compose.setContent
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsOn
 import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithContentDescription
@@ -89,7 +90,7 @@ class IronPathNavigationTest {
 
         navigateToBottomDestination(Route.PLAN)
         waitForTag(TestTags.planDay(1))
-        composeRule.onNodeWithTag(TestTags.planDay(1)).performClick().assertIsSelected()
+        composeRule.onNodeWithTag(TestTags.planDay(1)).performClick().assertIsOn()
         repeat(3) {
             composeRule.onNodeWithTag(TestTags.bottomNav(Route.PLAN)).performClick()
             waitForRoute(Route.PLAN)
@@ -124,7 +125,7 @@ class IronPathNavigationTest {
 
         navigateToBottomDestination(Route.PLAN)
         waitForTag(TestTags.planDay(1))
-        composeRule.onNodeWithTag(TestTags.planDay(1)).assertIsSelected()
+        composeRule.onNodeWithTag(TestTags.planDay(1)).assertIsOn()
         assertSingleBackStackEntry(Route.PLAN)
 
         navigateToBottomDestination(Route.HISTORY)

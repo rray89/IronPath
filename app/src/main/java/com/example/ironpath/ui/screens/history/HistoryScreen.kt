@@ -5,16 +5,21 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -31,6 +36,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
@@ -100,9 +106,9 @@ internal fun HistoryContent(
     records: List<PersonalRecord>,
     onTabSelected: (HistoryTab) -> Unit,
     onAddRecord: () -> Unit,
-    onLogClick: (WorkoutLog) -> Unit = {},
     zoneId: ZoneId,
     modifier: Modifier = Modifier,
+    onLogClick: (WorkoutLog) -> Unit = {},
 ) {
     Column(
         modifier = modifier.fillMaxSize().padding(horizontal = 16.dp),
@@ -115,8 +121,19 @@ internal fun HistoryContent(
         Spacer(Modifier.height(16.dp))
 
         when (selectedTab) {
-            HistoryTab.Logs -> LogsContent(logs, onLogClick, zoneId)
-            HistoryTab.Records -> RecordsContent(records, onAddRecord)
+            HistoryTab.Logs ->
+                LogsContent(
+                    logs = logs,
+                    onLogClick = onLogClick,
+                    zoneId = zoneId,
+                    modifier = Modifier.weight(1f),
+                )
+            HistoryTab.Records ->
+                RecordsContent(
+                    records = records,
+                    onAddRecord = onAddRecord,
+                    modifier = Modifier.weight(1f),
+                )
         }
     }
 }
@@ -133,6 +150,7 @@ private fun TabBar(
         modifier =
             modifier
                 .fillMaxWidth()
+                .selectableGroup()
                 .background(SurfaceContainerLow, RoundedCornerShape(4.dp))
                 .padding(2.dp),
     ) {
@@ -146,9 +164,15 @@ private fun TabBar(
             Box(
                 modifier =
                     Modifier.weight(1f)
+                        .heightIn(min = 48.dp)
+                        .testTag(TestTags.historyTab(tab.name))
                         .clip(RoundedCornerShape(4.dp))
                         .background(bgColor)
-                        .clickable { onTabSelected(tab) }
+                        .selectable(
+                            selected = selected,
+                            role = Role.Tab,
+                            onClick = { onTabSelected(tab) },
+                        )
                         .padding(vertical = 10.dp),
                 contentAlignment = Alignment.Center,
             ) {
@@ -175,7 +199,7 @@ private fun LogsContent(
         LogsEmptyState(modifier)
     } else {
         Column(
-            modifier = modifier.verticalScroll(rememberScrollState()),
+            modifier = modifier.fillMaxSize().verticalScroll(rememberScrollState()),
         ) {
             logs.forEach { log ->
                 LogRow(log, zoneId = zoneId, onClick = { onLogClick(log) })
@@ -187,11 +211,7 @@ private fun LogsContent(
 
 @Composable
 private fun LogsEmptyState(modifier: Modifier = Modifier) {
-    Column(
-        modifier = modifier.fillMaxSize(),
-        verticalArrangement = Arrangement.Center,
-        horizontalAlignment = Alignment.CenterHorizontally,
-    ) {
+    ScrollableCenteredEmptyState(modifier = modifier) {
         Box(
             modifier =
                 Modifier.size(64.dp).background(SurfaceContainerHigh, RoundedCornerShape(12.dp)),
@@ -283,7 +303,7 @@ private fun RecordsContent(
         RecordsEmptyState(onAddRecord, modifier)
     } else {
         Column(
-            modifier = modifier.verticalScroll(rememberScrollState()),
+            modifier = modifier.fillMaxSize().verticalScroll(rememberScrollState()),
         ) {
             Text(
                 text = "Personal Bests",
@@ -304,6 +324,7 @@ private fun RecordsContent(
             Box(
                 modifier =
                     Modifier.fillMaxWidth()
+                        .heightIn(min = 48.dp)
                         .clip(RoundedCornerShape(4.dp))
                         .background(SurfaceContainerLow)
                         .clickable(onClick = onAddRecord)
@@ -334,11 +355,7 @@ private fun RecordsEmptyState(
     onAddRecord: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    Column(
-        modifier = modifier.fillMaxSize(),
-        verticalArrangement = Arrangement.Center,
-        horizontalAlignment = Alignment.CenterHorizontally,
-    ) {
+    ScrollableCenteredEmptyState(modifier = modifier) {
         Box(
             modifier =
                 Modifier.size(64.dp).background(SurfaceContainerHigh, RoundedCornerShape(12.dp)),
@@ -373,6 +390,7 @@ private fun RecordsEmptyState(
         GreenGradientButton(
             text = "Add Record",
             onClick = onAddRecord,
+            modifier = Modifier.heightIn(min = 48.dp),
             leadingIcon = {
                 Icon(
                     imageVector = Icons.Default.Add,
@@ -381,6 +399,25 @@ private fun RecordsEmptyState(
                     tint = MaterialTheme.colorScheme.surface,
                 )
             },
+        )
+    }
+}
+
+@Composable
+private fun ScrollableCenteredEmptyState(
+    modifier: Modifier = Modifier,
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    BoxWithConstraints(modifier = modifier.fillMaxSize()) {
+        Column(
+            modifier =
+                Modifier.fillMaxWidth()
+                    .verticalScroll(rememberScrollState())
+                    .heightIn(min = maxHeight)
+                    .padding(vertical = 24.dp),
+            verticalArrangement = Arrangement.Center,
+            horizontalAlignment = Alignment.CenterHorizontally,
+            content = content,
         )
     }
 }

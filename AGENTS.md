@@ -11,6 +11,9 @@ This file provides guidance to Codex (Codex.ai/code) when working with code in t
 ./gradlew test                   # Run unit tests
 ./gradlew connectedAndroidTest   # Run instrumented tests on device/emulator
 ./gradlew pixel2Api29DebugAndroidTest # Run instrumented tests on the managed API 29 fallback
+./gradlew :app:productionMatrixGroupDebugAndroidTest # Run the managed API 29 + 36 matrix
+./gradlew :app:generateReleaseBaselineProfile -PbaselineProfileUseConnectedDevices=true -Pandroid.testInstrumentationRunnerArguments.class=com.example.ironpath.benchmark.BaselineProfileGenerator -Pandroid.testInstrumentationRunnerArguments.androidx.benchmark.enabledRules=BaselineProfile # Generate the release profile on Seeker
+./gradlew :benchmark:connectedBenchmarkReleaseAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=com.example.ironpath.benchmark.StartupBenchmark,com.example.ironpath.benchmark.CriticalFlowBenchmark -Pandroid.testInstrumentationRunnerArguments.androidx.benchmark.enabledRules=Macrobenchmark # Run benchmark classes on Seeker
 ./gradlew clean                  # Clean build artifacts
 ./gradlew lint                   # Run lint checks
 ```
@@ -21,6 +24,7 @@ This file provides guidance to Codex (Codex.ai/code) when working with code in t
 - **DI:** Dagger Hilt 2.60.1 with KSP and AndroidX Hilt Compose integration
 - **Database:** Room 2.8.4 with KSP 2.3.6 for annotation processing
 - **Navigation:** Navigation Compose 2.9.8 with string routes
+- **Performance:** Macrobenchmark and Baseline Profiles on Seeker locally and managed API 36 in CI
 - **Language:** Kotlin 2.3.20 with JVM target 11
 - **Min SDK:** 29 (Android 10), Compile/Target SDK: 36
 - **Versions:** Managed via `gradle/libs.versions.toml` — add new dependencies there, not inline in `build.gradle.kts`
@@ -90,12 +94,13 @@ Data model (Room entities): WeeklyPlan → PlannedWorkout → PlannedExercise, A
 - Owned production classes use constructor injection. Reserve Hilt modules for third-party objects and interface bindings.
 - JVM tests construct subjects directly. Use Hilt only for graph/startup/instrumented integration tests.
 - Every new Hilt binding must compile in debug and release and resolve in the API 29 startup or journey suite.
-- **Production-level tests are required for every feature and bug fix.** Start with a failing test and follow `docs/testing-strategy.md`. Select every applicable layer: JVM domain/ViewModel tests, real Room DAO/transaction/migration tests, isolated Compose tests, navigation tests, and a critical real-app journey test. Cover happy, empty, validation, error, boundary-time, duplicate/concurrent action, and recreation behavior where relevant. No feature is complete until Spotless, lint, debug/release assembly, applicable device tests, and core coverage gates pass.
+- **Production-level tests are required for every feature and bug fix.** Start with a failing test and follow `docs/testing-strategy.md`. Select every applicable layer: JVM domain/ViewModel tests, real Room DAO/transaction/migration tests, isolated Compose tests, navigation tests, and a critical real-app journey test. Cover happy, empty, validation, error, boundary-time, duplicate/concurrent action, and recreation behavior where relevant. Every new interactive component requires semantic label/state coverage, and layout-changing UI requires a 200% font-scale test. No feature is complete until Spotless, lint, debug/release assembly, applicable device tests, and core coverage gates pass.
 
 ## Test Device Policy
 
 - The default physical target for instrumented tests and smoke tests is Seeker. Confirm it appears as `device` in `adb devices -l` before running. If more than one target is attached, set `ANDROID_SERIAL` to Seeker's current serial; never hardcode the serial in the repository.
 - If Seeker is absent, offline, or unauthorized, use the Gradle-managed API 29 fallback with `./gradlew pixel2Api29DebugAndroidTest`.
+- API 36 accessibility, adaptive-layout, and performance coverage runs through the managed `pixel8Api36` target; the full API 29 + 36 matrix is a nightly/release gate rather than the default feature loop.
 - Android Studio is optional for this workflow. The Gradle wrapper plus Android SDK command-line tools, platform-tools/adb, and the emulator are sufficient.
 
 ## PR & Branch Naming

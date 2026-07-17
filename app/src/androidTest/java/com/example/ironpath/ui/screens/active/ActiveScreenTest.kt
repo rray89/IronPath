@@ -5,11 +5,12 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assert
+import androidx.compose.ui.test.assertHasClickAction
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertTextEquals
+import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
-import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -114,7 +115,12 @@ class ActiveScreenTest {
         composeRule.onNodeWithTag(TestTags.setWeight(planned.id)).assertTextEquals("100")
         composeRule
             .onNodeWithTag(TestTags.set(extra.id))
-            .assert(SemanticsMatcher.expectValue(SemanticsProperties.StateDescription, "Extra set"))
+            .assert(
+                SemanticsMatcher.expectValue(
+                    SemanticsProperties.StateDescription,
+                    "Squat extra set 2, incomplete",
+                )
+            )
     }
 
     @Test
@@ -132,15 +138,28 @@ class ActiveScreenTest {
                 current.copy(sets = current.sets.map { if (it.id == updated.id) updated else it })
         }
 
-        composeRule.onNodeWithTag(TestTags.setWeight(initialSet.id)).performTextReplacement("100")
-        composeRule.onNodeWithTag(TestTags.setReps(initialSet.id)).performTextReplacement("5")
+        composeRule
+            .onNodeWithTag(TestTags.setWeight(initialSet.id))
+            .assert(hasSetTextAction())
+            .performTextReplacement("100")
+        composeRule
+            .onNodeWithTag(TestTags.setReps(initialSet.id))
+            .assert(hasSetTextAction())
+            .performTextReplacement("5")
 
         composeRule.runOnIdle {
             assertEquals(100.0, latest?.weightKg ?: 0.0, 0.0)
             assertEquals(5, latest?.reps)
             assertEquals(4_242L, latest?.completedAt)
         }
-        composeRule.onNodeWithContentDescription("Set complete").assertIsDisplayed()
+        composeRule
+            .onNodeWithTag(TestTags.set(initialSet.id))
+            .assert(
+                SemanticsMatcher.expectValue(
+                    SemanticsProperties.StateDescription,
+                    "Squat set 1, complete",
+                )
+            )
     }
 
     @Test
@@ -184,7 +203,7 @@ class ActiveScreenTest {
         )
 
         composeRule.onAllNodesWithText("ADD SET")[0].performClick()
-        composeRule.onNodeWithText("COMPLETE WORKOUT").performClick()
+        composeRule.onNodeWithTag(TestTags.ACTIVE_COMPLETE).assertHasClickAction().performClick()
 
         composeRule.runOnIdle {
             assertEquals(squat.id, addExerciseId)

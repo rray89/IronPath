@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
@@ -25,6 +26,12 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.error
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
@@ -117,7 +124,13 @@ internal fun AddRecordScreen(
                 exerciseName = it
                 fieldErrors = fieldErrors - RecordField.ExerciseName
             },
-            modifier = Modifier.fillMaxWidth().testTag(TestTags.RECORD_NAME),
+            modifier =
+                Modifier.fillMaxWidth()
+                    .testTag(TestTags.RECORD_NAME)
+                    .recordFieldSemantics(
+                        label = "Exercise name",
+                        errorMessage = fieldErrors[RecordField.ExerciseName],
+                    ),
             placeholder = { Text("e.g. Deadlift") },
             singleLine = true,
             isError = RecordField.ExerciseName in fieldErrors,
@@ -132,7 +145,8 @@ internal fun AddRecordScreen(
                 color = MaterialTheme.colorScheme.onSurface,
                 modifier =
                     Modifier.fillMaxWidth()
-                        .clickable {
+                        .heightIn(min = 48.dp)
+                        .clickable(role = Role.Button) {
                             exerciseName = suggestion
                             fieldErrors = fieldErrors - RecordField.ExerciseName
                         }
@@ -157,7 +171,13 @@ internal fun AddRecordScreen(
                         weightText = it
                         fieldErrors = fieldErrors - RecordField.Weight
                     },
-                    modifier = Modifier.fillMaxWidth().testTag(TestTags.RECORD_WEIGHT),
+                    modifier =
+                        Modifier.fillMaxWidth()
+                            .testTag(TestTags.RECORD_WEIGHT)
+                            .recordFieldSemantics(
+                                label = "Value",
+                                errorMessage = fieldErrors[RecordField.Weight],
+                            ),
                     placeholder = { Text("0.0") },
                     singleLine = true,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
@@ -180,7 +200,9 @@ internal fun AddRecordScreen(
                 OutlinedTextField(
                     value = "kg",
                     onValueChange = {},
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier =
+                        Modifier.fillMaxWidth()
+                            .recordFieldSemantics(label = "Unit / type", errorMessage = null),
                     readOnly = true,
                     singleLine = true,
                     colors = fieldColors,
@@ -203,7 +225,13 @@ internal fun AddRecordScreen(
                 dateText = it
                 fieldErrors = fieldErrors - RecordField.Date
             },
-            modifier = Modifier.fillMaxWidth().testTag(TestTags.RECORD_DATE),
+            modifier =
+                Modifier.fillMaxWidth()
+                    .testTag(TestTags.RECORD_DATE)
+                    .recordFieldSemantics(
+                        label = "Date",
+                        errorMessage = fieldErrors[RecordField.Date],
+                    ),
             placeholder = { Text("YYYY-MM-DD") },
             singleLine = true,
             isError = RecordField.Date in fieldErrors,
@@ -223,7 +251,11 @@ internal fun AddRecordScreen(
         OutlinedTextField(
             value = note,
             onValueChange = { note = it },
-            modifier = Modifier.fillMaxWidth().height(100.dp).testTag(TestTags.RECORD_NOTE),
+            modifier =
+                Modifier.fillMaxWidth()
+                    .height(100.dp)
+                    .testTag(TestTags.RECORD_NOTE)
+                    .recordFieldSemantics(label = "Note (optional)", errorMessage = null),
             placeholder = { Text("How did it feel?") },
             colors = fieldColors,
         )
@@ -234,10 +266,11 @@ internal fun AddRecordScreen(
                 text = errorMessage!!,
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.error,
+                modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },
             )
         }
 
-        Spacer(Modifier.weight(1f))
+        Spacer(Modifier.height(24.dp))
 
         // Save button
         GreenGradientButton(
@@ -274,10 +307,23 @@ internal fun AddRecordScreen(
             style = MaterialTheme.typography.labelLarge,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier =
-                Modifier.fillMaxWidth().clickable(onClick = onCancel).padding(vertical = 12.dp),
+                Modifier.fillMaxWidth()
+                    .heightIn(min = 48.dp)
+                    .clickable(role = Role.Button, onClick = onCancel)
+                    .padding(vertical = 12.dp),
         )
 
         Spacer(Modifier.height(32.dp))
+    }
+}
+
+private fun Modifier.recordFieldSemantics(
+    label: String,
+    errorMessage: String?,
+): Modifier = semantics {
+    contentDescription = label
+    if (errorMessage != null) {
+        error(errorMessage)
     }
 }
 
