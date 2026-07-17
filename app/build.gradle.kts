@@ -84,6 +84,9 @@ android {
     lint {
         baseline = file("lint-baseline.xml")
         warningsAsErrors = true
+        // SDK upgrades are deliberate compatibility projects. Do not let the runner's installed
+        // preview/new SDK make the currently tested target (API 36) fail nondeterministically.
+        disable += "OldTargetApi"
     }
     buildFeatures { compose = true }
     sourceSets.getByName("androidTest").assets.directories.add("$projectDir/schemas")
