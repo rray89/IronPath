@@ -30,7 +30,9 @@ import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalCoroutinesApi::class)
 @HiltViewModel
-class PlanViewModel @Inject constructor(
+class PlanViewModel
+@Inject
+constructor(
     private val planRepository: PlanRepository,
     private val planGenerator: PlanGenerator,
     private val sessionRepository: SessionRepository,

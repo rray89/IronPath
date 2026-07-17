@@ -20,7 +20,9 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
 
 @HiltViewModel
-class WorkoutPreviewViewModel @Inject constructor(
+class WorkoutPreviewViewModel
+@Inject
+constructor(
     savedStateHandle: SavedStateHandle,
     private val planRepository: PlanRepository,
     private val sessionRepository: SessionRepository,

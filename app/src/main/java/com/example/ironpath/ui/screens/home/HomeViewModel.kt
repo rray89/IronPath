@@ -20,7 +20,9 @@ import kotlinx.coroutines.flow.stateIn
 
 @OptIn(ExperimentalCoroutinesApi::class)
 @HiltViewModel
-class HomeViewModel @Inject constructor(
+class HomeViewModel
+@Inject
+constructor(
     private val planRepository: PlanRepository,
     private val sessionRepository: SessionRepository,
 ) : ViewModel() {

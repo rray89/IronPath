@@ -27,15 +27,15 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import org.koin.androidx.compose.koinViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DevToolsScreen(
     onBack: () -> Unit,
     onClearComplete: () -> Unit,
-    viewModel: DevToolsViewModel = koinViewModel(),
+    viewModel: DevToolsViewModel = hiltViewModel(),
 ) {
     val status by viewModel.status.collectAsStateWithLifecycle()
     val showClearConfirm by viewModel.showClearConfirm.collectAsStateWithLifecycle()

@@ -22,7 +22,9 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
 @HiltViewModel
-class WorkoutLogDetailViewModel @Inject constructor(
+class WorkoutLogDetailViewModel
+@Inject
+constructor(
     savedStateHandle: SavedStateHandle,
     private val historyRepository: HistoryRepository,
     private val recordRepository: RecordRepository,

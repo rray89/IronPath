@@ -10,7 +10,9 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 @Singleton
-class StartPlannedWorkoutUseCase @Inject constructor(
+class StartPlannedWorkoutUseCase
+@Inject
+constructor(
     private val planRepository: PlanRepository,
     private val sessionRepository: SessionRepository,
 ) {

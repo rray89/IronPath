@@ -69,7 +69,6 @@ dependencies {
     implementation(libs.hilt.android)
     implementation(libs.androidx.hilt.lifecycle.viewmodel.compose)
     ksp(libs.hilt.android.compiler)
-    implementation(libs.koin.androidx.compose)
     testImplementation(libs.junit)
     testImplementation(libs.mockk)
     testImplementation(libs.kotlinx.coroutines.test)

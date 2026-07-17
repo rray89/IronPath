@@ -22,7 +22,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 @Singleton
-class DevToolsSeeder @Inject constructor(
+class DevToolsSeeder
+@Inject
+constructor(
     private val database: IronPathDatabase,
     private val planRepository: PlanRepository,
     private val recordRepository: RecordRepository,

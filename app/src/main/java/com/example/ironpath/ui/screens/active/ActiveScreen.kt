@@ -43,6 +43,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.ironpath.data.local.entity.ActiveSession
 import com.example.ironpath.data.local.entity.PlannedWorkout
@@ -52,7 +53,6 @@ import com.example.ironpath.ui.components.GreenGradientButton
 import com.example.ironpath.ui.theme.IronPathTheme
 import com.example.ironpath.ui.theme.SurfaceContainerHigh
 import com.example.ironpath.ui.theme.SurfaceContainerLow
-import org.koin.androidx.compose.koinViewModel
 
 // -- Production entry point --
 
@@ -61,7 +61,7 @@ fun ActiveScreen(
     onNavigateToPlan: () -> Unit,
     onWorkoutComplete: () -> Unit,
     modifier: Modifier = Modifier,
-    viewModel: ActiveViewModel = koinViewModel(),
+    viewModel: ActiveViewModel = hiltViewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val elapsed by viewModel.elapsedSeconds.collectAsStateWithLifecycle()

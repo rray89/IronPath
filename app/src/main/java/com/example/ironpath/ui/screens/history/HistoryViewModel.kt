@@ -16,7 +16,9 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
 @HiltViewModel
-class HistoryViewModel @Inject constructor(
+class HistoryViewModel
+@Inject
+constructor(
     private val historyRepository: HistoryRepository,
     private val recordRepository: RecordRepository,
     private val planRepository: PlanRepository,

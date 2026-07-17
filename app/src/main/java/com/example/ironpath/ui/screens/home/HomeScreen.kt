@@ -33,6 +33,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.ironpath.data.local.entity.PlannedWorkout
 import com.example.ironpath.data.local.entity.WeeklyPlan
@@ -41,9 +42,8 @@ import com.example.ironpath.ui.components.GreenGradientButton
 import com.example.ironpath.ui.theme.IronPathTheme
 import com.example.ironpath.ui.theme.SurfaceContainerHigh
 import com.example.ironpath.ui.theme.SurfaceContainerLow
-import org.koin.androidx.compose.koinViewModel
 
-// -- Production entry point (Koin-backed) --
+// -- Production entry point (Hilt-backed) --
 
 @Composable
 fun HomeScreen(
@@ -51,7 +51,7 @@ fun HomeScreen(
     onNavigateToActive: () -> Unit,
     onOpenWorkoutPreview: (String) -> Unit,
     modifier: Modifier = Modifier,
-    viewModel: HomeViewModel = koinViewModel(),
+    viewModel: HomeViewModel = hiltViewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     HomeContent(uiState, onNavigateToPlan, onNavigateToActive, onOpenWorkoutPreview, modifier)

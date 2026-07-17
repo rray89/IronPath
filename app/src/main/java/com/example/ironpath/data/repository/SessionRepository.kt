@@ -15,7 +15,9 @@ import javax.inject.Singleton
 import kotlinx.coroutines.flow.Flow
 
 @Singleton
-class SessionRepository @Inject constructor(
+class SessionRepository
+@Inject
+constructor(
     private val sessionDao: SessionDao,
     private val historyDao: HistoryDao,
     private val database: IronPathDatabase,
