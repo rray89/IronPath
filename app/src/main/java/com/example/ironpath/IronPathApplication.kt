@@ -6,9 +6,11 @@ import com.example.ironpath.di.devModule
 import com.example.ironpath.di.domainModule
 import com.example.ironpath.di.repositoryModule
 import com.example.ironpath.di.viewModelModule
+import dagger.hilt.android.HiltAndroidApp
 import org.koin.android.ext.koin.androidContext
 import org.koin.core.context.startKoin
 
+@HiltAndroidApp
 class IronPathApplication : Application() {
     override fun onCreate() {
         super.onCreate()

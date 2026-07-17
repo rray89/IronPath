@@ -36,7 +36,9 @@ import com.example.ironpath.ui.navigation.BottomNavItem
 import com.example.ironpath.ui.navigation.IronPathNavHost
 import com.example.ironpath.ui.navigation.Route
 import com.example.ironpath.ui.theme.IronPathTheme
+import dagger.hilt.android.AndroidEntryPoint
 
+@AndroidEntryPoint
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
