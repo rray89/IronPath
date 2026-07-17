@@ -286,6 +286,7 @@ private fun HomeWeekCompleteState(
         modifier =
             modifier
                 .fillMaxSize()
+                .testTag(TestTags.HOME_WEEK_COMPLETE)
                 .padding(horizontal = 24.dp)
                 .verticalScroll(rememberScrollState()),
     ) {

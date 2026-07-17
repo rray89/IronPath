@@ -13,17 +13,6 @@
     </issue>
 
     <issue
-        id="OldTargetApi"
-        message="Not targeting the latest versions of Android; compatibility modes apply. Consider testing and updating this version. Consult the android.os.Build.VERSION_CODES javadoc for details."
-        errorLine1="        targetSdk = 36"
-        errorLine2="        ~~~~~~~~~~~~~~">
-        <location
-            file="build.gradle.kts"
-            line="19"
-            column="9"/>
-    </issue>
-
-    <issue
         id="AndroidGradlePluginVersion"
         message="A newer version of Gradle than 9.4.1 is available: 9.6.1"
         errorLine1="distributionUrl=https\://services.gradle.org/distributions/gradle-9.4.1-bin.zip"
@@ -37,6 +26,17 @@
     <issue
         id="AndroidGradlePluginVersion"
         message="A newer version of com.android.application than 9.1.0 is available: 9.3.0. (There is also a newer version of 9.1.𝑥 available, if upgrading to 9.3.0 is difficult: 9.1.1)"
+        errorLine1="agp = &quot;9.1.0&quot;"
+        errorLine2="      ~~~~~~~">
+        <location
+            file="../gradle/libs.versions.toml"
+            line="2"
+            column="7"/>
+    </issue>
+
+    <issue
+        id="AndroidGradlePluginVersion"
+        message="A newer version of com.android.test than 9.1.0 is available: 9.3.0. (There is also a newer version of 9.1.𝑥 available, if upgrading to 9.3.0 is difficult: 9.1.1)"
         errorLine1="agp = &quot;9.1.0&quot;"
         errorLine2="      ~~~~~~~">
         <location
@@ -101,17 +101,6 @@
     </issue>
 
     <issue
-        id="GradleDependency"
-        message="A newer version of androidx.navigation:navigation-compose than 2.9.0 is available: 2.9.8"
-        errorLine1="navigationCompose = &quot;2.9.0&quot;"
-        errorLine2="                    ~~~~~~~">
-        <location
-            file="../gradle/libs.versions.toml"
-            line="16"
-            column="21"/>
-    </issue>
-
-    <issue
         id="NewerVersionAvailable"
         message="A newer version of org.jetbrains.kotlin.plugin.compose than 2.3.20 is available: 2.4.10"
         errorLine1="kotlin = &quot;2.3.20&quot;"
@@ -124,17 +113,6 @@
 
     <issue
         id="NewerVersionAvailable"
-        message="A newer version of org.jetbrains.kotlinx:kotlinx-serialization-bom than 1.8.1 is available: 1.11.0"
-        errorLine1="serialization = &quot;1.8.1&quot;"
-        errorLine2="                ~~~~~~~">
-        <location
-            file="../gradle/libs.versions.toml"
-            line="15"
-            column="17"/>
-    </issue>
-
-    <issue
-        id="NewerVersionAvailable"
         message="A newer version of org.jetbrains.kotlinx:kotlinx-coroutines-test than 1.10.2 is available: 1.11.0"
         errorLine1="coroutines = &quot;1.10.2&quot;"
         errorLine2="             ~~~~~~~~">
@@ -142,6 +120,17 @@
             file="../gradle/libs.versions.toml"
             line="14"
             column="14"/>
+    </issue>
+
+    <issue
+        id="NewerVersionAvailable"
+        message="A newer version of org.jetbrains.kotlinx:kotlinx-serialization-bom than 1.8.1 is available: 1.11.0"
+        errorLine1="serialization = &quot;1.8.1&quot;"
+        errorLine2="                ~~~~~~~">
+        <location
+            file="../gradle/libs.versions.toml"
+            line="15"
+            column="17"/>
     </issue>
 
     <issue
@@ -175,39 +164,6 @@
             file="../gradle/libs.versions.toml"
             line="20"
             column="11"/>
-    </issue>
-
-    <issue
-        id="ModifierParameter"
-        message="Modifier parameter should be the first optional parameter"
-        errorLine1="    modifier: Modifier = Modifier,"
-        errorLine2="    ~~~~~~~~">
-        <location
-            file="src/main/java/com/example/ironpath/ui/screens/history/HistoryScreen.kt"
-            line="142"
-            column="5"/>
-    </issue>
-
-    <issue
-        id="ModifierParameter"
-        message="Modifier parameter should be the first optional parameter"
-        errorLine1="    modifier: Modifier = Modifier,"
-        errorLine2="    ~~~~~~~~">
-        <location
-            file="src/main/java/com/example/ironpath/ui/screens/history/HistoryScreen.kt"
-            line="317"
-            column="5"/>
-    </issue>
-
-    <issue
-        id="ModifierParameter"
-        message="Modifier parameter should be the first optional parameter"
-        errorLine1="    modifier: Modifier = Modifier,"
-        errorLine2="    ~~~~~~~~">
-        <location
-            file="src/main/java/com/example/ironpath/ui/screens/history/WorkoutLogDetailScreen.kt"
-            line="74"
-            column="5"/>
     </issue>
 
     <issue

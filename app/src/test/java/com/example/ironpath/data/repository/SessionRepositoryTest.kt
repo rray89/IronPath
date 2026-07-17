@@ -11,13 +11,16 @@ import com.example.ironpath.data.local.entity.LoggedSet
 import com.example.ironpath.data.local.entity.SessionExercise
 import com.example.ironpath.data.local.entity.SessionSet
 import com.example.ironpath.data.local.entity.WorkoutLog
+import com.example.ironpath.data.performance.PerformanceTracer
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.mockkStatic
+import io.mockk.verify
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -29,6 +32,7 @@ class SessionRepositoryTest {
     private lateinit var historyDao: HistoryDao
     private lateinit var planDao: PlanDao
     private lateinit var database: IronPathDatabase
+    private lateinit var performanceTracer: PerformanceTracer
     private lateinit var repository: SessionRepository
 
     private val session =
@@ -78,6 +82,8 @@ class SessionRepositoryTest {
         historyDao = mockk()
         planDao = mockk()
         database = mockk()
+        performanceTracer = mockk(relaxed = true)
+        every { performanceTracer.beginAsyncSection(any()) } returns 1
 
         coEvery { sessionDao.startNewSession(any(), any()) } returns Unit
         coEvery { sessionDao.updateSet(any()) } returns Unit
@@ -99,7 +105,7 @@ class SessionRepositoryTest {
                 secondArg<suspend () -> Unit>().invoke()
             }
 
-        repository = SessionRepository(sessionDao, historyDao, planDao, database)
+        repository = SessionRepository(sessionDao, historyDao, planDao, database, performanceTracer)
     }
 
     @Test
@@ -136,6 +142,35 @@ class SessionRepositoryTest {
 
         coVerify(exactly = 1) { sessionDao.deleteSession("session1") }
         coVerify(exactly = 1) { historyDao.insertLog(log) }
+        verify(exactly = 1) { performanceTracer.beginAsyncSection("IronPath#completeSession") }
+        verify(exactly = 1) { performanceTracer.endAsyncSection("IronPath#completeSession", 1) }
+    }
+
+    @Test
+    fun `completeSession trace spans transaction acquisition and commit`() = runTest {
+        val events = mutableListOf<String>()
+        every { performanceTracer.beginAsyncSection("IronPath#completeSession") } answers
+            {
+                events += "trace-begin"
+                7
+            }
+        coEvery { database.withTransaction(any<suspend () -> Unit>()) } coAnswers
+            {
+                events += "transaction-start"
+                secondArg<suspend () -> Unit>().invoke()
+                events += "transaction-end"
+            }
+        every { performanceTracer.endAsyncSection("IronPath#completeSession", 7) } answers
+            {
+                events += "trace-end"
+            }
+
+        repository.completeSession("session1", log)
+
+        assertEquals(
+            listOf("trace-begin", "transaction-start", "transaction-end", "trace-end"),
+            events,
+        )
     }
 
     @Test
@@ -211,5 +246,6 @@ class SessionRepositoryTest {
         assertTrue(result.exceptionOrNull() is IllegalStateException)
         coVerify(exactly = 0) { historyDao.insertLog(any()) }
         coVerify(exactly = 0) { sessionDao.deleteSession(any()) }
+        verify(exactly = 1) { performanceTracer.endAsyncSection("IronPath#completeSession", 1) }
     }
 }

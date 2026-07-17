@@ -4,6 +4,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
@@ -12,10 +13,15 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.sizeIn
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -35,8 +41,10 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
@@ -173,6 +181,7 @@ private fun PlanSetupScreen(
         Spacer(Modifier.height(12.dp))
 
         FlowRow(
+            modifier = Modifier.testTag(TestTags.PLAN_GOAL_GROUP).selectableGroup(),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
@@ -196,18 +205,20 @@ private fun PlanSetupScreen(
 
         Spacer(Modifier.height(12.dp))
 
-        Row(
+        FlowRow(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+            maxItemsInEachRow = 4,
         ) {
-            val dayLabels = listOf("MO", "TU", "WE", "TH", "FR", "SA", "SU")
-            dayLabels.forEachIndexed { index, label ->
+            workoutDayLabels.forEachIndexed { index, (label, accessibleLabel) ->
                 val dow = index + 1
                 DayChip(
                     label = label,
+                    accessibleLabel = accessibleLabel,
                     selected = dow in selectedDays,
                     onClick = { onDayToggled(dow) },
-                    modifier = Modifier.weight(1f).testTag(TestTags.planDay(dow)),
+                    modifier = Modifier.testTag(TestTags.planDay(dow)),
                 )
             }
         }
@@ -220,7 +231,7 @@ private fun PlanSetupScreen(
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
 
-        Spacer(Modifier.weight(1f))
+        Spacer(Modifier.height(32.dp))
 
         GreenGradientButton(
             text = "Generate Week",
@@ -256,11 +267,16 @@ private fun GoalChip(
     Box(
         modifier =
             modifier
+                .sizeIn(minWidth = 48.dp, minHeight = 48.dp)
                 .clip(shape)
                 .background(bgColor)
-                .clickable(onClick = onClick)
-                .semantics { this.selected = selected }
-                .padding(horizontal = 16.dp, vertical = 10.dp),
+                .selectable(
+                    selected = selected,
+                    role = Role.RadioButton,
+                    onClick = onClick,
+                )
+                .padding(horizontal = 16.dp, vertical = 8.dp),
+        contentAlignment = Alignment.Center,
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             if (selected) {
@@ -284,6 +300,7 @@ private fun GoalChip(
 @Composable
 private fun DayChip(
     label: String,
+    accessibleLabel: String,
     selected: Boolean,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
@@ -296,11 +313,16 @@ private fun DayChip(
     Box(
         modifier =
             modifier
+                .sizeIn(minWidth = 48.dp, minHeight = 48.dp)
                 .clip(shape)
                 .background(bgColor)
-                .clickable(onClick = onClick)
-                .semantics { this.selected = selected }
-                .padding(vertical = 12.dp),
+                .toggleable(
+                    value = selected,
+                    role = Role.Checkbox,
+                    onValueChange = { onClick() },
+                )
+                .semantics { contentDescription = accessibleLabel }
+                .padding(horizontal = 8.dp, vertical = 8.dp),
         contentAlignment = Alignment.Center,
     ) {
         Text(
@@ -356,46 +378,86 @@ private fun PlanReviewScreen(
             Spacer(Modifier.height(20.dp))
         }
 
-        Spacer(Modifier.weight(1f))
+        Spacer(Modifier.height(32.dp))
 
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            Box(
-                modifier =
-                    Modifier.weight(1f)
-                        .clip(RoundedCornerShape(4.dp))
-                        .background(SurfaceContainerHigh)
-                        .clickable(onClick = onBackToSetup)
-                        .padding(vertical = 14.dp),
-                contentAlignment = Alignment.Center,
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        imageVector = Icons.Default.Refresh,
-                        contentDescription = null,
-                        modifier = Modifier.size(18.dp),
-                        tint = MaterialTheme.colorScheme.onSurface,
-                    )
-                    Spacer(Modifier.width(8.dp))
-                    Text(
-                        text = "REGENERATE",
-                        style = MaterialTheme.typography.labelLarge,
-                        color = MaterialTheme.colorScheme.onSurface,
-                    )
-                }
-            }
-
-            GreenGradientButton(
-                text = "Accept Plan",
-                onClick = onAccept,
-                enabled = generated.workouts.isNotEmpty(),
-                modifier = Modifier.weight(1f),
-            )
-        }
+        PlanReviewActions(
+            canAccept = generated.workouts.isNotEmpty(),
+            onBackToSetup = onBackToSetup,
+            onAccept = onAccept,
+        )
 
         Spacer(Modifier.height(32.dp))
+    }
+}
+
+@Composable
+private fun PlanReviewActions(
+    canAccept: Boolean,
+    onBackToSetup: () -> Unit,
+    onAccept: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    BoxWithConstraints(modifier.fillMaxWidth()) {
+        val stackActions = maxWidth < 480.dp || LocalDensity.current.fontScale >= 1.5f
+        if (stackActions) {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                RegenerateButton(onClick = onBackToSetup)
+                GreenGradientButton(
+                    text = "Accept Plan",
+                    onClick = onAccept,
+                    enabled = canAccept,
+                )
+            }
+        } else {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                RegenerateButton(
+                    onClick = onBackToSetup,
+                    modifier = Modifier.weight(1f),
+                )
+                GreenGradientButton(
+                    text = "Accept Plan",
+                    onClick = onAccept,
+                    enabled = canAccept,
+                    modifier = Modifier.weight(1f),
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun RegenerateButton(
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Box(
+        modifier =
+            modifier
+                .fillMaxWidth()
+                .heightIn(min = 48.dp)
+                .clip(RoundedCornerShape(4.dp))
+                .background(SurfaceContainerHigh)
+                .clickable(role = Role.Button, onClick = onClick)
+                .padding(horizontal = 16.dp, vertical = 12.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(
+                imageVector = Icons.Default.Refresh,
+                contentDescription = null,
+                modifier = Modifier.size(18.dp),
+                tint = MaterialTheme.colorScheme.onSurface,
+            )
+            Spacer(Modifier.width(8.dp))
+            Text(
+                text = "REGENERATE",
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+        }
     }
 }
 
@@ -423,10 +485,11 @@ private fun ReviewWorkoutCard(
                 color = MaterialTheme.colorScheme.onSurface,
                 modifier = Modifier.weight(1f),
             )
-            IconButton(onClick = onDelete, modifier = Modifier.size(32.dp)) {
+            IconButton(onClick = onDelete, modifier = Modifier.size(48.dp)) {
                 Icon(
                     imageVector = Icons.Default.Close,
-                    contentDescription = "Remove workout",
+                    contentDescription =
+                        "Remove ${workout.title} on ${workoutDayFullName(workout.dayOfWeek)}",
                     modifier = Modifier.size(18.dp),
                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -441,6 +504,20 @@ private fun ReviewWorkoutCard(
         }
     }
 }
+
+private val workoutDayLabels =
+    listOf(
+        "MO" to "Monday",
+        "TU" to "Tuesday",
+        "WE" to "Wednesday",
+        "TH" to "Thursday",
+        "FR" to "Friday",
+        "SA" to "Saturday",
+        "SU" to "Sunday",
+    )
+
+private fun workoutDayFullName(dayOfWeek: Int): String =
+    workoutDayLabels.getOrNull(dayOfWeek - 1)?.second ?: "day $dayOfWeek"
 
 @Composable
 private fun ReviewExerciseRow(

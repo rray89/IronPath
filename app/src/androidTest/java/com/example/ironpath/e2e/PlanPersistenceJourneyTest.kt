@@ -1,15 +1,16 @@
 package com.example.ironpath.e2e
 
-import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsOn
 import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
-import androidx.compose.ui.test.onAllNodesWithContentDescription
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.example.ironpath.MainActivity
 import com.example.ironpath.data.local.IronPathDatabase
@@ -63,14 +64,16 @@ class PlanPersistenceJourneyTest {
         composeRule.onNodeWithTag(TestTags.planDay(3)).performClick()
         composeRule.onNodeWithTag(TestTags.planDay(5)).performClick()
         composeRule.onNodeWithTag(TestTags.planGoal("Strength")).assertIsSelected()
-        composeRule.onNodeWithTag(TestTags.planDay(1)).assertIsSelected()
-        composeRule.onNodeWithTag(TestTags.planDay(3)).assertIsSelected()
-        composeRule.onNodeWithTag(TestTags.planDay(5)).assertIsSelected()
+        composeRule.onNodeWithTag(TestTags.planDay(1)).assertIsOn()
+        composeRule.onNodeWithTag(TestTags.planDay(3)).assertIsOn()
+        composeRule.onNodeWithTag(TestTags.planDay(5)).assertIsOn()
 
         composeRule.onNodeWithTag(TestTags.PLAN_GENERATE).performClick()
         waitForText("WEEKLY PLAN")
 
-        composeRule.onAllNodesWithContentDescription("Remove workout").assertCountEquals(3)
+        composeRule.onNodeWithContentDescription("Remove Push A on Monday").assertIsDisplayed()
+        composeRule.onNodeWithContentDescription("Remove Pull A on Wednesday").assertIsDisplayed()
+        composeRule.onNodeWithContentDescription("Remove Legs on Friday").assertIsDisplayed()
         composeRule.onNodeWithTag(TestTags.workout("e2e-2")).assertIsDisplayed()
         composeRule.onNodeWithTag(TestTags.workout("e2e-6")).assertIsDisplayed()
         composeRule.onNodeWithTag(TestTags.workout("e2e-10")).assertIsDisplayed()
@@ -78,7 +81,7 @@ class PlanPersistenceJourneyTest {
         composeRule.onNodeWithText("Barbell Rows").assertIsDisplayed()
         composeRule.onNodeWithText("Barbell Squats").assertIsDisplayed()
 
-        composeRule.onNodeWithText("ACCEPT PLAN").performClick()
+        composeRule.onNodeWithText("ACCEPT PLAN").performScrollTo().performClick()
         waitForText(HOME_SUMMARY)
 
         composeRule.activityRule.scenario.recreate()

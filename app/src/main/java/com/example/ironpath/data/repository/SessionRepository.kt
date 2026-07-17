@@ -11,6 +11,7 @@ import com.example.ironpath.data.local.entity.LoggedSet
 import com.example.ironpath.data.local.entity.SessionExercise
 import com.example.ironpath.data.local.entity.SessionSet
 import com.example.ironpath.data.local.entity.WorkoutLog
+import com.example.ironpath.data.performance.PerformanceTracer
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.flow.Flow
@@ -23,6 +24,7 @@ constructor(
     private val historyDao: HistoryDao,
     private val planDao: PlanDao,
     private val database: IronPathDatabase,
+    private val performanceTracer: PerformanceTracer,
 ) {
 
     fun observeActiveSession(): Flow<ActiveSession?> = sessionDao.observeActiveSession()
@@ -62,30 +64,37 @@ constructor(
      * the source session has already been removed.
      */
     suspend fun completeSession(sessionId: String, log: WorkoutLog) {
-        database.withTransaction {
-            val activeSession = sessionDao.getActiveSession()
-            check(activeSession?.id == sessionId) { "Active session $sessionId no longer exists" }
+        val traceCookie = performanceTracer.beginAsyncSection(COMPLETE_SESSION_TRACE)
+        try {
+            database.withTransaction {
+                val activeSession = sessionDao.getActiveSession()
+                check(activeSession?.id == sessionId) {
+                    "Active session $sessionId no longer exists"
+                }
 
-            val sessionExercises = sessionDao.getExercisesForSession(sessionId)
-            val exerciseIds = sessionExercises.map { it.id }
-            val sessionSets =
-                if (exerciseIds.isEmpty()) emptyList()
-                else sessionDao.getSetsForExercises(exerciseIds)
+                val sessionExercises = sessionDao.getExercisesForSession(sessionId)
+                val exerciseIds = sessionExercises.map { it.id }
+                val sessionSets =
+                    if (exerciseIds.isEmpty()) emptyList()
+                    else sessionDao.getSetsForExercises(exerciseIds)
 
-            if (sessionSets.any { it.reps != null && it.weightKg != null }) {
-                planDao.markWorkoutCompleted(activeSession.sourcePlannedWorkoutId)
-            }
+                if (sessionSets.any { it.reps != null && it.weightKg != null }) {
+                    planDao.markWorkoutCompleted(activeSession.sourcePlannedWorkoutId)
+                }
 
-            historyDao.insertLog(log)
-            val loggedExercises = sessionExercises.map { it.toLoggedExercise(log.id) }
-            if (loggedExercises.isNotEmpty()) {
-                historyDao.insertLoggedExercises(loggedExercises)
+                historyDao.insertLog(log)
+                val loggedExercises = sessionExercises.map { it.toLoggedExercise(log.id) }
+                if (loggedExercises.isNotEmpty()) {
+                    historyDao.insertLoggedExercises(loggedExercises)
+                }
+                val loggedSets = sessionSets.map { it.toLoggedSet() }
+                if (loggedSets.isNotEmpty()) {
+                    historyDao.insertLoggedSets(loggedSets)
+                }
+                sessionDao.deleteSession(sessionId)
             }
-            val loggedSets = sessionSets.map { it.toLoggedSet() }
-            if (loggedSets.isNotEmpty()) {
-                historyDao.insertLoggedSets(loggedSets)
-            }
-            sessionDao.deleteSession(sessionId)
+        } finally {
+            performanceTracer.endAsyncSection(COMPLETE_SESSION_TRACE, traceCookie)
         }
     }
 
@@ -111,3 +120,5 @@ constructor(
             completedAt = completedAt,
         )
 }
+
+private const val COMPLETE_SESSION_TRACE = "IronPath#completeSession"

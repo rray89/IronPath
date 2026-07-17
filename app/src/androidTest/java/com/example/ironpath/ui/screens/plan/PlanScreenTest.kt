@@ -7,6 +7,8 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertIsNotSelected
+import androidx.compose.ui.test.assertIsOff
+import androidx.compose.ui.test.assertIsOn
 import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
@@ -123,9 +125,9 @@ class PlanScreenTest {
         composeRule
             .onNodeWithTag(TestTags.planGoal(TrainingGoal.Strength.name))
             .assertIsNotSelected()
-        composeRule.onNodeWithTag(TestTags.planDay(1)).assertIsSelected()
-        composeRule.onNodeWithTag(TestTags.planDay(2)).assertIsNotSelected()
-        composeRule.onNodeWithTag(TestTags.planDay(5)).assertIsSelected()
+        composeRule.onNodeWithTag(TestTags.planDay(1)).assertIsOn()
+        composeRule.onNodeWithTag(TestTags.planDay(2)).assertIsOff()
+        composeRule.onNodeWithTag(TestTags.planDay(5)).assertIsOn()
     }
 
     @Test
@@ -191,7 +193,7 @@ class PlanScreenTest {
             onDeleteWorkout = { deletedWorkoutId = it },
         )
 
-        composeRule.onNodeWithContentDescription("Remove workout").performClick()
+        composeRule.onNodeWithContentDescription("Remove Upper Body on Monday").performClick()
 
         assertEquals(mondayWorkout.id, deletedWorkoutId)
     }

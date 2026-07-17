@@ -6,6 +6,7 @@ import com.example.ironpath.data.local.IronPathDatabase
 import com.example.ironpath.data.local.entity.PlanStatus
 import com.example.ironpath.data.local.entity.SessionSet
 import com.example.ironpath.data.local.entity.WorkoutStatus
+import com.example.ironpath.data.performance.PerformanceTracer
 import com.example.ironpath.testutil.FileBackedRoomTestDatabaseRule
 import com.example.ironpath.testutil.RoomTestDatabaseRule
 import com.example.ironpath.testutil.TestData
@@ -293,6 +294,7 @@ class SessionRepositoryIntegrationTest {
             database.historyDao(),
             database.planDao(),
             database,
+            PerformanceTracer(),
         )
 
     private suspend fun seedPlan(database: IronPathDatabase) {

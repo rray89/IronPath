@@ -114,6 +114,7 @@ class HomeScreenTest {
         var calls = 0
         setContent(HomeUiState.WeekComplete(planned = 3, completed = 3), { calls++ })
 
+        composeRule.onNodeWithTag(TestTags.HOME_WEEK_COMPLETE).assertIsDisplayed()
         composeRule.onNodeWithText("WEEK COMPLETE!", ignoreCase = true).assertIsDisplayed()
         composeRule.onNodeWithText("PLAN NEXT WEEK").performClick()
 

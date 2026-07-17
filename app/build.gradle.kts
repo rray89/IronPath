@@ -7,6 +7,7 @@ plugins {
     alias(libs.plugins.ksp)
     alias(libs.plugins.room)
     alias(libs.plugins.hilt)
+    alias(libs.plugins.androidx.baselineprofile)
 }
 
 android {
@@ -32,11 +33,22 @@ android {
             enableUnitTestCoverage = project.hasProperty("enableCoverage")
         }
         release {
-            isMinifyEnabled = false
+            isMinifyEnabled = true
+            isShrinkResources = true
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+        }
+        create("benchmarkRelease") {
+            initWith(getByName("release"))
+            signingConfig = signingConfigs.getByName("debug")
+        }
+        create("nonMinifiedRelease") {
+            initWith(getByName("release"))
+            isMinifyEnabled = false
+            isShrinkResources = false
+            signingConfig = signingConfigs.getByName("debug")
         }
     }
     compileOptions {
@@ -55,18 +67,58 @@ android {
                     apiLevel = 29
                     systemImageSource = "aosp"
                 }
+                create("pixel8Api36") {
+                    device = "Pixel 8"
+                    apiLevel = 36
+                    systemImageSource = "aosp"
+                }
+            }
+            groups {
+                create("productionMatrix") {
+                    targetDevices.add(allDevices.getByName("pixel2Api29"))
+                    targetDevices.add(allDevices.getByName("pixel8Api36"))
+                }
             }
         }
     }
     lint {
         baseline = file("lint-baseline.xml")
         warningsAsErrors = true
+        // SDK upgrades are deliberate compatibility projects. Do not let the runner's installed
+        // preview/new SDK make the currently tested target (API 36) fail nondeterministically.
+        disable += "OldTargetApi"
     }
     buildFeatures { compose = true }
     sourceSets.getByName("androidTest").assets.directories.add("$projectDir/schemas")
 }
 
+androidComponents {
+    listOf("benchmarkRelease", "nonMinifiedRelease").forEach { buildType ->
+        onVariants(selector().withBuildType(buildType)) { variant ->
+            // Synthetic Baseline Profile build types don't consume build-type manifests through
+            // the legacy source-set DSL. Wire the benchmark-only seed surface directly to each
+            // release-like test variant while keeping it absent from production release builds.
+            variant.sources.manifests.addStaticManifestFile(
+                "src/benchmarkRelease/AndroidManifest.xml",
+            )
+            if (buildType == "nonMinifiedRelease") {
+                checkNotNull(variant.sources.kotlin) {
+                        "Kotlin sources are required for the nonMinifiedRelease profile target"
+                    }
+                    .addStaticSourceDirectory("src/benchmarkRelease/java")
+            }
+        }
+    }
+}
+
 room { schemaDirectory("$projectDir/schemas") }
+
+baselineProfile {
+    mergeIntoMain = false
+    saveInSrc = true
+    automaticGenerationDuringBuild = false
+    dexLayoutOptimization = true
+}
 
 dependencies {
     implementation(libs.androidx.core.ktx)
@@ -80,6 +132,7 @@ dependencies {
     implementation(libs.androidx.compose.material3)
     implementation(libs.androidx.compose.material.icons)
     implementation(libs.androidx.navigation.compose)
+    implementation(libs.androidx.profileinstaller)
     implementation(libs.androidx.room.runtime)
     implementation(libs.androidx.room.ktx)
     // Room 2.8.4 migration bundles use the kotlinx.serialization 1.8.1 GeneratedSerializer ABI.
@@ -100,10 +153,12 @@ dependencies {
     androidTestImplementation(libs.androidx.navigation.testing)
     androidTestImplementation(platform(libs.androidx.compose.bom))
     androidTestImplementation(libs.androidx.compose.ui.test.junit4)
+    androidTestImplementation(libs.androidx.compose.ui.test.junit4.accessibility)
     androidTestImplementation(libs.hilt.android.testing)
     kspAndroidTest(libs.hilt.android.compiler)
     debugImplementation(libs.androidx.compose.ui.tooling)
     debugImplementation(libs.androidx.compose.ui.test.manifest)
+    baselineProfile(project(":benchmark"))
 }
 
 if (project.hasProperty("enableCoverage")) {
