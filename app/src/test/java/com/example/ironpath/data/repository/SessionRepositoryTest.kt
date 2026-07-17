@@ -3,6 +3,7 @@ package com.example.ironpath.data.repository
 import androidx.room.withTransaction
 import com.example.ironpath.data.local.IronPathDatabase
 import com.example.ironpath.data.local.dao.HistoryDao
+import com.example.ironpath.data.local.dao.PlanDao
 import com.example.ironpath.data.local.dao.SessionDao
 import com.example.ironpath.data.local.entity.ActiveSession
 import com.example.ironpath.data.local.entity.LoggedExercise
@@ -18,6 +19,7 @@ import io.mockk.mockkStatic
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertSame
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 
@@ -25,6 +27,7 @@ class SessionRepositoryTest {
 
     private lateinit var sessionDao: SessionDao
     private lateinit var historyDao: HistoryDao
+    private lateinit var planDao: PlanDao
     private lateinit var database: IronPathDatabase
     private lateinit var repository: SessionRepository
 
@@ -73,16 +76,19 @@ class SessionRepositoryTest {
     fun setUp() {
         sessionDao = mockk()
         historyDao = mockk()
+        planDao = mockk()
         database = mockk()
 
         coEvery { sessionDao.startNewSession(any(), any()) } returns Unit
         coEvery { sessionDao.updateSet(any()) } returns Unit
         coEvery { sessionDao.insertSet(any()) } returns Unit
         coEvery { sessionDao.getExercisesForSession(any()) } returns emptyList()
+        coEvery { sessionDao.getActiveSession() } returns session
         coEvery { historyDao.insertLog(any()) } returns Unit
         coEvery { historyDao.insertLoggedExercises(any()) } returns Unit
         coEvery { historyDao.insertLoggedSets(any()) } returns Unit
         coEvery { sessionDao.deleteSession(any()) } returns Unit
+        coEvery { planDao.markWorkoutCompleted(any()) } returns Unit
 
         mockkStatic("androidx.room.RoomDatabaseKt")
         // withTransaction is compiled as a static extension:
@@ -93,7 +99,7 @@ class SessionRepositoryTest {
                 secondArg<suspend () -> Unit>().invoke()
             }
 
-        repository = SessionRepository(sessionDao, historyDao, database)
+        repository = SessionRepository(sessionDao, historyDao, planDao, database)
     }
 
     @Test
@@ -125,10 +131,9 @@ class SessionRepositoryTest {
     }
 
     @Test
-    fun `completeSession deletes session and inserts log within a transaction`() = runTest {
+    fun `completeSession deletes session and inserts log`() = runTest {
         repository.completeSession("session1", log)
 
-        coVerify(exactly = 1) { database.withTransaction(any<suspend () -> Unit>()) }
         coVerify(exactly = 1) { sessionDao.deleteSession("session1") }
         coVerify(exactly = 1) { historyDao.insertLog(log) }
     }
@@ -170,5 +175,41 @@ class SessionRepositoryTest {
                 ),
             )
         }
+    }
+
+    @Test
+    fun `completeSession marks source workout completed when a stored set has both values`() =
+        runTest {
+            coEvery { sessionDao.getExercisesForSession("session1") } returns
+                listOf(sessionExercise)
+            coEvery { sessionDao.getSetsForExercises(listOf("sex1")) } returns listOf(sessionSet)
+
+            repository.completeSession("session1", log)
+
+            coVerify(exactly = 1) { planDao.markWorkoutCompleted("workout1") }
+        }
+
+    @Test
+    fun `completeSession leaves source workout unchanged when no stored set is complete`() =
+        runTest {
+            coEvery { sessionDao.getExercisesForSession("session1") } returns
+                listOf(sessionExercise)
+            coEvery { sessionDao.getSetsForExercises(listOf("sex1")) } returns
+                listOf(sessionSet.copy(weightKg = null, completedAt = null))
+
+            repository.completeSession("session1", log)
+
+            coVerify(exactly = 0) { planDao.markWorkoutCompleted(any()) }
+        }
+
+    @Test
+    fun `completeSession rejects a missing session before writing history`() = runTest {
+        coEvery { sessionDao.getActiveSession() } returns null
+
+        val result = runCatching { repository.completeSession("session1", log) }
+
+        assertTrue(result.exceptionOrNull() is IllegalStateException)
+        coVerify(exactly = 0) { historyDao.insertLog(any()) }
+        coVerify(exactly = 0) { sessionDao.deleteSession(any()) }
     }
 }

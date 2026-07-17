@@ -3,6 +3,7 @@ package com.example.ironpath.data.repository
 import androidx.room.withTransaction
 import com.example.ironpath.data.local.IronPathDatabase
 import com.example.ironpath.data.local.dao.HistoryDao
+import com.example.ironpath.data.local.dao.PlanDao
 import com.example.ironpath.data.local.dao.SessionDao
 import com.example.ironpath.data.local.entity.ActiveSession
 import com.example.ironpath.data.local.entity.LoggedExercise
@@ -20,6 +21,7 @@ class SessionRepository
 constructor(
     private val sessionDao: SessionDao,
     private val historyDao: HistoryDao,
+    private val planDao: PlanDao,
     private val database: IronPathDatabase,
 ) {
 
@@ -39,9 +41,6 @@ constructor(
     fun observeSetsForExercises(exerciseIds: List<String>): Flow<List<SessionSet>> =
         sessionDao.observeSetsForExercises(exerciseIds)
 
-    suspend fun countCompletedSets(exerciseIds: List<String>): Int =
-        sessionDao.countCompletedSets(exerciseIds)
-
     /**
      * Clears any existing active session, then starts a new one with its exercises in a single
      * transaction (handled by DAO @Transaction).
@@ -58,16 +57,24 @@ constructor(
     suspend fun updateSet(set: SessionSet) = sessionDao.updateSet(set)
 
     /**
-     * Completes a session: snapshots the active session for history detail, deletes the active
-     * session, and inserts a workout log. Uses withTransaction because this spans two DAOs.
+     * Completes a session atomically: conditionally marks its planned workout complete, writes an
+     * immutable history snapshot, and deletes the active graph. Rejects a repeated completion after
+     * the source session has already been removed.
      */
     suspend fun completeSession(sessionId: String, log: WorkoutLog) {
         database.withTransaction {
+            val activeSession = sessionDao.getActiveSession()
+            check(activeSession?.id == sessionId) { "Active session $sessionId no longer exists" }
+
             val sessionExercises = sessionDao.getExercisesForSession(sessionId)
             val exerciseIds = sessionExercises.map { it.id }
             val sessionSets =
                 if (exerciseIds.isEmpty()) emptyList()
                 else sessionDao.getSetsForExercises(exerciseIds)
+
+            if (sessionSets.any { it.reps != null && it.weightKg != null }) {
+                planDao.markWorkoutCompleted(activeSession.sourcePlannedWorkoutId)
+            }
 
             historyDao.insertLog(log)
             val loggedExercises = sessionExercises.map { it.toLoggedExercise(log.id) }

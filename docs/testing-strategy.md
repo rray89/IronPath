@@ -34,6 +34,10 @@
 - Until base-versus-head automation lands in the production-gates PR, reviewers compare the scoped percentages manually.
 - Compose/generated code is assessed through behavior tests, not JaCoCo percentage.
 
+## Migration policy
+
+Every database version increment must export the new schema and add both a direct previous-to-current migration test and an oldest-supported-to-current all-migrations test. The test must assert representative data, constraints, and indexes; schema validation alone is insufficient.
+
 ## Flake policy
 - Quarantine is not a pass: a flaky test blocks release until fixed or removed with an approved replacement.
 - Use test schedulers/idling/observable state, never sleeps.
