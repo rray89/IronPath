@@ -1,5 +1,6 @@
 package com.example.ironpath.ui.screens.history
 
+import android.database.sqlite.SQLiteConstraintException
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.ironpath.data.local.entity.PersonalRecord
@@ -54,14 +55,6 @@ constructor(
 
     private var isSavingRecord = false
 
-    // Edit Record state
-    private val _editingRecord = MutableStateFlow<PersonalRecord?>(null)
-    val editingRecord: StateFlow<PersonalRecord?> = _editingRecord.asStateFlow()
-
-    // Edit Record error (e.g. duplicate constraint)
-    private val _editRecordError = MutableStateFlow<String?>(null)
-    val editRecordError: StateFlow<String?> = _editRecordError.asStateFlow()
-
     // Exercise name suggestions from both plans and existing records
     private val _exerciseSuggestions = MutableStateFlow<List<String>>(emptyList())
     val exerciseSuggestions: StateFlow<List<String>> = _exerciseSuggestions.asStateFlow()
@@ -97,20 +90,6 @@ constructor(
         _addRecordError.value = null
     }
 
-    fun showEditRecord(record: PersonalRecord) {
-        loadSuggestions()
-        _editingRecord.value = record
-    }
-
-    fun hideEditRecord() {
-        _editingRecord.value = null
-        _editRecordError.value = null
-    }
-
-    fun clearEditRecordError() {
-        _editRecordError.value = null
-    }
-
     fun saveRecord(draft: ValidatedRecordDraft, onSaved: () -> Unit) {
         if (isSavingRecord) return
         isSavingRecord = true
@@ -131,6 +110,10 @@ constructor(
                     recordRepository.insertRecord(record)
                 } catch (cancellation: CancellationException) {
                     throw cancellation
+                } catch (_: SQLiteConstraintException) {
+                    _addRecordError.value =
+                        "A record with this exercise, date, and weight already exists."
+                    return@launch
                 } catch (_: Exception) {
                     _addRecordError.value = "Unable to save record. Please try again."
                     return@launch
@@ -140,35 +123,6 @@ constructor(
             } finally {
                 isSavingRecord = false
             }
-        }
-    }
-
-    fun updateRecord(record: PersonalRecord, onUpdated: () -> Unit = {}) {
-        viewModelScope.launch {
-            val isDuplicate =
-                recordRepository.isDuplicateExcluding(
-                    normalizedName = record.normalizedExerciseName,
-                    date = record.achievedOn,
-                    weight = record.weightKg,
-                    excludeId = record.id,
-                )
-            if (isDuplicate) {
-                _editRecordError.value =
-                    "A record with this exercise, date, and weight already exists"
-                return@launch
-            }
-            recordRepository.updateRecord(record)
-            _editingRecord.value = null
-            _editRecordError.value = null
-            onUpdated()
-        }
-    }
-
-    fun deleteRecord(id: String, onDeleted: () -> Unit = {}) {
-        viewModelScope.launch {
-            recordRepository.deleteRecord(id)
-            _editingRecord.value = null
-            onDeleted()
         }
     }
 }

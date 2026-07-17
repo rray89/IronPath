@@ -1,6 +1,8 @@
 package com.example.ironpath.ui.screens.history
 
+import android.database.sqlite.SQLiteConstraintException
 import com.example.ironpath.data.local.entity.PersonalRecord
+import com.example.ironpath.data.local.entity.RecordSource
 import com.example.ironpath.data.repository.HistoryRepository
 import com.example.ironpath.data.repository.PlanRepository
 import com.example.ironpath.data.repository.RecordRepository
@@ -36,15 +38,6 @@ class HistoryViewModelTest {
     private val timeProvider = FakeTimeProvider()
     private val idProvider = FakeIdProvider()
 
-    private val record =
-        PersonalRecord(
-            id = "rec1",
-            exerciseName = "Bench Press",
-            normalizedExerciseName = "bench press",
-            weightKg = 100.0,
-            achievedOn = "2026-04-12",
-            createdAt = timeProvider.epochMillis(),
-        )
     private val draft =
         ValidatedRecordDraft(
             exerciseName = "Deadlift",
@@ -118,6 +111,8 @@ class HistoryViewModelTest {
         assertEquals(180.5, capturedRecord.captured.weightKg, 0.0)
         assertEquals("2026-07-16", capturedRecord.captured.achievedOn)
         assertEquals("Felt strong", capturedRecord.captured.note)
+        assertEquals(RecordSource.Manual, capturedRecord.captured.sourceType)
+        assertNull(capturedRecord.captured.sourceWorkoutLogId)
         assertTrue(callbackInvoked)
         assertFalse(viewModel.addRecordShown.value)
     }
@@ -158,6 +153,21 @@ class HistoryViewModelTest {
         assertFalse(callbackInvoked)
         assertEquals(
             "Unable to save record. Please try again.",
+            viewModel.addRecordError.value,
+        )
+    }
+
+    @Test
+    fun `duplicate insert keeps add form open and exposes the exact duplicate error`() = runTest {
+        coEvery { recordRepository.insertRecord(any()) } throws
+            SQLiteConstraintException("personal_records normalizedExerciseName unique")
+        viewModel.showAddRecord()
+
+        viewModel.saveRecord(draft) {}
+
+        assertTrue(viewModel.addRecordShown.value)
+        assertEquals(
+            "A record with this exercise, date, and weight already exists.",
             viewModel.addRecordError.value,
         )
     }
@@ -209,93 +219,6 @@ class HistoryViewModelTest {
         assertEquals(1, callbackCount)
         assertFalse(viewModel.addRecordShown.value)
         assertNull(viewModel.addRecordError.value)
-    }
-
-    // -- updateRecord --
-
-    @Test
-    fun `updateRecord sets editRecordError when duplicate found`() = runTest {
-        coEvery {
-            recordRepository.isDuplicateExcluding(
-                normalizedName = record.normalizedExerciseName,
-                date = record.achievedOn,
-                weight = record.weightKg,
-                excludeId = record.id,
-            )
-        } returns true
-
-        viewModel.updateRecord(record)
-
-        assertNotNull(viewModel.editRecordError.value)
-        coVerify(exactly = 0) { recordRepository.updateRecord(any()) }
-    }
-
-    @Test
-    fun `updateRecord calls repository and invokes callback when no duplicate`() = runTest {
-        coEvery { recordRepository.isDuplicateExcluding(any(), any(), any(), any()) } returns false
-        coEvery { recordRepository.updateRecord(record) } returns Unit
-        viewModel.showEditRecord(record)
-
-        var callbackInvoked = false
-        viewModel.updateRecord(record, onUpdated = { callbackInvoked = true })
-
-        assertTrue(callbackInvoked)
-        assertNull(viewModel.editRecordError.value)
-        assertNull(viewModel.editingRecord.value)
-        coVerify(exactly = 1) { recordRepository.updateRecord(record) }
-    }
-
-    @Test
-    fun `updateRecord does not clear error on success if different error was set`() = runTest {
-        coEvery { recordRepository.isDuplicateExcluding(any(), any(), any(), any()) } returns false
-        coEvery { recordRepository.updateRecord(record) } returns Unit
-
-        viewModel.updateRecord(record)
-
-        assertNull(viewModel.editRecordError.value) // no pre-existing error, stays null
-    }
-
-    // -- deleteRecord --
-
-    @Test
-    fun `deleteRecord calls repository and invokes callback`() = runTest {
-        coEvery { recordRepository.deleteRecord("rec1") } returns Unit
-
-        var callbackInvoked = false
-        viewModel.deleteRecord("rec1", onDeleted = { callbackInvoked = true })
-
-        assertTrue(callbackInvoked)
-        coVerify(exactly = 1) { recordRepository.deleteRecord("rec1") }
-    }
-
-    @Test
-    fun `deleteRecord clears editingRecord`() = runTest {
-        coEvery { recordRepository.deleteRecord(any()) } returns Unit
-        viewModel.showEditRecord(record)
-
-        viewModel.deleteRecord(record.id)
-
-        assertNull(viewModel.editingRecord.value)
-    }
-
-    // -- showEditRecord / hideEditRecord --
-
-    @Test
-    fun `showEditRecord sets editingRecord`() {
-        viewModel.showEditRecord(record)
-        assertEquals(record, viewModel.editingRecord.value)
-    }
-
-    @Test
-    fun `hideEditRecord clears editingRecord and error`() = runTest {
-        viewModel.showEditRecord(record)
-        coEvery { recordRepository.isDuplicateExcluding(any(), any(), any(), any()) } returns true
-        viewModel.updateRecord(record) // trigger error state
-
-        viewModel.hideEditRecord()
-
-        assertNull(viewModel.editingRecord.value)
-        assertNull(viewModel.editRecordError.value)
     }
 
     // -- selectTab --

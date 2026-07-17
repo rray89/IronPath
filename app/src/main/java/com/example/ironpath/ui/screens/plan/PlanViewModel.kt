@@ -2,12 +2,9 @@ package com.example.ironpath.ui.screens.plan
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.example.ironpath.data.local.entity.PlannedExercise
 import com.example.ironpath.data.local.entity.PlannedWorkout
 import com.example.ironpath.data.repository.PlanRepository
-import com.example.ironpath.data.repository.RecordRepository
 import com.example.ironpath.data.repository.SessionRepository
-import com.example.ironpath.domain.identity.IdProvider
 import com.example.ironpath.domain.planner.GeneratedPlan
 import com.example.ironpath.domain.planner.PlanGenerator
 import com.example.ironpath.domain.planner.TrainingGoal
@@ -37,9 +34,7 @@ constructor(
     private val planRepository: PlanRepository,
     private val planGenerator: PlanGenerator,
     private val sessionRepository: SessionRepository,
-    private val recordRepository: RecordRepository,
     private val timeProvider: TimeProvider,
-    private val idProvider: IdProvider,
 ) : ViewModel() {
 
     private var acceptInProgress = false
@@ -54,15 +49,6 @@ constructor(
     // -- Review state (in-memory, not yet saved) --
     private val _generatedPlan = MutableStateFlow<GeneratedPlan?>(null)
     val generatedPlan: StateFlow<GeneratedPlan?> = _generatedPlan.asStateFlow()
-
-    // -- Exercise editing state --
-    private val _exerciseSuggestions = MutableStateFlow<List<String>>(emptyList())
-    val exerciseSuggestions: StateFlow<List<String>> = _exerciseSuggestions.asStateFlow()
-
-    // Undo state: the removed exercise + optionally its workout if that was also removed
-    private val _undoExercise = MutableStateFlow<Pair<PlannedExercise, PlannedWorkout?>?>(null)
-    val undoExercise: StateFlow<Pair<PlannedExercise, PlannedWorkout?>?> =
-        _undoExercise.asStateFlow()
 
     // -- Persisted plan observation --
     private val activePlan = planRepository.observeActivePlan()
@@ -116,7 +102,6 @@ constructor(
         if (days.isEmpty()) return
         val generated = planGenerator.generate(_selectedGoal.value, days)
         _generatedPlan.value = generated
-        viewModelScope.launch { loadExerciseSuggestions() }
     }
 
     fun deleteWorkoutFromReview(workoutId: String) {
@@ -125,124 +110,6 @@ constructor(
         val updatedExercises = current.exercises.filter { it.plannedWorkoutId != workoutId }
         _generatedPlan.value =
             current.copy(workouts = updatedWorkouts, exercises = updatedExercises)
-    }
-
-    fun reassignWorkoutDay(workoutId: String, newDayOfWeek: Int) {
-        val current = _generatedPlan.value ?: return
-        val target = current.workouts.find { it.id == workoutId } ?: return
-        val startDate = java.time.LocalDate.parse(current.plan.startDate)
-        val newScheduledDate = startDate.plusDays((newDayOfWeek - 1).toLong()).toString()
-        val occupant = current.workouts.find { it.dayOfWeek == newDayOfWeek && it.id != workoutId }
-        val updatedWorkouts =
-            if (occupant != null) {
-                    current.workouts.map { w ->
-                        when (w.id) {
-                            workoutId ->
-                                w.copy(dayOfWeek = newDayOfWeek, scheduledDate = newScheduledDate)
-                            occupant.id ->
-                                w.copy(
-                                    dayOfWeek = target.dayOfWeek,
-                                    scheduledDate = target.scheduledDate
-                                )
-                            else -> w
-                        }
-                    }
-                } else {
-                    current.workouts.map { w ->
-                        if (w.id == workoutId)
-                            w.copy(dayOfWeek = newDayOfWeek, scheduledDate = newScheduledDate)
-                        else w
-                    }
-                }
-                .sortedBy { it.dayOfWeek }
-        _generatedPlan.value = current.copy(workouts = updatedWorkouts)
-    }
-
-    // -- Exercise editing (in-memory, pre-accept) --
-
-    fun updateExerciseInReview(updated: PlannedExercise) {
-        val current = _generatedPlan.value ?: return
-        _generatedPlan.value =
-            current.copy(
-                exercises = current.exercises.map { if (it.id == updated.id) updated else it }
-            )
-    }
-
-    fun removeExerciseFromReview(exerciseId: String) {
-        val current = _generatedPlan.value ?: return
-        val target = current.exercises.find { it.id == exerciseId } ?: return
-        val remaining = current.exercises.filter { it.id != exerciseId }
-        val workoutStillHasExercises =
-            remaining.any { it.plannedWorkoutId == target.plannedWorkoutId }
-        val removedWorkout: PlannedWorkout?
-        val updatedWorkouts: List<PlannedWorkout>
-        if (!workoutStillHasExercises) {
-            removedWorkout = current.workouts.find { it.id == target.plannedWorkoutId }
-            updatedWorkouts = current.workouts.filter { it.id != target.plannedWorkoutId }
-        } else {
-            removedWorkout = null
-            updatedWorkouts = current.workouts
-        }
-        _undoExercise.value = target to removedWorkout
-        _generatedPlan.value = current.copy(workouts = updatedWorkouts, exercises = remaining)
-    }
-
-    fun undoRemoveExercise() {
-        val (exercise, workout) = _undoExercise.value ?: return
-        val current = _generatedPlan.value ?: return
-        val updatedWorkouts =
-            if (workout != null) (current.workouts + workout).sortedBy { it.dayOfWeek }
-            else current.workouts
-        val updatedExercises =
-            (current.exercises + exercise).sortedWith(
-                compareBy({ it.plannedWorkoutId }, { it.orderIndex })
-            )
-        _undoExercise.value = null
-        _generatedPlan.value =
-            current.copy(workouts = updatedWorkouts, exercises = updatedExercises)
-    }
-
-    fun clearUndo() {
-        _undoExercise.value = null
-    }
-
-    fun addExerciseToReview(workoutId: String, exercise: PlannedExercise) {
-        val current = _generatedPlan.value ?: return
-        val maxOrder =
-            current.exercises
-                .filter { it.plannedWorkoutId == workoutId }
-                .maxOfOrNull { it.orderIndex } ?: -1
-        val newExercise =
-            exercise.copy(
-                id = idProvider.newId(),
-                plannedWorkoutId = workoutId,
-                orderIndex = maxOrder + 1,
-            )
-        _generatedPlan.value = current.copy(exercises = current.exercises + newExercise)
-    }
-
-    fun moveExerciseInReview(exerciseId: String, direction: Int) {
-        val current = _generatedPlan.value ?: return
-        val target = current.exercises.find { it.id == exerciseId } ?: return
-        val sorted =
-            current.exercises
-                .filter { it.plannedWorkoutId == target.plannedWorkoutId }
-                .sortedBy { it.orderIndex }
-        val currentIndex = sorted.indexOfFirst { it.id == exerciseId }
-        val swapIndex = currentIndex + direction
-        if (swapIndex < 0 || swapIndex >= sorted.size) return
-        val other = sorted[swapIndex]
-        _generatedPlan.value =
-            current.copy(
-                exercises =
-                    current.exercises.map { ex ->
-                        when (ex.id) {
-                            exerciseId -> ex.copy(orderIndex = other.orderIndex)
-                            other.id -> ex.copy(orderIndex = target.orderIndex)
-                            else -> ex
-                        }
-                    }
-            )
     }
 
     fun backToSetup() {
@@ -271,12 +138,6 @@ constructor(
                 acceptInProgress = false
             }
         }
-    }
-
-    private suspend fun loadExerciseSuggestions() {
-        val planNames = planRepository.getAllExerciseNames()
-        val recordNames = recordRepository.getAllRecordExerciseNames()
-        _exerciseSuggestions.value = (planNames + recordNames).distinct().sorted()
     }
 }
 

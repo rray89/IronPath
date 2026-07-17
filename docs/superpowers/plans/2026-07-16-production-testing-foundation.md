@@ -41,17 +41,14 @@ Current verified baseline on 2026-07-16:
 - `assembleRelease` succeeds.
 - CI reports coverage but does not enforce a threshold and does not run lint, release assembly, Room/migration tests, Compose tests, or device tests.
 
-Product-contract conflicts that must be decided during review, before Task 7 is implemented:
+Product-contract conflicts identified during review:
 
 1. The locked PRD prohibits workout-day reassignment and exercise add/edit/remove in Planner Review; the current UI and tests support those behaviors.
 2. The locked PRD says records are manual and add-only; the current UI and tests support edit/delete and creating records from workout-log sets.
 
-Default execution rule for this plan: retain the existing implementation during infrastructure work, but do not add any new unit, Room, UI, navigation, or journey test that locks in a conflicting control until the user chooses one of these exact outcomes:
+**Recorded decision (2026-07-16): PRD-authoritative.** Remove workout-day reassignment and exercise add/edit/remove/reorder controls from Planner Review while retaining whole-workout deletion, regeneration, and acceptance. Remove record edit/delete and workout-log-to-record actions while retaining manual Add Record. Replace the disputed unit tests with UI absence/read-only assertions. Keep `RecordSource` and migration support for historical `Logged` rows as future-ready schema, not as an active creation path.
 
-- **PRD-authoritative:** remove the conflicting controls and replace their unit tests with absence/route tests matching the PRD.
-- **Implementation-authoritative:** update the PRD first, then retain and extend the existing behavior tests.
-
-This decision does not block Tasks 1-6 except for the disputed `updateExerciseInReview`, record edit/delete, and log-to-record branches, which remain explicitly deferred.
+Tasks 1-6 intentionally deferred tests for those conflicting branches. Tasks 7-9 apply the recorded decision and must not reintroduce them.
 
 ## Delivery Sequence
 
@@ -852,7 +849,7 @@ git commit -m "feat10.2: validate Room migrations in CI"
 - Consumes: pure content composables, `RecordDraftValidator`, `SessionSetInput`, and the approved product-contract decision.
 - Produces: deterministic state rendering and callback proof without a real database or navigation graph.
 
-Execution is blocked at this task until the user records either **PRD-authoritative** or **Implementation-authoritative** in the plan/PR description. The chosen outcome controls both existing disputed unit tests and all disputed screen assertions; no test may silently choose for the user.
+The user selected **PRD-authoritative**. This PR records that decision in its description and removes the disputed behavior before adding screen assertions.
 
 - [ ] **Step 1: Add stable test tags only where text is ambiguous**
 
@@ -884,7 +881,7 @@ Home tests:
 @Test fun completedWeek_showsPlanNextWeek()
 ```
 
-Plan tests must cover Setup, Review, Accepted, selected-day behavior, generate/accept/regenerate callbacks, and the product-contract decision for disputed review controls.
+Plan tests must cover Setup, Review, Accepted, selected-day behavior, generate/accept/regenerate callbacks, whole-workout deletion, and the absence of workout-day/exercise editing controls.
 
 Active tests:
 
@@ -899,11 +896,11 @@ Active tests:
 
 - [ ] **Step 3: Write History and record-flow matrices**
 
-History tests cover empty logs, populated logs, Records tab selection, source badges, sorting presentation, add callback, and approved edit/delete behavior.
+History tests cover empty logs, populated logs, Records tab selection, source badges, sorting presentation, add callback, and non-clickable display-only record rows.
 
-Add Record tests cover every validator result plus a valid mapped record, optional note, cancel, external duplicate error, rotation with `StateRestorationTester`, and the approved edit/delete behavior.
+Add Record tests cover every validator result plus a valid mapped record, optional note, cancel, external duplicate error, suggestion selection, and rotation with `StateRestorationTester`.
 
-Workout log detail tests cover loading/not-found/ready, ordered snapshot sets, read-only action suppression, valid record action, already-saved state, and empty snapshot copy.
+Workout log detail tests cover loading/not-found/ready, ordered snapshot sets, empty snapshot copy, and unconditional suppression of record-creation actions.
 
 - [ ] **Step 4: Write Workout Preview tests**
 
@@ -945,7 +942,7 @@ Required tests:
 @Test fun entryIsStartDestination_andGetStartedRemovesEntryFromBackStack()
 @Test fun bottomNavigation_preservesHomePlanActiveHistoryState_withoutDuplicateDestinations()
 @Test fun workoutPreview_encodesId_andBackReturnsToOrigin()
-@Test fun workoutLogDetail_decodesIdAndReadOnlyFlag()
+@Test fun workoutLogDetail_decodesId_andBackReturnsToHistory()
 @Test fun completingWorkout_clearsActiveAndReturnsHome()
 @Test fun backingOutOfActive_doesNotDeletePersistedSession()
 @Test fun entryAndDevTools_hideTopAndBottomBars()

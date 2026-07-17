@@ -31,6 +31,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
@@ -39,6 +40,7 @@ import com.example.ironpath.data.local.entity.PlannedWorkout
 import com.example.ironpath.data.local.entity.WeeklyPlan
 import com.example.ironpath.data.local.entity.WorkoutStatus
 import com.example.ironpath.ui.components.GreenGradientButton
+import com.example.ironpath.ui.testing.TestTags
 import com.example.ironpath.ui.theme.IronPathTheme
 import com.example.ironpath.ui.theme.SurfaceContainerHigh
 import com.example.ironpath.ui.theme.SurfaceContainerLow
@@ -69,7 +71,10 @@ internal fun HomeContent(
 ) {
     when (uiState) {
         HomeUiState.Loading -> {
-            Box(modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Box(
+                modifier.fillMaxSize().testTag(TestTags.HOME_LOADING),
+                contentAlignment = Alignment.Center,
+            ) {
                 CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
             }
         }
@@ -343,6 +348,7 @@ private fun WorkoutCard(
         modifier =
             modifier
                 .fillMaxWidth()
+                .testTag(TestTags.workout(workout.id))
                 .clip(RoundedCornerShape(4.dp))
                 .background(SurfaceContainerLow)
                 .clickable(onClick = onClick)

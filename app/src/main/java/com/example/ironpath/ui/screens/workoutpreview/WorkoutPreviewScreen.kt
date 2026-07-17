@@ -29,6 +29,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
@@ -38,6 +39,7 @@ import com.example.ironpath.data.local.entity.PlannedWorkout
 import com.example.ironpath.data.local.entity.WorkoutStatus
 import com.example.ironpath.ui.components.GreenGradientButton
 import com.example.ironpath.ui.screens.home.dayOfWeekAbbrev
+import com.example.ironpath.ui.testing.TestTags
 import com.example.ironpath.ui.theme.IronPathTheme
 import com.example.ironpath.ui.theme.SurfaceContainerHigh
 import com.example.ironpath.ui.theme.SurfaceContainerLow
@@ -71,7 +73,10 @@ internal fun WorkoutPreviewContent(
 ) {
     when (uiState) {
         WorkoutPreviewUiState.Loading -> {
-            Box(modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Box(
+                modifier.fillMaxSize().testTag(TestTags.WORKOUT_PREVIEW_LOADING),
+                contentAlignment = Alignment.Center,
+            ) {
                 CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
             }
         }
@@ -161,21 +166,22 @@ private fun WorkoutPreviewReady(
 
         Spacer(Modifier.height(24.dp))
 
-        if (state.canStart) {
-            GreenGradientButton(
-                text = "Start Workout",
-                onClick = onStart,
-                trailingIcon = {
-                    Icon(
-                        imageVector = Icons.Default.PlayArrow,
-                        contentDescription = null,
-                        modifier = Modifier.size(18.dp),
-                        tint = MaterialTheme.colorScheme.surface,
-                    )
-                },
-            )
-            Spacer(Modifier.height(20.dp))
-        } else if (state.hasActiveSession) {
+        GreenGradientButton(
+            text = "Start Workout",
+            onClick = onStart,
+            enabled = state.canStart,
+            trailingIcon = {
+                Icon(
+                    imageVector = Icons.Default.PlayArrow,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp),
+                    tint = MaterialTheme.colorScheme.surface,
+                )
+            },
+        )
+        Spacer(Modifier.height(20.dp))
+
+        if (state.hasActiveSession) {
             Text(
                 text = "Finish the active session before starting this workout.",
                 style = MaterialTheme.typography.bodyMedium,
@@ -234,6 +240,7 @@ private fun PreviewExerciseRow(
         modifier =
             modifier
                 .fillMaxWidth()
+                .testTag(TestTags.planExercise(exercise.id))
                 .background(SurfaceContainerLow, RoundedCornerShape(4.dp))
                 .padding(16.dp),
         verticalAlignment = Alignment.CenterVertically,
