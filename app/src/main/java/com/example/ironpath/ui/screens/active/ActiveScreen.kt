@@ -38,6 +38,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.TextFieldValue
@@ -51,6 +54,7 @@ import com.example.ironpath.data.local.entity.SessionExercise
 import com.example.ironpath.data.local.entity.SessionSet
 import com.example.ironpath.domain.session.SessionSetInput
 import com.example.ironpath.ui.components.GreenGradientButton
+import com.example.ironpath.ui.testing.TestTags
 import com.example.ironpath.ui.theme.IronPathTheme
 import com.example.ironpath.ui.theme.SurfaceContainerHigh
 import com.example.ironpath.ui.theme.SurfaceContainerLow
@@ -96,7 +100,10 @@ internal fun ActiveContent(
 ) {
     when (uiState) {
         ActiveUiState.Loading -> {
-            Box(modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Box(
+                modifier.fillMaxSize().testTag(TestTags.ACTIVE_LOADING),
+                contentAlignment = Alignment.Center,
+            ) {
                 CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
             }
         }
@@ -430,6 +437,12 @@ private fun SetRow(
         modifier =
             modifier
                 .fillMaxWidth()
+                .testTag(TestTags.set(set.id))
+                .semantics {
+                    if (set.isExtra) {
+                        stateDescription = "Extra set"
+                    }
+                }
                 .background(SurfaceContainerLow, RoundedCornerShape(4.dp))
                 .padding(horizontal = 4.dp, vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -461,7 +474,7 @@ private fun SetRow(
             onValueChange = { text ->
                 onUpdateSet(SessionSetInput.withWeight(set, text, nowMillis()))
             },
-            modifier = Modifier.weight(1f),
+            modifier = Modifier.weight(1f).testTag(TestTags.setWeight(set.id)),
         )
 
         Spacer(Modifier.width(4.dp))
@@ -472,7 +485,7 @@ private fun SetRow(
             onValueChange = { text ->
                 onUpdateSet(SessionSetInput.withReps(set, text, nowMillis()))
             },
-            modifier = Modifier.weight(1f),
+            modifier = Modifier.weight(1f).testTag(TestTags.setReps(set.id)),
         )
 
         // Done indicator (passive — auto-filled when both kg and reps are entered)

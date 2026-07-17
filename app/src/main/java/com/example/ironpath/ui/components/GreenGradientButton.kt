@@ -17,6 +17,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import com.example.ironpath.ui.theme.GradientEnd
 import com.example.ironpath.ui.theme.GradientStart
@@ -48,7 +49,11 @@ fun GreenGradientButton(
                 .fillMaxWidth()
                 .clip(shape)
                 .background(brush = bgBrush)
-                .then(if (enabled) Modifier.clickable(onClick = onClick) else Modifier)
+                .clickable(
+                    enabled = enabled,
+                    role = Role.Button,
+                    onClick = onClick,
+                )
                 .padding(contentPadding),
         contentAlignment = Alignment.Center,
     ) {

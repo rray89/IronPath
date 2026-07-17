@@ -1,7 +1,6 @@
 package com.example.ironpath.ui.screens.history
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -49,7 +48,6 @@ import java.time.ZoneOffset
 fun WorkoutLogDetailScreen(
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
-    recordActionsEnabled: Boolean = true,
     viewModel: WorkoutLogDetailViewModel = hiltViewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
@@ -57,8 +55,6 @@ fun WorkoutLogDetailScreen(
     WorkoutLogDetailContent(
         uiState = uiState,
         onBack = onBack,
-        onSaveSetAsRecord = viewModel::saveSetAsRecord,
-        recordActionsEnabled = recordActionsEnabled,
         zoneId = viewModel.zoneId,
         modifier = modifier,
     )
@@ -68,8 +64,6 @@ fun WorkoutLogDetailScreen(
 internal fun WorkoutLogDetailContent(
     uiState: WorkoutLogDetailUiState,
     onBack: () -> Unit,
-    onSaveSetAsRecord: (LoggedExerciseDetail, LoggedSet) -> Unit = { _, _ -> },
-    recordActionsEnabled: Boolean = true,
     zoneId: ZoneId,
     modifier: Modifier = Modifier,
 ) {
@@ -84,8 +78,6 @@ internal fun WorkoutLogDetailContent(
             WorkoutLogDetailReady(
                 state = uiState,
                 onBack = onBack,
-                onSaveSetAsRecord = onSaveSetAsRecord,
-                recordActionsEnabled = recordActionsEnabled,
                 zoneId = zoneId,
                 modifier = modifier,
             )
@@ -122,8 +114,6 @@ private fun WorkoutLogDetailNotFound(
 private fun WorkoutLogDetailReady(
     state: WorkoutLogDetailUiState.Ready,
     onBack: () -> Unit,
-    onSaveSetAsRecord: (LoggedExerciseDetail, LoggedSet) -> Unit,
-    recordActionsEnabled: Boolean,
     zoneId: ZoneId,
     modifier: Modifier = Modifier,
 ) {
@@ -171,15 +161,6 @@ private fun WorkoutLogDetailReady(
 
         WorkoutLogSummary(log = detail.log)
 
-        if (state.recordMessage != null) {
-            Spacer(Modifier.height(12.dp))
-            Text(
-                text = state.recordMessage,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-
         Spacer(Modifier.height(18.dp))
 
         if (detail.exercises.isEmpty()) {
@@ -193,9 +174,6 @@ private fun WorkoutLogDetailReady(
                 LoggedExerciseRow(
                     index = index + 1,
                     detail = exerciseDetail,
-                    savedSetIds = state.savedSetIds,
-                    onSaveSetAsRecord = onSaveSetAsRecord,
-                    recordActionsEnabled = recordActionsEnabled,
                 )
                 Spacer(Modifier.height(10.dp))
             }
@@ -245,9 +223,6 @@ private fun WorkoutLogSummary(
 private fun LoggedExerciseRow(
     index: Int,
     detail: LoggedExerciseDetail,
-    savedSetIds: Set<String>,
-    onSaveSetAsRecord: (LoggedExerciseDetail, LoggedSet) -> Unit,
-    recordActionsEnabled: Boolean,
     modifier: Modifier = Modifier,
 ) {
     Column(
@@ -303,9 +278,6 @@ private fun LoggedExerciseRow(
                 .forEach { set ->
                     LoggedSetRow(
                         set = set,
-                        isSaved = savedSetIds.contains(set.id),
-                        onSaveRecord = { onSaveSetAsRecord(detail, set) },
-                        recordActionsEnabled = recordActionsEnabled,
                     )
                     Spacer(Modifier.height(8.dp))
                 }
@@ -316,11 +288,7 @@ private fun LoggedExerciseRow(
 @Composable
 private fun LoggedSetRow(
     set: LoggedSet,
-    isSaved: Boolean,
-    onSaveRecord: () -> Unit,
-    recordActionsEnabled: Boolean,
 ) {
-    val canSave = set.reps != null && set.weightKg != null && set.weightKg > 0.0
     Row(
         modifier =
             Modifier.fillMaxWidth()
@@ -339,22 +307,6 @@ private fun LoggedSetRow(
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurface,
         )
-        Spacer(Modifier.weight(1f))
-        if (canSave && (recordActionsEnabled || isSaved)) {
-            Text(
-                text = if (isSaved) "SAVED" else "SAVE RECORD",
-                style = MaterialTheme.typography.labelSmall,
-                color =
-                    if (isSaved) MaterialTheme.colorScheme.onSurfaceVariant
-                    else MaterialTheme.colorScheme.primary,
-                modifier =
-                    if (isSaved || !recordActionsEnabled) {
-                        Modifier
-                    } else {
-                        Modifier.clickable(onClick = onSaveRecord)
-                    },
-            )
-        }
     }
 }
 
