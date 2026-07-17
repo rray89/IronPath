@@ -144,6 +144,26 @@ jobs:
             fi
           done
 
+          synthetic_apks=(
+            app/build/outputs/apk/benchmarkRelease/app-benchmarkRelease.apk
+            app/build/outputs/apk/nonMinifiedRelease/app-nonMinifiedRelease.apk
+          )
+          for apk in "${synthetic_apks[@]}"; do
+            if [[ ! -s "$apk" ]]; then
+              echo "Expected synthetic APK is missing: $apk"
+              exit 1
+            fi
+            seed_class_count="$(
+              unzip -p "$apk" 'classes*.dex' |
+                strings |
+                grep -F -c 'Lcom/example/ironpath/benchmark/BenchmarkSeedActivity;' || true
+            )"
+            if [[ "$seed_class_count" -lt 1 ]]; then
+              echo "BenchmarkSeedActivity is missing from the synthetic APK dex: $apk"
+              exit 1
+            fi
+          done
+
       - name: Upload lint reports
         uses: actions/upload-artifact@v4
         if: always()
