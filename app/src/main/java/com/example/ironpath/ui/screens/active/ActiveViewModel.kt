@@ -2,6 +2,8 @@ package com.example.ironpath.ui.screens.active
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import dagger.hilt.android.lifecycle.HiltViewModel
+import javax.inject.Inject
 import com.example.ironpath.data.local.entity.ActiveSession
 import com.example.ironpath.data.local.entity.PlannedWorkout
 import com.example.ironpath.data.local.entity.SessionExercise
@@ -28,7 +30,8 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalCoroutinesApi::class)
-class ActiveViewModel(
+@HiltViewModel
+class ActiveViewModel @Inject constructor(
     private val sessionRepository: SessionRepository,
     private val planRepository: PlanRepository,
     private val startPlannedWorkout: StartPlannedWorkoutUseCase,

@@ -1,5 +1,6 @@
 package com.example.ironpath.di
 
+import androidx.lifecycle.SavedStateHandle
 import androidx.room.Room
 import com.example.ironpath.data.local.IronPathDatabase
 import com.example.ironpath.data.repository.HistoryRepository
@@ -16,6 +17,7 @@ import com.example.ironpath.ui.screens.history.WorkoutLogDetailViewModel
 import com.example.ironpath.ui.screens.home.HomeViewModel
 import com.example.ironpath.ui.screens.plan.PlanViewModel
 import com.example.ironpath.ui.screens.workoutpreview.WorkoutPreviewViewModel
+import com.example.ironpath.ui.navigation.Route
 import org.koin.core.module.dsl.viewModel
 import org.koin.dsl.module
 
@@ -58,6 +60,19 @@ val viewModelModule = module {
     viewModel { PlanViewModel(get(), get(), get(), get()) }
     viewModel { ActiveViewModel(get(), get(), get()) }
     viewModel { HistoryViewModel(get(), get(), get()) }
-    viewModel { params -> WorkoutPreviewViewModel(params.get(), get(), get(), get()) }
-    viewModel { params -> WorkoutLogDetailViewModel(params.get(), get(), get()) }
+    viewModel { params ->
+        WorkoutPreviewViewModel(
+            SavedStateHandle(mapOf(Route.WORKOUT_ID_ARG to params.get<String>())),
+            get(),
+            get(),
+            get(),
+        )
+    }
+    viewModel { params ->
+        WorkoutLogDetailViewModel(
+            SavedStateHandle(mapOf(Route.WORKOUT_LOG_ID_ARG to params.get<String>())),
+            get(),
+            get(),
+        )
+    }
 }

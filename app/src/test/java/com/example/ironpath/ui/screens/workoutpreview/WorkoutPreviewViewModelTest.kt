@@ -1,6 +1,7 @@
 package com.example.ironpath.ui.screens.workoutpreview
 
 import app.cash.turbine.test
+import androidx.lifecycle.SavedStateHandle
 import com.example.ironpath.data.local.entity.ActiveSession
 import com.example.ironpath.data.local.entity.PlannedExercise
 import com.example.ironpath.data.local.entity.PlannedWorkout
@@ -8,6 +9,7 @@ import com.example.ironpath.data.local.entity.WorkoutStatus
 import com.example.ironpath.data.repository.PlanRepository
 import com.example.ironpath.data.repository.SessionRepository
 import com.example.ironpath.domain.session.StartPlannedWorkoutUseCase
+import com.example.ironpath.ui.navigation.Route
 import com.example.ironpath.util.MainDispatcherRule
 import io.mockk.coEvery
 import io.mockk.coVerify
@@ -38,6 +40,9 @@ class WorkoutPreviewViewModelTest {
 
     private val exercisesFlow = MutableStateFlow<List<PlannedExercise>>(emptyList())
     private val activeSessionFlow = MutableStateFlow<ActiveSession?>(null)
+
+    private fun savedStateHandle(workoutId: String): SavedStateHandle =
+        SavedStateHandle(mapOf(Route.WORKOUT_ID_ARG to workoutId))
 
     private fun workout(
         id: String = "workout1",
@@ -96,7 +101,7 @@ class WorkoutPreviewViewModelTest {
 
             val viewModel =
                 WorkoutPreviewViewModel(
-                    workoutId = "workout1",
+                    savedStateHandle = savedStateHandle("workout1"),
                     planRepository = planRepository,
                     sessionRepository = sessionRepository,
                     startPlannedWorkout = startPlannedWorkout,
@@ -120,7 +125,7 @@ class WorkoutPreviewViewModelTest {
 
         val viewModel =
             WorkoutPreviewViewModel(
-                workoutId = "workout1",
+                savedStateHandle = savedStateHandle("workout1"),
                 planRepository = planRepository,
                 sessionRepository = sessionRepository,
                 startPlannedWorkout = startPlannedWorkout,
@@ -142,7 +147,7 @@ class WorkoutPreviewViewModelTest {
 
         val viewModel =
             WorkoutPreviewViewModel(
-                workoutId = "workout1",
+                savedStateHandle = savedStateHandle("workout1"),
                 planRepository = planRepository,
                 sessionRepository = sessionRepository,
                 startPlannedWorkout = startPlannedWorkout,
@@ -164,7 +169,7 @@ class WorkoutPreviewViewModelTest {
 
         val viewModel =
             WorkoutPreviewViewModel(
-                workoutId = "workout1",
+                savedStateHandle = savedStateHandle("workout1"),
                 planRepository = planRepository,
                 sessionRepository = sessionRepository,
                 startPlannedWorkout = startPlannedWorkout,
@@ -185,7 +190,7 @@ class WorkoutPreviewViewModelTest {
 
         val viewModel =
             WorkoutPreviewViewModel(
-                workoutId = "workout1",
+                savedStateHandle = savedStateHandle("workout1"),
                 planRepository = planRepository,
                 sessionRepository = sessionRepository,
                 startPlannedWorkout = startPlannedWorkout,
@@ -206,7 +211,7 @@ class WorkoutPreviewViewModelTest {
             coEvery { planRepository.getWorkoutById("workout1") } returns todayWorkout
             val viewModel =
                 WorkoutPreviewViewModel(
-                    workoutId = "workout1",
+                    savedStateHandle = savedStateHandle("workout1"),
                     planRepository = planRepository,
                     sessionRepository = sessionRepository,
                     startPlannedWorkout = startPlannedWorkout,
@@ -231,7 +236,7 @@ class WorkoutPreviewViewModelTest {
             workout(scheduledDate = LocalDate.now().plusDays(1).toString())
         val viewModel =
             WorkoutPreviewViewModel(
-                workoutId = "workout1",
+                savedStateHandle = savedStateHandle("workout1"),
                 planRepository = planRepository,
                 sessionRepository = sessionRepository,
                 startPlannedWorkout = startPlannedWorkout,
@@ -258,7 +263,7 @@ class WorkoutPreviewViewModelTest {
         coEvery { startPlannedWorkout.invoke(any()) } coAnswers { startCanComplete.await() }
         val viewModel =
             WorkoutPreviewViewModel(
-                workoutId = "workout1",
+                savedStateHandle = savedStateHandle("workout1"),
                 planRepository = planRepository,
                 sessionRepository = sessionRepository,
                 startPlannedWorkout = startPlannedWorkout,
@@ -285,7 +290,7 @@ class WorkoutPreviewViewModelTest {
 
         val viewModel =
             WorkoutPreviewViewModel(
-                workoutId = "missing",
+                savedStateHandle = savedStateHandle("missing"),
                 planRepository = planRepository,
                 sessionRepository = sessionRepository,
                 startPlannedWorkout = startPlannedWorkout,
@@ -296,5 +301,21 @@ class WorkoutPreviewViewModelTest {
             while (state !is WorkoutPreviewUiState.NotFound) state = awaitItem()
             cancelAndIgnoreRemainingEvents()
         }
+    }
+
+    @Test
+    fun missingWorkoutRouteArgument_loadsNotFound() = runTest {
+        coEvery { planRepository.getWorkoutById("") } returns null
+        val viewModel =
+            WorkoutPreviewViewModel(
+                savedStateHandle = SavedStateHandle(),
+                planRepository = planRepository,
+                sessionRepository = sessionRepository,
+                startPlannedWorkout = startPlannedWorkout,
+            )
+
+        advanceUntilIdle()
+
+        assertEquals(WorkoutPreviewUiState.NotFound, viewModel.uiState.value)
     }
 }

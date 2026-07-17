@@ -2,6 +2,7 @@ package com.example.ironpath.ui.screens.history
 
 import android.database.sqlite.SQLiteConstraintException
 import app.cash.turbine.test
+import androidx.lifecycle.SavedStateHandle
 import com.example.ironpath.data.local.entity.LoggedExercise
 import com.example.ironpath.data.local.entity.LoggedSet
 import com.example.ironpath.data.local.entity.PersonalRecord
@@ -11,6 +12,7 @@ import com.example.ironpath.data.repository.HistoryRepository
 import com.example.ironpath.data.repository.LoggedExerciseDetail
 import com.example.ironpath.data.repository.RecordRepository
 import com.example.ironpath.data.repository.WorkoutLogDetail
+import com.example.ironpath.ui.navigation.Route
 import com.example.ironpath.util.MainDispatcherRule
 import io.mockk.coEvery
 import io.mockk.coVerify
@@ -31,6 +33,9 @@ import org.junit.Test
 class WorkoutLogDetailViewModelTest {
 
     @get:Rule val mainDispatcherRule = MainDispatcherRule()
+
+    private fun savedStateHandle(logId: String): SavedStateHandle =
+        SavedStateHandle(mapOf(Route.WORKOUT_LOG_ID_ARG to logId))
 
     private val log =
         WorkoutLog(
@@ -78,7 +83,12 @@ class WorkoutLogDetailViewModelTest {
         val recordRepository = mockk<RecordRepository>(relaxed = true)
         coEvery { historyRepository.getLogDetail("log1") } returns detail
 
-        val viewModel = WorkoutLogDetailViewModel("log1", historyRepository, recordRepository)
+        val viewModel =
+            WorkoutLogDetailViewModel(
+                savedStateHandle = savedStateHandle("log1"),
+                historyRepository = historyRepository,
+                recordRepository = recordRepository,
+            )
 
         viewModel.uiState.test {
             var state = awaitItem()
@@ -94,13 +104,35 @@ class WorkoutLogDetailViewModelTest {
         val recordRepository = mockk<RecordRepository>(relaxed = true)
         coEvery { historyRepository.getLogDetail("missing") } returns null
 
-        val viewModel = WorkoutLogDetailViewModel("missing", historyRepository, recordRepository)
+        val viewModel =
+            WorkoutLogDetailViewModel(
+                savedStateHandle = savedStateHandle("missing"),
+                historyRepository = historyRepository,
+                recordRepository = recordRepository,
+            )
 
         viewModel.uiState.test {
             var state = awaitItem()
             while (state !is WorkoutLogDetailUiState.NotFound) state = awaitItem()
             cancelAndIgnoreRemainingEvents()
         }
+    }
+
+    @Test
+    fun missingWorkoutLogRouteArgument_loadsNotFound() = runTest {
+        val historyRepository = mockk<HistoryRepository>()
+        val recordRepository = mockk<RecordRepository>(relaxed = true)
+        coEvery { historyRepository.getLogDetail("") } returns null
+        val viewModel =
+            WorkoutLogDetailViewModel(
+                savedStateHandle = SavedStateHandle(),
+                historyRepository = historyRepository,
+                recordRepository = recordRepository,
+            )
+
+        advanceUntilIdle()
+
+        assertEquals(WorkoutLogDetailUiState.NotFound, viewModel.uiState.value)
     }
 
     @Test
@@ -114,7 +146,12 @@ class WorkoutLogDetailViewModelTest {
             recordRepository.isDuplicateExcluding("bench press", achievedOn, 62.5, "")
         } returns false
         coEvery { recordRepository.insertRecord(capture(insertedRecord)) } returns Unit
-        val viewModel = WorkoutLogDetailViewModel("log1", historyRepository, recordRepository)
+        val viewModel =
+            WorkoutLogDetailViewModel(
+                savedStateHandle = savedStateHandle("log1"),
+                historyRepository = historyRepository,
+                recordRepository = recordRepository,
+            )
         advanceUntilIdle()
 
         viewModel.saveSetAsRecord(detail.exercises.first(), detail.exercises.first().sets.first())
@@ -150,7 +187,12 @@ class WorkoutLogDetailViewModelTest {
                 ),
             )
 
-        val viewModel = WorkoutLogDetailViewModel("log1", historyRepository, recordRepository)
+        val viewModel =
+            WorkoutLogDetailViewModel(
+                savedStateHandle = savedStateHandle("log1"),
+                historyRepository = historyRepository,
+                recordRepository = recordRepository,
+            )
         advanceUntilIdle()
 
         val state = viewModel.uiState.value as WorkoutLogDetailUiState.Ready
@@ -178,7 +220,12 @@ class WorkoutLogDetailViewModelTest {
                 ),
             )
         coEvery { recordRepository.isDuplicateExcluding(any(), any(), any(), any()) } returns true
-        val viewModel = WorkoutLogDetailViewModel("log1", historyRepository, recordRepository)
+        val viewModel =
+            WorkoutLogDetailViewModel(
+                savedStateHandle = savedStateHandle("log1"),
+                historyRepository = historyRepository,
+                recordRepository = recordRepository,
+            )
         advanceUntilIdle()
 
         viewModel.saveSetAsRecord(detail.exercises.first(), detail.exercises.first().sets.first())
@@ -212,7 +259,12 @@ class WorkoutLogDetailViewModelTest {
                 false
             coEvery { recordRepository.insertRecord(any()) } throws
                 SQLiteConstraintException("duplicate")
-            val viewModel = WorkoutLogDetailViewModel("log1", historyRepository, recordRepository)
+            val viewModel =
+                WorkoutLogDetailViewModel(
+                    savedStateHandle = savedStateHandle("log1"),
+                    historyRepository = historyRepository,
+                    recordRepository = recordRepository,
+                )
             advanceUntilIdle()
 
             viewModel.saveSetAsRecord(
@@ -232,7 +284,12 @@ class WorkoutLogDetailViewModelTest {
         val recordRepository = mockk<RecordRepository>(relaxed = true)
         coEvery { historyRepository.getLogDetail("log1") } returns detail
         coEvery { recordRepository.isDuplicateExcluding(any(), any(), any(), any()) } returns true
-        val viewModel = WorkoutLogDetailViewModel("log1", historyRepository, recordRepository)
+        val viewModel =
+            WorkoutLogDetailViewModel(
+                savedStateHandle = savedStateHandle("log1"),
+                historyRepository = historyRepository,
+                recordRepository = recordRepository,
+            )
         advanceUntilIdle()
 
         viewModel.saveSetAsRecord(detail.exercises.first(), detail.exercises.first().sets.first())
@@ -253,7 +310,12 @@ class WorkoutLogDetailViewModelTest {
         val recordRepository = mockk<RecordRepository>(relaxed = true)
         val incompleteSet = detail.exercises.first().sets.first().copy(weightKg = null)
         coEvery { historyRepository.getLogDetail("log1") } returns detail
-        val viewModel = WorkoutLogDetailViewModel("log1", historyRepository, recordRepository)
+        val viewModel =
+            WorkoutLogDetailViewModel(
+                savedStateHandle = savedStateHandle("log1"),
+                historyRepository = historyRepository,
+                recordRepository = recordRepository,
+            )
         advanceUntilIdle()
 
         viewModel.saveSetAsRecord(detail.exercises.first(), incompleteSet)
