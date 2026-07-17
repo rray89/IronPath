@@ -10,9 +10,12 @@ import com.example.ironpath.data.local.entity.LoggedSet
 import com.example.ironpath.data.local.entity.SessionExercise
 import com.example.ironpath.data.local.entity.SessionSet
 import com.example.ironpath.data.local.entity.WorkoutLog
+import javax.inject.Inject
+import javax.inject.Singleton
 import kotlinx.coroutines.flow.Flow
 
-class SessionRepository(
+@Singleton
+class SessionRepository @Inject constructor(
     private val sessionDao: SessionDao,
     private val historyDao: HistoryDao,
     private val database: IronPathDatabase,

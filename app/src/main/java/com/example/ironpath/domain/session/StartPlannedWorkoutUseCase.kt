@@ -6,8 +6,11 @@ import com.example.ironpath.data.local.entity.SessionExercise
 import com.example.ironpath.data.local.entity.SessionSet
 import com.example.ironpath.data.repository.PlanRepository
 import com.example.ironpath.data.repository.SessionRepository
+import javax.inject.Inject
+import javax.inject.Singleton
 
-class StartPlannedWorkoutUseCase(
+@Singleton
+class StartPlannedWorkoutUseCase @Inject constructor(
     private val planRepository: PlanRepository,
     private val sessionRepository: SessionRepository,
 ) {
