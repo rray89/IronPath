@@ -306,6 +306,8 @@ Validation depends on the minimum exercise catalog defined in Feature 1. Avoid R
 
 ## Feature 5: AI-assisted planner review flow
 
+**Status: Implemented** - PR #40 (feat/feat9.4-ai-plan-review)
+
 ### Context
 
 The minimum impressive portfolio feature is not a chatbot. It is a complete planning loop: user enters goals, taps "Generate with AI", sees a validated draft, understands why it was generated, and can accept or fall back.

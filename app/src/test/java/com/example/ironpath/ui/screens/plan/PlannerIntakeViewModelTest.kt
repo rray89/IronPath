@@ -33,6 +33,8 @@ import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withContext
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -139,6 +141,36 @@ class PlannerIntakeViewModelTest {
     }
 
     @Test
+    fun `validated draft is cleared exactly once after review confirms handoff`() = runTest {
+        val viewModel = createViewModel(engine = StaticEngine(validResult(setOf(1))))
+        viewModel.toggleDay(1)
+        viewModel.generateWithAi()
+        runCurrent()
+        val token = viewModel.validatedDraft!!
+
+        assertTrue(viewModel.onDraftConsumed(token))
+        assertTrue(viewModel.aiGenerationState.value is AiGenerationUiState.Idle)
+        assertFalse(viewModel.onDraftConsumed(token))
+    }
+
+    @Test
+    fun `stale handoff cannot clear a newer validated draft`() = runTest {
+        val viewModel = createViewModel(engine = StaticEngine(validResult(setOf(1))))
+        viewModel.toggleDay(1)
+        viewModel.generateWithAi()
+        runCurrent()
+        val first = viewModel.validatedDraft!!
+
+        viewModel.generateWithAi()
+        runCurrent()
+        val second = viewModel.validatedDraft!!
+
+        assertFalse(viewModel.onDraftConsumed(first))
+        assertSame(second, viewModel.validatedDraft)
+        assertTrue(viewModel.aiGenerationState.value is AiGenerationUiState.Validated)
+    }
+
+    @Test
     fun `provider failure exposes a retryable error`() = runTest {
         val failure = PlanningFailure.ProviderError("offline")
         val viewModel = createViewModel(engine = StaticEngine(PlanningResult.Failure(failure)))
@@ -149,6 +181,45 @@ class PlannerIntakeViewModelTest {
 
         val state = viewModel.aiGenerationState.value as AiGenerationUiState.Failed
         assertEquals(failure, state.failure)
+    }
+
+    @Test
+    fun `rule fallback uses registered rule engine and validates with its provider type`() =
+        runTest {
+            val aiEngine = StaticEngine(validResult(setOf(1)))
+            val ruleEngine =
+                TypedStaticEngine(
+                    PlanningEngineType.RULE_BASED,
+                    validResult(setOf(1), PlanningEngineType.RULE_BASED),
+                )
+            val viewModel =
+                createViewModelWithEngines(
+                    engines = mapOf(aiEngine.type to aiEngine, ruleEngine.type to ruleEngine)
+                )
+            viewModel.toggleDay(1)
+
+            viewModel.generateWithRuleBasedFallback()
+            runCurrent()
+
+            val state = viewModel.aiGenerationState.value as AiGenerationUiState.Validated
+            assertEquals(PlanningEngineType.RULE_BASED, state.draft.context.invokedEngineType)
+            assertEquals(
+                PlanningEngineType.RULE_BASED,
+                state.draft.draft.providerMetadata.engineType,
+            )
+        }
+
+    @Test
+    fun `missing rule fallback engine reports unavailable without invoking AI`() = runTest {
+        val aiEngine = StaticEngine(validResult(setOf(1)))
+        val viewModel = createViewModel(engine = aiEngine)
+        viewModel.toggleDay(1)
+
+        viewModel.generateWithRuleBasedFallback()
+        runCurrent()
+
+        val state = viewModel.aiGenerationState.value as AiGenerationUiState.Failed
+        assertEquals(PlanningFailure.Unavailable, state.failure)
     }
 
     @Test
@@ -242,16 +313,24 @@ class PlannerIntakeViewModelTest {
     private fun createViewModel(
         handle: SavedStateHandle = SavedStateHandle(),
         engine: PlanningEngine,
+    ) = createViewModelWithEngines(handle, mapOf(engine.type to engine))
+
+    private fun createViewModelWithEngines(
+        handle: SavedStateHandle = SavedStateHandle(),
+        engines: Map<PlanningEngineType, PlanningEngine>,
     ) =
         PlannerIntakeViewModel(
             savedStateHandle = handle,
-            planningEngineRegistry = PlanningEngineRegistry(mapOf(engine.type to engine)),
+            planningEngineRegistry = PlanningEngineRegistry(engines),
             planValidator = PlanValidator(catalog, timeProvider),
             planningHistoryProvider = historyProvider,
             timeProvider = timeProvider,
         )
 
-    private fun validResult(days: Set<Int>): PlanningResult {
+    private fun validResult(
+        days: Set<Int>,
+        engineType: PlanningEngineType = PlanningEngineType.DEBUG_FAKE_AI,
+    ): PlanningResult {
         val targetMonday = timeProvider.today().with(TemporalAdjusters.next(DayOfWeek.MONDAY))
         return PlanningResult.Success(
             PlanDraft(
@@ -273,7 +352,7 @@ class PlannerIntakeViewModelTest {
                                 ),
                         )
                     },
-                providerMetadata = PlanningProviderMetadata(PlanningEngineType.DEBUG_FAKE_AI, 1),
+                providerMetadata = PlanningProviderMetadata(engineType, 1),
             )
         )
     }
@@ -281,6 +360,13 @@ class PlannerIntakeViewModelTest {
     private class StaticEngine(private val result: PlanningResult) : PlanningEngine {
         override val type = PlanningEngineType.DEBUG_FAKE_AI
 
+        override suspend fun generate(request: PlanningRequest): PlanningResult = result
+    }
+
+    private class TypedStaticEngine(
+        override val type: PlanningEngineType,
+        private val result: PlanningResult,
+    ) : PlanningEngine {
         override suspend fun generate(request: PlanningRequest): PlanningResult = result
     }
 

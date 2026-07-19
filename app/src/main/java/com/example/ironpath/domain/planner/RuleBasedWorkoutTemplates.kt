@@ -21,16 +21,18 @@ internal object RuleBasedWorkoutTemplates {
             .toSet()
 
     fun forGoal(goal: PlanningGoal, dayCount: Int): List<RuleBasedWorkoutTemplate> {
-        val pool =
-            when (goal) {
-                PlanningGoal.STRENGTH -> strength
-                PlanningGoal.HYPERTROPHY -> hypertrophy
-                PlanningGoal.GENERAL_FITNESS -> generalFitness
-                PlanningGoal.RETURN_TO_ROUTINE -> returnToRoutine
-                PlanningGoal.MAINTENANCE -> maintenance
-            }
+        val pool = poolForGoal(goal)
         return List(dayCount) { pool[it % pool.size] }
     }
+
+    fun poolForGoal(goal: PlanningGoal): List<RuleBasedWorkoutTemplate> =
+        when (goal) {
+            PlanningGoal.STRENGTH -> strength
+            PlanningGoal.HYPERTROPHY -> hypertrophy
+            PlanningGoal.GENERAL_FITNESS -> generalFitness
+            PlanningGoal.RETURN_TO_ROUTINE -> returnToRoutine
+            PlanningGoal.MAINTENANCE -> maintenance
+        }
 }
 
 private fun exercise(
@@ -135,7 +137,7 @@ private val generalFitness =
             listOf(
                 exercise(ExerciseCatalogIds.BODYWEIGHT_SQUATS, 3, 25, 0.0),
                 exercise(ExerciseCatalogIds.WALKING_LUNGES, 3, 20, 0.0),
-                exercise(ExerciseCatalogIds.CALF_RAISES, 3, 20, 0.0),
+                exercise(ExerciseCatalogIds.CALF_RAISES, 3, 20, 20.0),
             ),
         ),
         RuleBasedWorkoutTemplate(
@@ -163,7 +165,7 @@ private val returnToRoutine =
             listOf(
                 exercise(ExerciseCatalogIds.GOBLET_SQUATS, 3, 12, 8.0),
                 exercise(ExerciseCatalogIds.GLUTE_BRIDGES, 3, 15, 0.0),
-                exercise(ExerciseCatalogIds.CALF_RAISES, 3, 15, 0.0),
+                exercise(ExerciseCatalogIds.CALF_RAISES, 3, 15, 15.0),
             ),
         ),
     )

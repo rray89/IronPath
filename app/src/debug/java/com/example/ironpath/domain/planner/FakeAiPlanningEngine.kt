@@ -52,7 +52,10 @@ class FakeAiPlanningEngine @Inject constructor(private val exerciseCatalog: Exer
                                 catalogId = entry.id,
                                 sets = if (request.goal == PlanningGoal.MAINTENANCE) 2 else 3,
                                 reps = if (request.goal == PlanningGoal.STRENGTH) 6 else 10,
-                                targetWeightKg = 0.0,
+                                targetWeightKg =
+                                    entry.seedTargetLoadKg(
+                                        request.intake.recentTraining.exerciseLoads
+                                    ),
                             )
                         ),
                 )
