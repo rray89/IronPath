@@ -14,7 +14,10 @@ import org.junit.Test
 class PlanGeneratorTest {
 
     private val timeProvider = FakeTimeProvider()
-    private val generator = PlanGenerator(timeProvider, FakeIdProvider())
+    private val exerciseCatalog = DefaultExerciseCatalog()
+    private val planFactory = RuleBasedPlanFactory(exerciseCatalog)
+    private val generator =
+        PlanGenerator(timeProvider, FakeIdProvider(), planFactory, exerciseCatalog)
 
     private val nextMonday: LocalDate =
         timeProvider.today().with(TemporalAdjusters.next(DayOfWeek.MONDAY))
@@ -27,7 +30,7 @@ class PlanGeneratorTest {
                 zoneId = ZoneId.of("America/Vancouver"),
             )
         val result =
-            PlanGenerator(timeProvider, FakeIdProvider())
+            PlanGenerator(timeProvider, FakeIdProvider(), planFactory, exerciseCatalog)
                 .generate(
                     goal = TrainingGoal.Strength,
                     selectedDays = setOf(1),
@@ -52,6 +55,14 @@ class PlanGeneratorTest {
     fun `generate with single day returns one workout`() {
         val result = generator.generate(TrainingGoal.Hypertrophy, setOf(2))
         assertEquals(1, result.workouts.size)
+    }
+
+    @Test
+    fun `generate with no selected days preserves an empty weekly plan`() {
+        val result = generator.generate(TrainingGoal.Hypertrophy, emptySet())
+
+        assertTrue(result.workouts.isEmpty())
+        assertTrue(result.exercises.isEmpty())
     }
 
     @Test
