@@ -25,7 +25,9 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.performScrollToIndex
 import androidx.compose.ui.test.then
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.unit.DpSize
@@ -42,11 +44,21 @@ import com.example.ironpath.data.local.entity.WeeklyPlan
 import com.example.ironpath.data.local.entity.WorkoutLog
 import com.example.ironpath.data.repository.LoggedExerciseDetail
 import com.example.ironpath.data.repository.WorkoutLogDetail
+import com.example.ironpath.domain.planner.AiPlanDraftReviewState
+import com.example.ironpath.domain.planner.DefaultExerciseCatalog
 import com.example.ironpath.domain.planner.Equipment
+import com.example.ironpath.domain.planner.ExerciseCatalogIds
 import com.example.ironpath.domain.planner.ExerciseCautionTag
+import com.example.ironpath.domain.planner.ExerciseDraft
 import com.example.ironpath.domain.planner.GeneratedPlan
+import com.example.ironpath.domain.planner.PlanDraft
+import com.example.ironpath.domain.planner.PlanValidationContext
+import com.example.ironpath.domain.planner.PlanningEngineType
 import com.example.ironpath.domain.planner.PlanningGoal
+import com.example.ironpath.domain.planner.PlanningProviderMetadata
 import com.example.ironpath.domain.planner.TrainingExperience
+import com.example.ironpath.domain.planner.ValidatedPlanDraft
+import com.example.ironpath.domain.planner.WorkoutDraft
 import com.example.ironpath.ui.screens.active.ActiveContent
 import com.example.ironpath.ui.screens.active.ActiveUiState
 import com.example.ironpath.ui.screens.entry.EntryScreen
@@ -58,6 +70,8 @@ import com.example.ironpath.ui.screens.history.WorkoutLogDetailUiState
 import com.example.ironpath.ui.screens.home.HomeContent
 import com.example.ironpath.ui.screens.home.HomeUiState
 import com.example.ironpath.ui.screens.plan.AiGenerationUiState
+import com.example.ironpath.ui.screens.plan.AiPlanReviewScreen
+import com.example.ironpath.ui.screens.plan.AiPlanReviewUiState
 import com.example.ironpath.ui.screens.plan.PlanContent
 import com.example.ironpath.ui.screens.plan.PlanUiState
 import com.example.ironpath.ui.screens.plan.PlannerIntakeUiState
@@ -242,6 +256,75 @@ class AdaptiveLayoutTest {
         setAdaptiveContent(STANDARD_PORTRAIT) { PlanReviewContent() }
 
         assertPlanReviewDecisionsReachable()
+    }
+
+    @Test
+    fun aiPlanReview_compactLandscapeAt200Percent_keepsEditingAndRecoveryActionsReachable() {
+        setAdaptiveContent(COMPACT_LANDSCAPE) { AiPlanReviewContent() }
+
+        composeRule
+            .onNodeWithTag(TestTags.planAiExercise(1, ExerciseCatalogIds.PUSH_UPS.value))
+            .performScrollTo()
+            .assertIsDisplayed()
+            .assertHasClickAction()
+            .assertMinimumTouchTarget("Edit AI exercise")
+        composeRule
+            .onNodeWithTag(TestTags.planAiAddExercise(1))
+            .performScrollTo()
+            .assertIsDisplayed()
+            .assertHasClickAction()
+            .assertMinimumTouchTarget("Add AI exercise")
+        listOf(
+                TestTags.PLAN_AI_ACCEPT to "Accept AI plan",
+                TestTags.PLAN_AI_REGENERATE to "Regenerate AI plan",
+                TestTags.PLAN_AI_RULE_FALLBACK to "Use rule-based plan",
+            )
+            .forEach { (tag, label) ->
+                composeRule
+                    .onNodeWithTag(tag)
+                    .performScrollTo()
+                    .assertIsDisplayed()
+                    .assertHasClickAction()
+                    .assertMinimumTouchTarget(label)
+            }
+    }
+
+    @Test
+    fun aiPlanEditor_compactLandscapeAt200Percent_keepsCatalogAndFormReachable() {
+        val reviewState = aiPlanReviewState()
+        setAdaptiveContent(COMPACT_LANDSCAPE) {
+            AiPlanReviewScreen(
+                state = reviewState,
+                onAddExercise = { _, _ -> },
+                onReplaceExercise = { _, _, _ -> },
+                onEditInputs = {},
+                onRegenerate = {},
+                onUseRuleFallback = {},
+                onAccept = {},
+            )
+        }
+        composeRule.onNodeWithTag(TestTags.planAiAddExercise(1)).performScrollTo().performClick()
+        val editor = composeRule.onNodeWithTag(TestTags.PLAN_AI_EDITOR_LIST)
+        val formStartIndex = 2
+        val catalogStartIndex = 7
+
+        editor.performScrollToIndex(catalogStartIndex + reviewState.eligibleExercises.lastIndex)
+        composeRule
+            .onNodeWithTag(
+                TestTags.planAiCatalogExercise(reviewState.eligibleExercises.last().id.value)
+            )
+            .assertIsDisplayed()
+
+        listOf(
+                formStartIndex to TestTags.PLAN_AI_EDITOR_SETS,
+                formStartIndex + 1 to TestTags.PLAN_AI_EDITOR_REPS,
+                formStartIndex + 2 to TestTags.PLAN_AI_EDITOR_WEIGHT,
+                formStartIndex + 3 to TestTags.PLAN_AI_EDITOR_CONFIRM,
+            )
+            .forEach { (index, tag) ->
+                editor.performScrollToIndex(index)
+                composeRule.onNodeWithTag(tag).assertIsDisplayed()
+            }
     }
 
     private fun assertPlanReviewDecisionsReachable() {
@@ -522,6 +605,69 @@ class AdaptiveLayoutTest {
             onAccept = {},
             onStartWorkout = {},
             onOpenWorkoutPreview = {},
+        )
+    }
+
+    @Composable
+    private fun AiPlanReviewContent() {
+        AiPlanReviewScreen(
+            state = aiPlanReviewState(),
+            onAddExercise = { _, _ -> },
+            onReplaceExercise = { _, _, _ -> },
+            onEditInputs = {},
+            onRegenerate = {},
+            onUseRuleFallback = {},
+            onAccept = {},
+        )
+    }
+
+    private fun aiPlanReviewState(): AiPlanReviewUiState {
+        val targetMonday = LocalDate.parse("2026-07-20")
+        val draft =
+            PlanDraft(
+                targetWeekStart = targetMonday,
+                workouts =
+                    listOf(
+                        WorkoutDraft(
+                            dayOfWeek = 1,
+                            scheduledDate = targetMonday,
+                            title = "Full body",
+                            exercises =
+                                listOf(
+                                    ExerciseDraft(
+                                        ExerciseCatalogIds.PUSH_UPS,
+                                        sets = 3,
+                                        reps = 10,
+                                        targetWeightKg = 0.0,
+                                    )
+                                ),
+                        )
+                    ),
+                rationale = "A simple week that leaves room to recover.",
+                warnings = listOf("Adjust the session when form changes."),
+                providerMetadata = PlanningProviderMetadata(PlanningEngineType.DEBUG_FAKE_AI, 20),
+            )
+        val context =
+            PlanValidationContext(
+                expectedTargetWeekStart = targetMonday,
+                invokedEngineType = PlanningEngineType.DEBUG_FAKE_AI,
+                selectedDays = setOf(1),
+                experience = TrainingExperience.BEGINNER,
+                availableEquipment = setOf(Equipment.BODYWEIGHT),
+            )
+        val token =
+            ValidatedPlanDraft.create(
+                draft,
+                context,
+                java.time.Instant.parse("2026-07-19T12:00:00Z"),
+            )
+        return AiPlanReviewUiState(
+            sourceToken = token,
+            review = AiPlanDraftReviewState.Valid(token),
+            eligibleExercises =
+                DefaultExerciseCatalog().entries.filter {
+                    it.requiredEquipment == setOf(Equipment.BODYWEIGHT) && it.beginnerSuitable
+                },
         )
     }
 

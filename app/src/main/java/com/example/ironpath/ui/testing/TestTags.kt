@@ -16,6 +16,19 @@ object TestTags {
     const val PLAN_GOAL_GROUP = "plan_goal_group"
     const val PLAN_GENERATE_AI = "plan_generate_ai"
     const val PLAN_AI_GENERATING = "plan_ai_generating"
+    const val PLAN_AI_REVIEW = "plan_ai_review"
+    const val PLAN_AI_RATIONALE = "plan_ai_rationale"
+    const val PLAN_AI_WARNING = "plan_ai_warning"
+    const val PLAN_AI_DISCLAIMER = "plan_ai_disclaimer"
+    const val PLAN_AI_ACCEPT = "plan_ai_accept"
+    const val PLAN_AI_REGENERATE = "plan_ai_regenerate"
+    const val PLAN_AI_RULE_FALLBACK = "plan_ai_rule_fallback"
+    const val PLAN_AI_EDITOR = "plan_ai_editor"
+    const val PLAN_AI_EDITOR_LIST = "plan_ai_editor_list"
+    const val PLAN_AI_EDITOR_SETS = "plan_ai_editor_sets"
+    const val PLAN_AI_EDITOR_REPS = "plan_ai_editor_reps"
+    const val PLAN_AI_EDITOR_WEIGHT = "plan_ai_editor_weight"
+    const val PLAN_AI_EDITOR_CONFIRM = "plan_ai_editor_confirm"
     const val PLAN_INJURY_NOTES = "plan_injury_notes"
     const val PLAN_PREFERENCES = "plan_preferences"
     const val PLAN_DISLIKES = "plan_dislikes"
@@ -54,4 +67,11 @@ object TestTags {
     fun planReviewDay(workoutId: String) = "plan_review_day_$workoutId"
 
     fun planExercise(exerciseId: String) = "plan_exercise_$exerciseId"
+
+    fun planAiExercise(dayOfWeek: Int, exerciseId: String) =
+        "plan_ai_exercise_${dayOfWeek}_$exerciseId"
+
+    fun planAiAddExercise(dayOfWeek: Int) = "plan_ai_add_exercise_$dayOfWeek"
+
+    fun planAiCatalogExercise(exerciseId: String) = "plan_ai_catalog_exercise_$exerciseId"
 }

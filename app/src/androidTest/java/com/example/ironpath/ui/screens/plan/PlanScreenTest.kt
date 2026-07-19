@@ -14,24 +14,32 @@ import androidx.compose.ui.test.assertIsNotSelected
 import androidx.compose.ui.test.assertIsOff
 import androidx.compose.ui.test.assertIsOn
 import androidx.compose.ui.test.assertIsSelected
+import androidx.compose.ui.test.assertTextContains
+import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.performTextReplacement
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.example.ironpath.data.local.entity.PlannedExercise
 import com.example.ironpath.data.local.entity.PlannedWorkout
 import com.example.ironpath.data.local.entity.WeeklyPlan
 import com.example.ironpath.data.local.entity.WorkoutStatus
+import com.example.ironpath.domain.planner.AiPlanDraftReviewState
+import com.example.ironpath.domain.planner.DefaultExerciseCatalog
 import com.example.ironpath.domain.planner.Equipment
+import com.example.ironpath.domain.planner.ExerciseCatalogId
 import com.example.ironpath.domain.planner.ExerciseCatalogIds
 import com.example.ironpath.domain.planner.ExerciseDraft
 import com.example.ironpath.domain.planner.GeneratedPlan
 import com.example.ironpath.domain.planner.PlanDraft
 import com.example.ironpath.domain.planner.PlanValidationContext
+import com.example.ironpath.domain.planner.PlanViolation
+import com.example.ironpath.domain.planner.PlanViolationCode
 import com.example.ironpath.domain.planner.PlanningEngineType
 import com.example.ironpath.domain.planner.PlanningFailure
 import com.example.ironpath.domain.planner.PlanningGoal
@@ -107,6 +115,10 @@ class PlanScreenTest {
         onAccept: () -> Unit = {},
         onStartWorkout: () -> Unit = {},
         onOpenWorkoutPreview: (String) -> Unit = {},
+        onAddAiExercise: (Int, ExerciseDraft) -> Unit = { _, _ -> },
+        onReplaceAiExercise: (Int, ExerciseCatalogId, ExerciseDraft) -> Unit = { _, _, _ -> },
+        onRegenerateAi: () -> Unit = {},
+        onUseRuleFallback: () -> Unit = {},
     ) {
         composeRule.setContent {
             var intakeState by remember {
@@ -179,6 +191,10 @@ class PlanScreenTest {
                         onAccept = onAccept,
                         onStartWorkout = onStartWorkout,
                         onOpenWorkoutPreview = onOpenWorkoutPreview,
+                        onAddAiExercise = onAddAiExercise,
+                        onReplaceAiExercise = onReplaceAiExercise,
+                        onRegenerateAi = onRegenerateAi,
+                        onUseRuleFallback = onUseRuleFallback,
                     )
                 }
             }
@@ -439,6 +455,156 @@ class PlanScreenTest {
     }
 
     @Test
+    fun aiReview_disclosesOriginCopyWarningsAndUsesLoadAwareLabels() {
+        setPlanContent(PlanUiState.AiReview(aiReviewState()))
+
+        composeRule.onNodeWithTag(TestTags.PLAN_AI_REVIEW).assertIsDisplayed()
+        composeRule.onNodeWithText("DEBUG FAKE AI", substring = true).assertIsDisplayed()
+        composeRule.onNodeWithText("A measured return to training.").assertIsDisplayed()
+        composeRule
+            .onNodeWithText("Adjust the load if needed.", substring = true)
+            .performScrollTo()
+            .assertIsDisplayed()
+        composeRule
+            .onNodeWithText("Training guidance only. This is not medical advice.")
+            .assertIsDisplayed()
+        composeRule.onNodeWithText("3×10 · BW").assertIsDisplayed()
+        composeRule.onNodeWithText("3×10 · Set load").assertIsDisplayed()
+        composeRule.onNodeWithContentDescription("Remove Draft on Monday").assertDoesNotExist()
+    }
+
+    @Test
+    fun aiReview_keepsCurrentDraftVisibleWhenReplacementGenerationFails() {
+        setPlanContent(
+            uiState = PlanUiState.AiReview(aiReviewState()),
+            aiGenerationState =
+                AiGenerationUiState.Failed(PlanningFailure.ProviderError("temporary outage")),
+        )
+
+        composeRule.onNodeWithTag(TestTags.PLAN_AI_REVIEW).assertIsDisplayed()
+        composeRule
+            .onNodeWithText("Your current draft is still here.", substring = true)
+            .assertIsDisplayed()
+    }
+
+    @Test
+    fun aiReview_nonbodyweightUnsetLoadDisablesAcceptance() {
+        setPlanContent(PlanUiState.AiReview(aiReviewState()))
+
+        composeRule.onNodeWithTag(TestTags.PLAN_AI_ACCEPT).assertIsNotEnabled()
+        composeRule
+            .onNodeWithText("Set a target load for Dumbbell Rows", substring = true)
+            .performScrollTo()
+            .assertIsDisplayed()
+    }
+
+    @Test
+    fun aiReview_addRequiresCatalogSelectionAndPositiveExternalLoad() {
+        var added: Pair<Int, ExerciseDraft>? = null
+        setPlanContent(
+            uiState = PlanUiState.AiReview(aiReviewState()),
+            onAddAiExercise = { day, exercise -> added = day to exercise },
+        )
+
+        composeRule.onNodeWithTag(TestTags.planAiAddExercise(1)).performClick()
+        composeRule
+            .onNodeWithTag(TestTags.planAiCatalogExercise(ExerciseCatalogIds.DUMBBELL_ROWS.value))
+            .performClick()
+        composeRule
+            .onNodeWithTag(TestTags.PLAN_AI_EDITOR_LIST)
+            .performScrollToNode(hasTestTag(TestTags.PLAN_AI_EDITOR_WEIGHT))
+        composeRule.onNodeWithTag(TestTags.PLAN_AI_EDITOR_CONFIRM).assertIsNotEnabled()
+        composeRule.onNodeWithTag(TestTags.PLAN_AI_EDITOR_WEIGHT).performTextReplacement("0")
+        composeRule.onNodeWithTag(TestTags.PLAN_AI_EDITOR_CONFIRM).assertIsNotEnabled()
+        composeRule.onNodeWithTag(TestTags.PLAN_AI_EDITOR_WEIGHT).performTextReplacement("12.5")
+        composeRule.onNodeWithTag(TestTags.PLAN_AI_EDITOR_CONFIRM).assertIsEnabled().performClick()
+
+        assertEquals(1, added!!.first)
+        assertEquals(ExerciseCatalogIds.DUMBBELL_ROWS, added!!.second.catalogId)
+        assertEquals(12.5, added!!.second.targetWeightKg, 0.0)
+    }
+
+    @Test
+    fun aiReview_replacePreservesVolumeButResetsLoadAcrossEquipmentTypes() {
+        var replaced: Triple<Int, ExerciseCatalogId, ExerciseDraft>? = null
+        setPlanContent(
+            uiState = PlanUiState.AiReview(aiReviewState()),
+            onReplaceAiExercise = { day, original, replacement ->
+                replaced = Triple(day, original, replacement)
+            },
+        )
+
+        composeRule
+            .onNodeWithTag(TestTags.planAiExercise(1, ExerciseCatalogIds.PUSH_UPS.value))
+            .performClick()
+        composeRule
+            .onNodeWithTag(TestTags.planAiCatalogExercise(ExerciseCatalogIds.DUMBBELL_ROWS.value))
+            .performClick()
+        composeRule
+            .onNodeWithTag(TestTags.PLAN_AI_EDITOR_LIST)
+            .performScrollToNode(hasTestTag(TestTags.PLAN_AI_EDITOR_WEIGHT))
+        composeRule.onNodeWithTag(TestTags.PLAN_AI_EDITOR_CONFIRM).assertIsNotEnabled()
+        composeRule.onNodeWithTag(TestTags.PLAN_AI_EDITOR_WEIGHT).performTextReplacement("12.5")
+        composeRule.onNodeWithTag(TestTags.PLAN_AI_EDITOR_CONFIRM).performClick()
+
+        assertEquals(1, replaced!!.first)
+        assertEquals(ExerciseCatalogIds.PUSH_UPS, replaced!!.second)
+        assertEquals(ExerciseCatalogIds.DUMBBELL_ROWS, replaced!!.third.catalogId)
+        assertEquals(3, replaced!!.third.sets)
+        assertEquals(10, replaced!!.third.reps)
+        assertEquals(12.5, replaced!!.third.targetWeightKg, 0.0)
+    }
+
+    @Test
+    fun aiReview_weightedPullUpsEditorPreservesAndAllowsItsTargetLoad() {
+        setPlanContent(PlanUiState.AiReview(weightedPullUpReviewState()))
+
+        composeRule
+            .onNodeWithTag(TestTags.planAiExercise(1, ExerciseCatalogIds.WEIGHTED_PULL_UPS.value))
+            .performClick()
+        composeRule
+            .onNodeWithTag(TestTags.PLAN_AI_EDITOR_LIST)
+            .performScrollToNode(hasTestTag(TestTags.PLAN_AI_EDITOR_WEIGHT))
+        composeRule
+            .onNodeWithTag(TestTags.PLAN_AI_EDITOR_WEIGHT)
+            .assertIsEnabled()
+            .assertTextContains("10")
+        composeRule.onNodeWithTag(TestTags.PLAN_AI_EDITOR_CONFIRM).assertIsEnabled()
+    }
+
+    @Test
+    fun aiReview_invalidStateShowsViolationAndDisablesAcceptance() {
+        setPlanContent(PlanUiState.AiReview(aiReviewState(valid = false)))
+
+        composeRule
+            .onNodeWithText("Sets must be between 1 and 6.", substring = true)
+            .performScrollTo()
+            .assertIsDisplayed()
+        composeRule.onNodeWithTag(TestTags.PLAN_AI_ACCEPT).assertIsNotEnabled()
+    }
+
+    @Test
+    fun aiReview_acceptRegenerateAndFallbackForwardTheirActions() {
+        var accepted = 0
+        var regenerated = 0
+        var fallback = 0
+        setPlanContent(
+            uiState = PlanUiState.AiReview(aiReviewState(includeUnsetLoad = false)),
+            onAccept = { accepted += 1 },
+            onRegenerateAi = { regenerated += 1 },
+            onUseRuleFallback = { fallback += 1 },
+        )
+
+        composeRule.onNodeWithTag(TestTags.PLAN_AI_ACCEPT).performScrollTo().performClick()
+        composeRule.onNodeWithTag(TestTags.PLAN_AI_REGENERATE).performScrollTo().performClick()
+        composeRule.onNodeWithTag(TestTags.PLAN_AI_RULE_FALLBACK).performScrollTo().performClick()
+
+        assertEquals(1, accepted)
+        assertEquals(1, regenerated)
+        assertEquals(1, fallback)
+    }
+
+    @Test
     fun acceptedWithActiveSession_showsResumeGuidanceWithoutStart() {
         setPlanContent(
             PlanUiState.Accepted(
@@ -519,14 +685,16 @@ class PlanScreenTest {
                             exercises =
                                 listOf(
                                     ExerciseDraft(
-                                        ExerciseCatalogIds.PLANK_HOLD,
-                                        2,
-                                        1,
+                                        ExerciseCatalogIds.PUSH_UPS,
+                                        3,
+                                        10,
                                         0.0,
                                     )
                                 ),
                         )
                     ),
+                rationale = "A measured return to training.",
+                warnings = listOf("Adjust the load if needed."),
                 providerMetadata = PlanningProviderMetadata(PlanningEngineType.DEBUG_FAKE_AI, 1),
             )
         return ValidatedPlanDraft.create(
@@ -539,6 +707,108 @@ class PlanScreenTest {
                 availableEquipment = Equipment.entries.toSet(),
             ),
             java.time.Instant.parse("2026-07-19T12:00:00Z"),
+        )
+    }
+
+    private fun aiReviewState(
+        valid: Boolean = true,
+        includeUnsetLoad: Boolean = true,
+    ): AiPlanReviewUiState {
+        val token = validatedDraft()
+        val dumbbellRow =
+            ExerciseDraft(
+                ExerciseCatalogIds.DUMBBELL_ROWS,
+                sets = 3,
+                reps = 10,
+                targetWeightKg = 0.0,
+            )
+        val draft =
+            token.draft.copy(
+                workouts =
+                    token.draft.workouts.map { workout ->
+                        workout.copy(
+                            exercises =
+                                if (includeUnsetLoad) workout.exercises + dumbbellRow
+                                else workout.exercises
+                        )
+                    }
+            )
+        val review =
+            if (valid && !includeUnsetLoad) {
+                AiPlanDraftReviewState.Valid(
+                    ValidatedPlanDraft.create(draft, token.context, token.validatedAt)
+                )
+            } else {
+                AiPlanDraftReviewState.Invalid(
+                    draft = draft,
+                    context = token.context,
+                    violations =
+                        buildList {
+                            if (!valid) {
+                                add(
+                                    PlanViolation(
+                                        PlanViolationCode.INVALID_SET_COUNT,
+                                        "Sets must be between 1 and 6.",
+                                        workoutDay = 1,
+                                        exerciseCatalogId = ExerciseCatalogIds.PUSH_UPS,
+                                    )
+                                )
+                            }
+                            if (includeUnsetLoad) {
+                                add(
+                                    PlanViolation(
+                                        PlanViolationCode.MISSING_TARGET_LOAD,
+                                        "Set a target load for Dumbbell Rows before accepting.",
+                                        workoutDay = 1,
+                                        exerciseCatalogId = ExerciseCatalogIds.DUMBBELL_ROWS,
+                                    )
+                                )
+                            }
+                        },
+                )
+            }
+        return AiPlanReviewUiState(
+            sourceToken = token,
+            review = review,
+            eligibleExercises =
+                DefaultExerciseCatalog().entries.filter {
+                    it.id in setOf(ExerciseCatalogIds.PUSH_UPS, ExerciseCatalogIds.DUMBBELL_ROWS)
+                },
+        )
+    }
+
+    private fun weightedPullUpReviewState(): AiPlanReviewUiState {
+        val catalog = DefaultExerciseCatalog()
+        val original = validatedDraft()
+        val draft =
+            original.draft.copy(
+                workouts =
+                    original.draft.workouts.map { workout ->
+                        workout.copy(
+                            exercises =
+                                listOf(
+                                    ExerciseDraft(
+                                        ExerciseCatalogIds.WEIGHTED_PULL_UPS,
+                                        sets = 4,
+                                        reps = 6,
+                                        targetWeightKg = 10.0,
+                                    )
+                                )
+                        )
+                    },
+                providerMetadata = PlanningProviderMetadata(PlanningEngineType.RULE_BASED, 1),
+            )
+        val context =
+            original.context.copy(
+                invokedEngineType = PlanningEngineType.RULE_BASED,
+                availableEquipment = setOf(Equipment.PULL_UP_BAR),
+            )
+        val token = ValidatedPlanDraft.create(draft, context, original.validatedAt)
+
+        return AiPlanReviewUiState(
+            sourceToken = token,
+            review = AiPlanDraftReviewState.Valid(token),
+            eligibleExercises = listOf(catalog.require(ExerciseCatalogIds.WEIGHTED_PULL_UPS)),
         )
     }
 }

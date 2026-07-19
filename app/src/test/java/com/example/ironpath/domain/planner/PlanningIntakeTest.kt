@@ -1,5 +1,6 @@
 package com.example.ironpath.domain.planner
 
+import com.example.ironpath.testutil.FakeTimeProvider
 import java.time.LocalDate
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
@@ -10,7 +11,11 @@ import org.junit.Test
 
 class PlanningIntakeTest {
     private val catalog = DefaultExerciseCatalog()
-    private val engine = RuleBasedPlanningEngine(RuleBasedPlanFactory(catalog))
+    private val engine =
+        RuleBasedPlanningEngine(
+            RuleBasedPlanFactory(catalog),
+            PlanValidator(catalog, FakeTimeProvider()),
+        )
 
     @Test
     fun `planning goals expose the five canonical values and stable user facing labels`() {

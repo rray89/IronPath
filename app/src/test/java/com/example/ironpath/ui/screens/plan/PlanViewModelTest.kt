@@ -95,7 +95,15 @@ class PlanViewModelTest {
         every { planRepository.observeWorkoutsForPlan(any()) } returns flowOf(emptyList())
         every { sessionRepository.observeActiveSession() } returns flowOf(null)
 
-        viewModel = PlanViewModel(planRepository, planGenerator, sessionRepository, timeProvider)
+        viewModel =
+            PlanViewModel(
+                planRepository,
+                planGenerator,
+                sessionRepository,
+                timeProvider,
+                mockk(relaxed = true),
+                mockk(relaxed = true),
+            )
     }
 
     private suspend fun <T : PlanUiState> app.cash.turbine.TurbineTestContext<PlanUiState>
@@ -157,7 +165,15 @@ class PlanViewModelTest {
 
         every { planRepository.observeActivePlan() } returns activePlanFlow
         every { planRepository.observeWorkoutsForPlan("plan1") } returns workoutsFlow
-        viewModel = PlanViewModel(planRepository, planGenerator, sessionRepository, timeProvider)
+        viewModel =
+            PlanViewModel(
+                planRepository,
+                planGenerator,
+                sessionRepository,
+                timeProvider,
+                mockk(relaxed = true),
+                mockk(relaxed = true),
+            )
 
         viewModel.planUiState.test {
             activePlanFlow.value = activePlan
@@ -192,7 +208,15 @@ class PlanViewModelTest {
         every { planRepository.observeActivePlan() } returns activePlanFlow
         every { planRepository.observeWorkoutsForPlan("plan1") } returns workoutsFlow
         every { sessionRepository.observeActiveSession() } returns flowOf(activeSession)
-        viewModel = PlanViewModel(planRepository, planGenerator, sessionRepository, timeProvider)
+        viewModel =
+            PlanViewModel(
+                planRepository,
+                planGenerator,
+                sessionRepository,
+                timeProvider,
+                mockk(relaxed = true),
+                mockk(relaxed = true),
+            )
 
         viewModel.planUiState.test {
             activePlanFlow.value = activePlan

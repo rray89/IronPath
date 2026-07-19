@@ -54,7 +54,52 @@ data class ExerciseCatalogEntry(
     val cautionTags: Set<ExerciseCautionTag> = emptySet(),
     /** False when v4's single targetWeightKg cannot encode the prescription unambiguously. */
     val allowedInAiDraft: Boolean = true,
+    val requiresTargetLoad: Boolean = requiredEquipment.any(TARGET_LOAD_EQUIPMENT::contains),
 )
+
+fun ExerciseCatalogEntry.requiresTargetLoad(): Boolean = requiresTargetLoad
+
+internal fun ExerciseCatalogEntry.seedTargetLoadKg(
+    recentLoads: List<RecentExerciseLoad>,
+    preferredWeightKg: Double? = null,
+): Double {
+    if (!requiresTargetLoad) return 0.0
+
+    val suggestedWeight =
+        preferredWeightKg?.takeIf { it.isFinite() && it > 0.0 } ?: conservativeTargetLoadKg()
+    val recentMax =
+        recentLoads
+            .asSequence()
+            .filter { it.catalogId == id }
+            .map(RecentExerciseLoad::maxWeightKg)
+            .filter { it.isFinite() && it >= 0.0 }
+            .maxOrNull() ?: return suggestedWeight
+    val allowance =
+        maxOf(
+            PlanValidationLimits.MIN_LOAD_INCREASE_ALLOWANCE_KG,
+            recentMax * PlanValidationLimits.MAX_LOAD_INCREASE_FRACTION,
+        )
+    return minOf(suggestedWeight, recentMax + allowance)
+}
+
+private fun ExerciseCatalogEntry.conservativeTargetLoadKg(): Double =
+    when {
+        Equipment.BARBELL in requiredEquipment -> 20.0
+        Equipment.DUMBBELL in requiredEquipment -> 5.0
+        Equipment.KETTLEBELL in requiredEquipment -> 8.0
+        Equipment.CABLE_MACHINE in requiredEquipment -> 10.0
+        Equipment.MACHINE in requiredEquipment -> 10.0
+        else -> 5.0
+    }
+
+private val TARGET_LOAD_EQUIPMENT =
+    setOf(
+        Equipment.BARBELL,
+        Equipment.DUMBBELL,
+        Equipment.CABLE_MACHINE,
+        Equipment.MACHINE,
+        Equipment.KETTLEBELL,
+    )
 
 interface ExerciseCatalog {
     val entries: List<ExerciseCatalogEntry>
@@ -184,13 +229,14 @@ private val defaultExerciseEntries =
             ExerciseCautionTag.LOWER_BACK
         ),
         aiExcludedEntry(
-            ExerciseCatalogIds.WEIGHTED_PULL_UPS,
-            "Weighted Pull-ups",
-            PrimaryMuscleGroup.BACK,
-            setOf(Equipment.PULL_UP_BAR),
-            false,
-            ExerciseCautionTag.SHOULDER
-        ),
+                ExerciseCatalogIds.WEIGHTED_PULL_UPS,
+                "Weighted Pull-ups",
+                PrimaryMuscleGroup.BACK,
+                setOf(Equipment.PULL_UP_BAR),
+                false,
+                ExerciseCautionTag.SHOULDER
+            )
+            .copy(requiresTargetLoad = true),
         entry(
             ExerciseCatalogIds.BARBELL_CURLS,
             "Barbell Curls",

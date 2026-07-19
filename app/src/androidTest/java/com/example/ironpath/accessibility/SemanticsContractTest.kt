@@ -22,12 +22,14 @@ import androidx.compose.ui.test.assertIsSelectable
 import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.assertIsToggleable
 import androidx.compose.ui.test.hasSetTextAction
+import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.performTextReplacement
 import androidx.compose.ui.text.AnnotatedString
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -41,11 +43,21 @@ import com.example.ironpath.data.local.entity.SessionSet
 import com.example.ironpath.data.local.entity.WeeklyPlan
 import com.example.ironpath.data.repository.LoggedExerciseDetail
 import com.example.ironpath.data.repository.WorkoutLogDetail
+import com.example.ironpath.domain.planner.AiPlanDraftReviewState
+import com.example.ironpath.domain.planner.DefaultExerciseCatalog
 import com.example.ironpath.domain.planner.Equipment
+import com.example.ironpath.domain.planner.ExerciseCatalogIds
 import com.example.ironpath.domain.planner.ExerciseCautionTag
+import com.example.ironpath.domain.planner.ExerciseDraft
 import com.example.ironpath.domain.planner.GeneratedPlan
+import com.example.ironpath.domain.planner.PlanDraft
+import com.example.ironpath.domain.planner.PlanValidationContext
+import com.example.ironpath.domain.planner.PlanningEngineType
 import com.example.ironpath.domain.planner.PlanningGoal
+import com.example.ironpath.domain.planner.PlanningProviderMetadata
 import com.example.ironpath.domain.planner.TrainingExperience
+import com.example.ironpath.domain.planner.ValidatedPlanDraft
+import com.example.ironpath.domain.planner.WorkoutDraft
 import com.example.ironpath.ui.screens.active.ActiveContent
 import com.example.ironpath.ui.screens.active.ActiveUiState
 import com.example.ironpath.ui.screens.entry.EntryScreen
@@ -55,6 +67,8 @@ import com.example.ironpath.ui.screens.history.HistoryTab
 import com.example.ironpath.ui.screens.history.WorkoutLogDetailContent
 import com.example.ironpath.ui.screens.history.WorkoutLogDetailUiState
 import com.example.ironpath.ui.screens.plan.AiGenerationUiState
+import com.example.ironpath.ui.screens.plan.AiPlanReviewScreen
+import com.example.ironpath.ui.screens.plan.AiPlanReviewUiState
 import com.example.ironpath.ui.screens.plan.PlanContent
 import com.example.ironpath.ui.screens.plan.PlanUiState
 import com.example.ironpath.ui.screens.plan.PlannerIntakeUiState
@@ -359,6 +373,42 @@ class SemanticsContractTest {
     }
 
     @Test
+    fun aiReview_editingActionsExposeLabelsRolesSelectionAndFieldState() {
+        setAiPlanReviewContent()
+
+        composeRule
+            .onNodeWithTag(TestTags.planAiExercise(1, ExerciseCatalogIds.PUSH_UPS.value))
+            .assertContentDescriptionContains("Push-ups", substring = true)
+            .assertContentDescriptionContains("3×10", substring = true)
+            .assertContentDescriptionContains("Edit prescription", substring = true)
+            .assertHasClickAction()
+            .assert(SemanticsMatcher.expectValue(SemanticsProperties.Role, Role.Button))
+        composeRule
+            .onNodeWithTag(TestTags.planAiAddExercise(1))
+            .performScrollTo()
+            .assertHasClickAction()
+        composeRule
+            .onNodeWithTag(TestTags.planAiExercise(1, ExerciseCatalogIds.PUSH_UPS.value))
+            .performClick()
+        composeRule
+            .onNodeWithTag(TestTags.PLAN_AI_EDITOR_LIST)
+            .performScrollToNode(
+                hasTestTag(TestTags.planAiCatalogExercise(ExerciseCatalogIds.PUSH_UPS.value))
+            )
+        composeRule
+            .onNodeWithTag(TestTags.planAiCatalogExercise(ExerciseCatalogIds.PUSH_UPS.value))
+            .assertIsSelectable()
+            .assert(SemanticsMatcher.expectValue(SemanticsProperties.Role, Role.RadioButton))
+            .performClick()
+            .assertIsSelected()
+        composeRule
+            .onNodeWithTag(TestTags.PLAN_AI_EDITOR_LIST)
+            .performScrollToNode(hasTestTag(TestTags.PLAN_AI_EDITOR_WEIGHT))
+        composeRule.onNodeWithTag(TestTags.PLAN_AI_EDITOR_WEIGHT).assertIsNotEnabled()
+        composeRule.onNodeWithTag(TestTags.PLAN_AI_EDITOR_CONFIRM).assertIsEnabled()
+    }
+
+    @Test
     fun workoutPreview_disabledStartAndBackIconExposeTheirContracts() {
         setThemedContent {
             WorkoutPreviewContent(
@@ -495,6 +545,68 @@ class SemanticsContractTest {
                 onOpenWorkoutPreview = {},
             )
         }
+    }
+
+    private fun setAiPlanReviewContent() {
+        setThemedContent {
+            AiPlanReviewScreen(
+                state = aiPlanReviewState(),
+                onAddExercise = { _, _ -> },
+                onReplaceExercise = { _, _, _ -> },
+                onEditInputs = {},
+                onRegenerate = {},
+                onUseRuleFallback = {},
+                onAccept = {},
+            )
+        }
+    }
+
+    private fun aiPlanReviewState(): AiPlanReviewUiState {
+        val targetMonday = LocalDate.parse("2026-07-20")
+        val draft =
+            PlanDraft(
+                targetWeekStart = targetMonday,
+                workouts =
+                    listOf(
+                        WorkoutDraft(
+                            dayOfWeek = 1,
+                            scheduledDate = targetMonday,
+                            title = "Full body",
+                            exercises =
+                                listOf(
+                                    ExerciseDraft(
+                                        ExerciseCatalogIds.PUSH_UPS,
+                                        sets = 3,
+                                        reps = 10,
+                                        targetWeightKg = 0.0,
+                                    )
+                                ),
+                        )
+                    ),
+                providerMetadata = PlanningProviderMetadata(PlanningEngineType.DEBUG_FAKE_AI, 20),
+            )
+        val context =
+            PlanValidationContext(
+                expectedTargetWeekStart = targetMonday,
+                invokedEngineType = PlanningEngineType.DEBUG_FAKE_AI,
+                selectedDays = setOf(1),
+                experience = TrainingExperience.BEGINNER,
+                availableEquipment = setOf(Equipment.BODYWEIGHT),
+            )
+        val token =
+            ValidatedPlanDraft.create(
+                draft,
+                context,
+                java.time.Instant.parse("2026-07-19T12:00:00Z"),
+            )
+        return AiPlanReviewUiState(
+            sourceToken = token,
+            review = AiPlanDraftReviewState.Valid(token),
+            eligibleExercises =
+                DefaultExerciseCatalog().entries.filter {
+                    it.requiredEquipment == setOf(Equipment.BODYWEIGHT) && it.beginnerSuitable
+                },
+        )
     }
 
     private fun setThemedContent(content: @Composable () -> Unit) {

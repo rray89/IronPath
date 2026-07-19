@@ -99,6 +99,9 @@ constructor(
     private val _aiGenerationState = MutableStateFlow<AiGenerationUiState>(AiGenerationUiState.Idle)
     val aiGenerationState: StateFlow<AiGenerationUiState> = _aiGenerationState.asStateFlow()
 
+    val validatedDraft: ValidatedPlanDraft?
+        get() = (_aiGenerationState.value as? AiGenerationUiState.Validated)?.draft
+
     private var generationJob: Job? = null
     private var currentRequestId = 0L
 
@@ -162,12 +165,37 @@ constructor(
             _aiGenerationState.value = AiGenerationUiState.Failed(PlanningFailure.Unavailable)
             return
         }
+        startGeneration(engine, requireEquipment = true)
+    }
+
+    fun generateWithRuleBasedFallback() {
+        val engine = planningEngineRegistry.find(PlanningEngineType.RULE_BASED)
+        if (engine == null) {
+            _aiGenerationState.value = AiGenerationUiState.Failed(PlanningFailure.Unavailable)
+            return
+        }
+        startGeneration(engine, requireEquipment = false)
+    }
+
+    private fun startGeneration(
+        engine: PlanningEngine,
+        requireEquipment: Boolean,
+    ) {
         val intakeSnapshot = _intakeState.value
-        if (!intakeSnapshot.canGenerateWithAi) {
+        val canGenerate =
+            if (requireEquipment) intakeSnapshot.canGenerateWithAi
+            else intakeSnapshot.canGenerateRuleBased
+        if (!canGenerate) {
             _aiGenerationState.value =
                 AiGenerationUiState.Failed(
                     PlanningFailure.InvalidRequest(
-                        listOf("Choose one to six workout days and at least one equipment option")
+                        listOf(
+                            if (requireEquipment) {
+                                "Choose one to six workout days and at least one equipment option"
+                            } else {
+                                "Choose one to six workout days"
+                            }
+                        )
                     )
                 )
             return
@@ -214,6 +242,12 @@ constructor(
         if (_aiGenerationState.value !is AiGenerationUiState.Generating) {
             _aiGenerationState.value = AiGenerationUiState.Idle
         }
+    }
+
+    fun onDraftConsumed(draft: ValidatedPlanDraft): Boolean {
+        val current = _aiGenerationState.value as? AiGenerationUiState.Validated ?: return false
+        if (current.draft !== draft) return false
+        return _aiGenerationState.compareAndSet(current, AiGenerationUiState.Idle)
     }
 
     fun resetAfterAcceptance() {

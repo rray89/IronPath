@@ -39,6 +39,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -57,7 +58,9 @@ import com.example.ironpath.data.local.entity.PlannedWorkout
 import com.example.ironpath.data.local.entity.WeeklyPlan
 import com.example.ironpath.data.local.entity.WorkoutStatus
 import com.example.ironpath.domain.planner.Equipment
+import com.example.ironpath.domain.planner.ExerciseCatalogId
 import com.example.ironpath.domain.planner.ExerciseCautionTag
+import com.example.ironpath.domain.planner.ExerciseDraft
 import com.example.ironpath.domain.planner.GeneratedPlan
 import com.example.ironpath.domain.planner.PlanningGoal
 import com.example.ironpath.domain.planner.TrainingExperience
@@ -82,6 +85,14 @@ fun PlanScreen(
     val uiState by viewModel.planUiState.collectAsStateWithLifecycle()
     val intakeState by intakeViewModel.intakeState.collectAsStateWithLifecycle()
     val aiGenerationState by intakeViewModel.aiGenerationState.collectAsStateWithLifecycle()
+    val validatedDraft = (aiGenerationState as? AiGenerationUiState.Validated)?.draft
+
+    LaunchedEffect(validatedDraft) {
+        val draft = validatedDraft ?: return@LaunchedEffect
+        if (viewModel.enterAiReview(draft)) {
+            intakeViewModel.onDraftConsumed(draft)
+        }
+    }
 
     PlanContent(
         uiState = uiState,
@@ -110,6 +121,10 @@ fun PlanScreen(
         },
         onStartWorkout = onStartWorkout,
         onOpenWorkoutPreview = onOpenWorkoutPreview,
+        onAddAiExercise = viewModel::addAiExercise,
+        onReplaceAiExercise = viewModel::replaceAiExercise,
+        onRegenerateAi = intakeViewModel::generateWithAi,
+        onUseRuleFallback = intakeViewModel::generateWithRuleBasedFallback,
         modifier = modifier,
     )
 }
@@ -140,6 +155,10 @@ internal fun PlanContent(
     onStartWorkout: () -> Unit,
     onOpenWorkoutPreview: (String) -> Unit,
     modifier: Modifier = Modifier,
+    onAddAiExercise: (Int, ExerciseDraft) -> Unit = { _, _ -> },
+    onReplaceAiExercise: (Int, ExerciseCatalogId, ExerciseDraft) -> Unit = { _, _, _ -> },
+    onRegenerateAi: () -> Unit = {},
+    onUseRuleFallback: () -> Unit = {},
 ) {
     when (uiState) {
         PlanUiState.Loading -> {
@@ -176,6 +195,23 @@ internal fun PlanContent(
                 onBackToSetup = onBackToSetup,
                 onAccept = onAccept,
                 modifier = modifier,
+            )
+        is PlanUiState.AiReview ->
+            AiPlanReviewScreen(
+                state = uiState.review,
+                onAddExercise = onAddAiExercise,
+                onReplaceExercise = onReplaceAiExercise,
+                onEditInputs = {
+                    onClearAiResult()
+                    onBackToSetup()
+                },
+                onRegenerate = onRegenerateAi,
+                onUseRuleFallback = onUseRuleFallback,
+                onAccept = onAccept,
+                modifier = modifier,
+                generationState = aiGenerationState,
+                onCancelGeneration = onCancelAiGeneration,
+                onClearGeneration = onClearAiResult,
             )
         is PlanUiState.Accepted ->
             PlanAcceptedScreen(

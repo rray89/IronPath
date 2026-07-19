@@ -47,6 +47,12 @@ object PlanValidationLimits {
     const val MIN_LOAD_INCREASE_ALLOWANCE_KG = 2.5
 }
 
+object PlanDraftTextLimits {
+    const val MAX_RATIONALE_LENGTH = 300
+    const val MAX_WARNING_LENGTH = 180
+    const val MAX_WARNING_COUNT = 5
+}
+
 enum class PlanViolationCode {
     TARGET_WEEK_NOT_MONDAY,
     TARGET_WEEK_MISMATCH,
@@ -66,6 +72,7 @@ enum class PlanViolationCode {
     INVALID_SET_COUNT,
     INVALID_REP_COUNT,
     INVALID_WEIGHT,
+    MISSING_TARGET_LOAD,
     MISSING_EQUIPMENT,
     AI_EXERCISE_NOT_ALLOWED,
     BEGINNER_EXERCISE_NOT_ALLOWED,
@@ -111,7 +118,13 @@ class PlanValidator
 constructor(
     private val exerciseCatalog: ExerciseCatalog,
     private val timeProvider: TimeProvider,
+    private val exerciseEligibilityPolicy: ExerciseEligibilityPolicy,
 ) {
+    internal constructor(
+        exerciseCatalog: ExerciseCatalog,
+        timeProvider: TimeProvider,
+    ) : this(exerciseCatalog, timeProvider, ExerciseEligibilityPolicy(exerciseCatalog))
+
     fun validate(
         draft: PlanDraft,
         context: PlanValidationContext,
@@ -376,44 +389,23 @@ constructor(
 
         if (catalogEntry == null) return
 
-        if (!context.availableEquipment.containsAll(catalogEntry.requiredEquipment)) {
+        if (catalogEntry.requiresTargetLoad() && exercise.targetWeightKg == 0.0) {
             violations.add(
                 violation(
-                    PlanViolationCode.MISSING_EQUIPMENT,
-                    "Required equipment is not available for ${catalogEntry.displayName}.",
+                    PlanViolationCode.MISSING_TARGET_LOAD,
+                    "Set a target load for ${catalogEntry.displayName} before accepting.",
                     workout,
                     exercise,
                 )
             )
         }
-        if (
-            context.invokedEngineType != PlanningEngineType.RULE_BASED &&
-                !catalogEntry.allowedInAiDraft
-        ) {
+
+        exerciseEligibilityPolicy.evaluate(catalogEntry, context).reasons.forEach { reason ->
+            val (code, message) = reason.violationFor(catalogEntry)
             violations.add(
                 violation(
-                    PlanViolationCode.AI_EXERCISE_NOT_ALLOWED,
-                    "${catalogEntry.displayName} cannot be represented safely in an AI draft.",
-                    workout,
-                    exercise,
-                )
-            )
-        }
-        if (context.experience == TrainingExperience.BEGINNER && !catalogEntry.beginnerSuitable) {
-            violations.add(
-                violation(
-                    PlanViolationCode.BEGINNER_EXERCISE_NOT_ALLOWED,
-                    "${catalogEntry.displayName} is not available in beginner drafts.",
-                    workout,
-                    exercise,
-                )
-            )
-        }
-        if (catalogEntry.cautionTags.any(context.forbiddenCautionTags::contains)) {
-            violations.add(
-                violation(
-                    PlanViolationCode.FORBIDDEN_MOVEMENT,
-                    "${catalogEntry.displayName} conflicts with a forbidden movement.",
+                    code,
+                    message,
                     workout,
                     exercise,
                 )
@@ -554,15 +546,47 @@ constructor(
     }
 }
 
+private fun ExerciseIneligibilityReason.violationFor(
+    entry: ExerciseCatalogEntry
+): Pair<PlanViolationCode, String> =
+    when (this) {
+        ExerciseIneligibilityReason.MISSING_EQUIPMENT ->
+            PlanViolationCode.MISSING_EQUIPMENT to
+                "Required equipment is not available for ${entry.displayName}."
+        ExerciseIneligibilityReason.AI_NOT_ALLOWED ->
+            PlanViolationCode.AI_EXERCISE_NOT_ALLOWED to
+                "${entry.displayName} cannot be represented safely in an AI draft."
+        ExerciseIneligibilityReason.BEGINNER_NOT_SUITABLE ->
+            PlanViolationCode.BEGINNER_EXERCISE_NOT_ALLOWED to
+                "${entry.displayName} is not available in beginner drafts."
+        ExerciseIneligibilityReason.FORBIDDEN_MOVEMENT ->
+            PlanViolationCode.FORBIDDEN_MOVEMENT to
+                "${entry.displayName} conflicts with a forbidden movement."
+    }
+
 private fun PlanDraft.validationSnapshot() =
     copy(
         workouts =
             workouts.map { workout ->
                 workout.copy(exercises = workout.exercises.map { it.copy() })
             },
-        warnings = warnings.toList(),
+        rationale = rationale?.normalizedModelText(PlanDraftTextLimits.MAX_RATIONALE_LENGTH),
+        warnings =
+            warnings
+                .asSequence()
+                .map { it.normalizedModelText(PlanDraftTextLimits.MAX_WARNING_LENGTH) }
+                .filter(String::isNotBlank)
+                .take(PlanDraftTextLimits.MAX_WARNING_COUNT)
+                .toList(),
         providerMetadata = providerMetadata.copy(),
     )
+
+private fun String.normalizedModelText(maxLength: Int): String =
+    map { character -> if (character.isISOControl()) ' ' else character }
+        .joinToString(separator = "")
+        .replace(Regex("\\s+"), " ")
+        .trim()
+        .take(maxLength)
 
 private fun PlanValidationContext.validationSnapshot() =
     copy(

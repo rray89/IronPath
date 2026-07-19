@@ -4,6 +4,7 @@ import com.example.ironpath.testutil.FakeTimeProvider
 import java.time.Duration
 import java.time.LocalDate
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -284,6 +285,44 @@ class PlanValidatorTest {
     }
 
     @Test
+    fun `external load exercises require a positive target while unloaded exercises accept zero`() {
+        val barbellAtZero =
+            validDraft(
+                workouts =
+                    listOf(
+                        workout(1)
+                            .copy(
+                                exercises =
+                                    listOf(
+                                        exercise(
+                                            ExerciseCatalogIds.BARBELL_BENCH_PRESS,
+                                            weightKg = 0.0,
+                                        )
+                                    )
+                            )
+                    )
+            )
+
+        assertTrue(
+            PlanViolationCode.MISSING_TARGET_LOAD in
+                invalidCodes(barbellAtZero, validContext(setOf(1)))
+        )
+        assertValid(
+            validDraft(
+                workouts =
+                    listOf(
+                        workout(1)
+                            .copy(
+                                exercises =
+                                    listOf(exercise(ExerciseCatalogIds.PUSH_UPS, weightKg = 0.0))
+                            )
+                    )
+            ),
+            validContext(setOf(1)),
+        )
+    }
+
+    @Test
     fun `missing required equipment is rejected`() {
         val draft =
             validDraft(workouts = listOf(workout(1, ExerciseCatalogIds.BARBELL_BENCH_PRESS)))
@@ -524,6 +563,34 @@ class PlanValidatorTest {
         assertTrue(second.validatedPlan.validatedAt > first.validatedPlan.validatedAt)
     }
 
+    @Test
+    fun `validated token caps and normalizes untrusted rationale and warnings`() {
+        val draft =
+            validDraft()
+                .copy(
+                    rationale = "  Build\u0000   steadily  ".repeat(40),
+                    warnings =
+                        (1..8).map { index -> "  Warning\u0007   $index   ${"x".repeat(240)}  " },
+                )
+
+        val validated =
+            (validator.validate(draft, validContext()) as PlanValidationResult.Valid)
+                .validatedPlan
+                .draft
+
+        assertTrue(validated.rationale!!.length <= PlanDraftTextLimits.MAX_RATIONALE_LENGTH)
+        assertFalse(validated.rationale.any(Char::isISOControl))
+        assertFalse("  " in validated.rationale)
+        assertEquals(PlanDraftTextLimits.MAX_WARNING_COUNT, validated.warnings.size)
+        assertTrue(
+            validated.warnings.all {
+                it.length <= PlanDraftTextLimits.MAX_WARNING_LENGTH &&
+                    it.none(Char::isISOControl) &&
+                    "  " !in it
+            }
+        )
+    }
+
     private fun assertValid(
         draft: PlanDraft,
         context: PlanValidationContext,
@@ -592,12 +659,13 @@ class PlanValidatorTest {
         id: ExerciseCatalogId,
         sets: Int = 3,
         reps: Int = 10,
-        weightKg: Double = 0.0,
+        weightKg: Double? = null,
     ) =
         ExerciseDraft(
             catalogId = id,
             sets = sets,
             reps = reps,
-            targetWeightKg = weightKg,
+            targetWeightKg =
+                weightKg ?: if (catalog.find(id)?.requiresTargetLoad() == true) 10.0 else 0.0,
         )
 }
