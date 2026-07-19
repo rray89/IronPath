@@ -39,9 +39,20 @@
 - The hard merge scope is domain, repositories, and non-dev ViewModels: minimum 85% line and 70% branch coverage from JVM tests.
 - JVM overall coverage is informational and includes only `src/test` execution. Its rankings include only the hard core scope; Android-only files are never presented as untested JVM-core files.
 - API 29 Android instrumented coverage is a separate informational JaCoCo report. The API 29 test task remains a hard pass/fail gate regardless of its percentage.
-- SonarQube may later combine JVM and Android XML reports for “covered by any suite” and new-code views. That combined percentage is never the only proof required for a feature.
+- SonarQube combines JVM and Android XML reports for “covered by any suite” and new-code views. That combined percentage is never the only proof required for a feature.
 - Generated Hilt, Dagger, Room, Android resource, manifest, and BuildConfig classes are excluded from percentage reporting.
 - Compose, navigation, Room behavior, accessibility, journeys, and performance retain their explicit suite gates even when source lines are covered.
+
+## SonarQube policy
+
+- SonarQube Cloud OSS imports the JVM and managed API 29 JaCoCo XML reports after their producing test jobs pass.
+- Sonar overall and new-code coverage answer whether source was executed by either imported suite; they do not replace layer-specific behavior gates.
+- The built-in Sonar way gate is warning-only for this portfolio phase. Do not require its GitHub check and do not make the scanner wait for the server-side quality-gate result.
+- Scanner or upload failure is a CI failure. A low Sonar percentage is visible but mergeable.
+- Coverage on new code below 80% triggers review. Reviewers inspect branch/condition coverage and the applicable JVM, Room, Compose, navigation, accessibility, journey, and performance tests before deciding whether the gap is acceptable.
+- Sonar secrets and account identifiers are repository settings. Fork pull requests never receive the token and skip Sonar upload.
+- SonarScanner for Gradle 7.3.1.8318 runs under Java 21 and provides the required AGP 9 and task-backed KSP compatibility; 7.2.3.7755 fails against AGP 9.1's current Android DSL.
+- The local scanner command in `AGENTS.md` and `CLAUDE.md` assumes the four Sonar values are exported and both XML reports already exist under `coverage/`. It is optional locally; required test gates remain independent of Sonar availability.
 
 ## Migration policy
 

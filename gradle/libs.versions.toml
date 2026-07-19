@@ -16,6 +16,7 @@ serialization = "1.8.1"
 navigationCompose = "2.9.8"
 ksp = "2.3.6"
 spotless = "6.25.0"
+sonarqube = "7.3.1.8318"
 mockk = "1.13.13"
 turbine = "1.2.0"
 androidxTestCore = "1.7.0"
@@ -79,3 +80,4 @@ ksp = { id = "com.google.devtools.ksp", version.ref = "ksp" }
 room = { id = "androidx.room", version.ref = "room" }
 hilt = { id = "com.google.dagger.hilt.android", version.ref = "hilt" }
 spotless = { id = "com.diffplug.spotless", version.ref = "spotless" }
+sonarqube = { id = "org.sonarqube", version.ref = "sonarqube" }

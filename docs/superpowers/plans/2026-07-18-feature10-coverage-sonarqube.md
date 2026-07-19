@@ -6,7 +6,7 @@
 
 **Architecture:** Keep the existing JVM core coverage gate as the only percentage-based hard merge gate. Generate a separate JaCoCo report from the existing managed API 29 suite, compose one tested PR comment from the JVM and Android XML reports, and let SonarQube Cloud import both reports for its cross-suite and new-code views. Keep test-suite pass/fail gates separate so a combined percentage never substitutes for Room, Compose, navigation, accessibility, journey, or performance evidence.
 
-**Tech Stack:** Android Gradle Plugin 9.1.0, Gradle 9.4.1, Kotlin 2.3.20/JVM 11, JaCoCo 0.8.14 supplied by AGP, Gradle Managed Devices, Node.js 20 built-in test runner, GitHub Actions, SonarScanner for Gradle 7.2.3.7755, SonarQube Cloud OSS.
+**Tech Stack:** Android Gradle Plugin 9.1.0, Gradle 9.4.1, Kotlin 2.3.20/JVM 11, JaCoCo 0.8.14 supplied by AGP, Gradle Managed Devices, Node.js 20 built-in test runner, GitHub Actions, SonarScanner for Gradle 7.3.1.8318, SonarQube Cloud OSS.
 
 ## Global Constraints
 
@@ -955,7 +955,7 @@ Verify that the Sonar project is public, the OSS subscription is active, pull-re
 
 **Interfaces:**
 - Consumes: the two downloaded JaCoCo XML paths supplied through `sonar.coverage.jacoco.xmlReportPaths`.
-- Produces: Gradle task `sonar` using SonarScanner for Gradle 7.2.3.7755.
+- Produces: Gradle task `sonar` using SonarScanner for Gradle 7.3.1.8318.
 
 - [ ] **Step 1: Verify the scanner task is absent**
 
@@ -973,7 +973,7 @@ Add:
 
 ```toml
 [versions]
-sonarqube = "7.2.3.7755"
+sonarqube = "7.3.1.8318"
 
 [plugins]
 sonarqube = { id = "org.sonarqube", version.ref = "sonarqube" }
@@ -1025,7 +1025,7 @@ Run:
 ./gradlew sonar --dry-run
 ```
 
-Expected: plugin version `7.2.3.7755` resolves, Gradle recognizes `sonar`, configuration succeeds under Java 21 for both `:app` and `:benchmark`, and no network analysis is uploaded by the dry run.
+Expected: plugin version `7.3.1.8318` resolves, Gradle recognizes `sonar`, configuration succeeds under Java 21 for both `:app` and `:benchmark`, and no network analysis is uploaded by the dry run. The original 7.2.3.7755 pin was replaced during implementation after the required red check reproduced its AGP 9.1 `AppExtension` incompatibility; 7.3.1 is the current patch with AGP 9 and KSP fixes.
 
 - [ ] **Step 5: Commit scanner configuration**
 
