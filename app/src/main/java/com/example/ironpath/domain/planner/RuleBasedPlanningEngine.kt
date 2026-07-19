@@ -83,6 +83,9 @@ private fun PlanningRequest.basicViolations(): List<String> = buildList {
     if (selectedDays.isEmpty()) {
         add("At least one training day is required")
     }
+    if (selectedDays.size > PlanValidationLimits.MAX_TRAINING_DAYS) {
+        add("Choose no more than six training days")
+    }
     if (selectedDays.any { it !in 1..7 }) {
         add("Training days must use ISO values 1 through 7")
     }

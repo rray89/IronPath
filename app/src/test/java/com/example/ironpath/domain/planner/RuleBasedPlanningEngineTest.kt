@@ -20,7 +20,7 @@ class RuleBasedPlanningEngineTest {
             engine.generate(
                 PlanningRequest(
                     targetWeekStart = targetWeek,
-                    goal = TrainingGoal.Strength,
+                    goal = PlanningGoal.STRENGTH,
                     selectedDays = setOf(1, 3, 5),
                 )
             )
@@ -48,7 +48,7 @@ class RuleBasedPlanningEngineTest {
             engine.generate(
                 PlanningRequest(
                     targetWeekStart = LocalDate.parse("2026-07-20"),
-                    goal = TrainingGoal.Hypertrophy,
+                    goal = PlanningGoal.HYPERTROPHY,
                     selectedDays = emptySet(),
                 )
             )
@@ -63,7 +63,7 @@ class RuleBasedPlanningEngineTest {
             engine.generate(
                 PlanningRequest(
                     targetWeekStart = LocalDate.parse("2026-07-21"),
-                    goal = TrainingGoal.Strength,
+                    goal = PlanningGoal.STRENGTH,
                     selectedDays = setOf(1),
                 )
             )
@@ -79,7 +79,7 @@ class RuleBasedPlanningEngineTest {
             engine.generate(
                 PlanningRequest(
                     targetWeekStart = LocalDate.parse("2026-07-20"),
-                    goal = TrainingGoal.Strength,
+                    goal = PlanningGoal.STRENGTH,
                     selectedDays = setOf(0, 8),
                 )
             )
@@ -120,7 +120,7 @@ class RuleBasedPlanningEngineTest {
                     request =
                         PlanningRequest(
                             targetWeekStart = LocalDate.parse("2026-07-20"),
-                            goal = TrainingGoal.Strength,
+                            goal = PlanningGoal.STRENGTH,
                             selectedDays = setOf(1),
                         ),
                     providerMetadata =

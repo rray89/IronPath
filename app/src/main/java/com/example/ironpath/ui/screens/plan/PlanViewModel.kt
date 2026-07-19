@@ -7,7 +7,7 @@ import com.example.ironpath.data.repository.PlanRepository
 import com.example.ironpath.data.repository.SessionRepository
 import com.example.ironpath.domain.planner.GeneratedPlan
 import com.example.ironpath.domain.planner.PlanGenerator
-import com.example.ironpath.domain.planner.TrainingGoal
+import com.example.ironpath.domain.planner.PlanningGoal
 import com.example.ironpath.domain.planner.findNextUpcomingWorkout
 import com.example.ironpath.domain.planner.findWorkoutScheduledToday
 import com.example.ironpath.domain.time.TimeProvider
@@ -23,7 +23,6 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.stateIn
-import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -38,13 +37,6 @@ constructor(
 ) : ViewModel() {
 
     private var acceptInProgress = false
-
-    // -- Setup state --
-    private val _selectedGoal = MutableStateFlow(TrainingGoal.Strength)
-    val selectedGoal: StateFlow<TrainingGoal> = _selectedGoal.asStateFlow()
-
-    private val _selectedDays = MutableStateFlow(emptySet<Int>())
-    val selectedDays: StateFlow<Set<Int>> = _selectedDays.asStateFlow()
 
     // -- Review state (in-memory, not yet saved) --
     private val _generatedPlan = MutableStateFlow<GeneratedPlan?>(null)
@@ -89,18 +81,9 @@ constructor(
             }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), PlanUiState.Loading)
 
-    fun setGoal(goal: TrainingGoal) {
-        _selectedGoal.value = goal
-    }
-
-    fun toggleDay(day: Int) {
-        _selectedDays.update { current -> if (day in current) current - day else current + day }
-    }
-
-    fun generatePlan() {
-        val days = _selectedDays.value
-        if (days.isEmpty()) return
-        val generated = planGenerator.generate(_selectedGoal.value, days)
+    fun generatePlan(goal: PlanningGoal, selectedDays: Set<Int>) {
+        if (selectedDays.isEmpty()) return
+        val generated = planGenerator.generate(goal, selectedDays)
         _generatedPlan.value = generated
     }
 
@@ -128,7 +111,6 @@ constructor(
                     exercises = generated.exercises,
                 )
                 _generatedPlan.value = null
-                _selectedDays.value = emptySet()
                 onAccepted()
             } catch (cancellation: CancellationException) {
                 throw cancellation

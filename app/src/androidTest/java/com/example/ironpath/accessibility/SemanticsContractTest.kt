@@ -13,6 +13,7 @@ import androidx.compose.ui.test.assertContentDescriptionContains
 import androidx.compose.ui.test.assertContentDescriptionEquals
 import androidx.compose.ui.test.assertHasClickAction
 import androidx.compose.ui.test.assertHasNoClickAction
+import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertIsNotSelected
 import androidx.compose.ui.test.assertIsOff
@@ -40,8 +41,11 @@ import com.example.ironpath.data.local.entity.SessionSet
 import com.example.ironpath.data.local.entity.WeeklyPlan
 import com.example.ironpath.data.repository.LoggedExerciseDetail
 import com.example.ironpath.data.repository.WorkoutLogDetail
+import com.example.ironpath.domain.planner.Equipment
+import com.example.ironpath.domain.planner.ExerciseCautionTag
 import com.example.ironpath.domain.planner.GeneratedPlan
-import com.example.ironpath.domain.planner.TrainingGoal
+import com.example.ironpath.domain.planner.PlanningGoal
+import com.example.ironpath.domain.planner.TrainingExperience
 import com.example.ironpath.ui.screens.active.ActiveContent
 import com.example.ironpath.ui.screens.active.ActiveUiState
 import com.example.ironpath.ui.screens.entry.EntryScreen
@@ -50,8 +54,10 @@ import com.example.ironpath.ui.screens.history.HistoryContent
 import com.example.ironpath.ui.screens.history.HistoryTab
 import com.example.ironpath.ui.screens.history.WorkoutLogDetailContent
 import com.example.ironpath.ui.screens.history.WorkoutLogDetailUiState
+import com.example.ironpath.ui.screens.plan.AiGenerationUiState
 import com.example.ironpath.ui.screens.plan.PlanContent
 import com.example.ironpath.ui.screens.plan.PlanUiState
+import com.example.ironpath.ui.screens.plan.PlannerIntakeUiState
 import com.example.ironpath.ui.screens.workoutpreview.WorkoutPreviewContent
 import com.example.ironpath.ui.screens.workoutpreview.WorkoutPreviewUiState
 import com.example.ironpath.ui.testing.TestTags
@@ -102,11 +108,21 @@ class SemanticsContractTest {
         setThemedContent {
             PlanContent(
                 uiState = PlanUiState.Setup,
-                selectedGoal = TrainingGoal.Strength,
-                selectedDays = setOf(1),
+                intakeState = PlannerIntakeUiState(selectedDays = setOf(1)),
+                aiAvailable = true,
+                aiGenerationState = AiGenerationUiState.Idle,
                 onGoalSelected = {},
                 onDayToggled = {},
+                onExperienceSelected = {},
+                onEquipmentToggled = {},
+                onCautionTagToggled = {},
+                onInjuryNotesChanged = {},
+                onPreferencesChanged = {},
+                onDislikesChanged = {},
                 onGenerate = {},
+                onGenerateWithAi = {},
+                onCancelAiGeneration = {},
+                onClearAiResult = {},
                 onDeleteWorkout = {},
                 onBackToSetup = {},
                 onAccept = {},
@@ -119,7 +135,7 @@ class SemanticsContractTest {
             .onNodeWithTag(TestTags.PLAN_GOAL_GROUP)
             .assert(SemanticsMatcher.keyIsDefined(SemanticsProperties.SelectableGroup))
         composeRule
-            .onNodeWithTag(TestTags.planGoal(TrainingGoal.Strength.name))
+            .onNodeWithTag(TestTags.planGoal(PlanningGoal.STRENGTH.slug))
             .assertIsSelectable()
             .assertIsSelected()
             .assert(SemanticsMatcher.expectValue(SemanticsProperties.Role, Role.RadioButton))
@@ -134,6 +150,49 @@ class SemanticsContractTest {
             .assertIsToggleable()
             .assertIsOff()
             .assert(SemanticsMatcher.expectValue(SemanticsProperties.Role, Role.Checkbox))
+
+        composeRule
+            .onNodeWithTag(TestTags.planExperience(TrainingExperience.INTERMEDIATE.name))
+            .performScrollTo()
+            .assertIsSelectable()
+            .assertIsSelected()
+            .assert(SemanticsMatcher.expectValue(SemanticsProperties.Role, Role.RadioButton))
+        composeRule
+            .onNodeWithTag(TestTags.planEquipment(Equipment.BARBELL.name))
+            .performScrollTo()
+            .assertIsToggleable()
+            .assertIsOn()
+            .assert(SemanticsMatcher.expectValue(SemanticsProperties.Role, Role.Checkbox))
+        composeRule
+            .onNodeWithTag(TestTags.planCaution(ExerciseCautionTag.KNEE.name))
+            .performScrollTo()
+            .assertIsToggleable()
+            .assertIsOff()
+            .assert(SemanticsMatcher.expectValue(SemanticsProperties.Role, Role.Checkbox))
+        composeRule
+            .onNodeWithTag(TestTags.PLAN_INJURY_NOTES)
+            .performScrollTo()
+            .assert(hasAccessibleLabel("Injury notes"))
+        composeRule
+            .onNodeWithTag(TestTags.PLAN_PREFERENCES)
+            .performScrollTo()
+            .assert(hasAccessibleLabel("Exercise preferences"))
+        composeRule
+            .onNodeWithTag(TestTags.PLAN_DISLIKES)
+            .performScrollTo()
+            .assert(hasAccessibleLabel("Exercise dislikes"))
+        composeRule
+            .onNodeWithTag(TestTags.PLAN_GENERATE_AI)
+            .performScrollTo()
+            .assertIsEnabled()
+            .assertHasClickAction()
+            .assert(SemanticsMatcher.expectValue(SemanticsProperties.Role, Role.Button))
+        composeRule
+            .onNodeWithTag(TestTags.PLAN_GENERATE)
+            .performScrollTo()
+            .assertIsEnabled()
+            .assertHasClickAction()
+            .assert(SemanticsMatcher.expectValue(SemanticsProperties.Role, Role.Button))
     }
 
     @Test
@@ -424,7 +483,7 @@ class SemanticsContractTest {
                             exercises = listOf(plannedExercise),
                         )
                     ),
-                selectedGoal = TrainingGoal.Strength,
+                selectedGoal = PlanningGoal.STRENGTH,
                 selectedDays = setOf(1),
                 onGoalSelected = {},
                 onDayToggled = {},

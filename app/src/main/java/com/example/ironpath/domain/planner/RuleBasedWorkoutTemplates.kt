@@ -14,19 +14,20 @@ internal data class RuleBasedWorkoutTemplate(
 
 internal object RuleBasedWorkoutTemplates {
     val allExerciseIds: Set<ExerciseCatalogId> =
-        listOf(strength, hypertrophy, endurance, returnToRoutine)
+        listOf(strength, hypertrophy, generalFitness, returnToRoutine, maintenance)
             .flatten()
             .flatMap(RuleBasedWorkoutTemplate::exercises)
             .map(RuleBasedExerciseTemplate::catalogId)
             .toSet()
 
-    fun forGoal(goal: TrainingGoal, dayCount: Int): List<RuleBasedWorkoutTemplate> {
+    fun forGoal(goal: PlanningGoal, dayCount: Int): List<RuleBasedWorkoutTemplate> {
         val pool =
             when (goal) {
-                TrainingGoal.Strength -> strength
-                TrainingGoal.Hypertrophy -> hypertrophy
-                TrainingGoal.Endurance -> endurance
-                TrainingGoal.Rehab -> returnToRoutine
+                PlanningGoal.STRENGTH -> strength
+                PlanningGoal.HYPERTROPHY -> hypertrophy
+                PlanningGoal.GENERAL_FITNESS -> generalFitness
+                PlanningGoal.RETURN_TO_ROUTINE -> returnToRoutine
+                PlanningGoal.MAINTENANCE -> maintenance
             }
         return List(dayCount) { pool[it % pool.size] }
     }
@@ -119,10 +120,10 @@ private val hypertrophy =
         ),
     )
 
-private val endurance =
+private val generalFitness =
     listOf(
         RuleBasedWorkoutTemplate(
-            "Upper Circuit",
+            "Balanced Upper",
             listOf(
                 exercise(ExerciseCatalogIds.PUSH_UPS, 3, 20, 0.0),
                 exercise(ExerciseCatalogIds.DUMBBELL_ROWS, 3, 15, 12.0),
@@ -130,7 +131,7 @@ private val endurance =
             ),
         ),
         RuleBasedWorkoutTemplate(
-            "Lower Circuit",
+            "Balanced Lower",
             listOf(
                 exercise(ExerciseCatalogIds.BODYWEIGHT_SQUATS, 3, 25, 0.0),
                 exercise(ExerciseCatalogIds.WALKING_LUNGES, 3, 20, 0.0),
@@ -138,7 +139,7 @@ private val endurance =
             ),
         ),
         RuleBasedWorkoutTemplate(
-            "Full Body",
+            "Balanced Full Body",
             listOf(
                 exercise(ExerciseCatalogIds.KETTLEBELL_SWINGS, 3, 20, 16.0),
                 exercise(ExerciseCatalogIds.BURPEES, 3, 15, 0.0),
@@ -163,6 +164,34 @@ private val returnToRoutine =
                 exercise(ExerciseCatalogIds.GOBLET_SQUATS, 3, 12, 8.0),
                 exercise(ExerciseCatalogIds.GLUTE_BRIDGES, 3, 15, 0.0),
                 exercise(ExerciseCatalogIds.CALF_RAISES, 3, 15, 0.0),
+            ),
+        ),
+    )
+
+private val maintenance =
+    listOf(
+        RuleBasedWorkoutTemplate(
+            "Maintain Upper",
+            listOf(
+                exercise(ExerciseCatalogIds.BARBELL_BENCH_PRESS, 2, 8, 50.0),
+                exercise(ExerciseCatalogIds.DUMBBELL_ROWS, 2, 10, 12.0),
+                exercise(ExerciseCatalogIds.DUMBBELL_LATERAL_RAISES, 2, 12, 8.0),
+            ),
+        ),
+        RuleBasedWorkoutTemplate(
+            "Maintain Lower",
+            listOf(
+                exercise(ExerciseCatalogIds.BARBELL_SQUATS, 2, 8, 60.0),
+                exercise(ExerciseCatalogIds.ROMANIAN_DEADLIFT, 2, 8, 50.0),
+                exercise(ExerciseCatalogIds.CALF_RAISES, 2, 12, 30.0),
+            ),
+        ),
+        RuleBasedWorkoutTemplate(
+            "Maintain Full Body",
+            listOf(
+                exercise(ExerciseCatalogIds.PUSH_UPS, 2, 12, 0.0),
+                exercise(ExerciseCatalogIds.GOBLET_SQUATS, 2, 10, 8.0),
+                exercise(ExerciseCatalogIds.PLANK_HOLD, 2, 1, 0.0),
             ),
         ),
     )

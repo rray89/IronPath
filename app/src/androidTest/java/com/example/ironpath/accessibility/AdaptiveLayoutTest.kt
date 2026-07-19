@@ -11,6 +11,7 @@ import androidx.compose.ui.test.FontScale
 import androidx.compose.ui.test.ForcedSize
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.SemanticsNodeInteraction
+import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertContentDescriptionEquals
 import androidx.compose.ui.test.assertHasClickAction
 import androidx.compose.ui.test.assertIsDisplayed
@@ -19,6 +20,7 @@ import androidx.compose.ui.test.assertIsOff
 import androidx.compose.ui.test.assertIsOn
 import androidx.compose.ui.test.assertIsSelectable
 import androidx.compose.ui.test.assertIsToggleable
+import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
@@ -40,8 +42,11 @@ import com.example.ironpath.data.local.entity.WeeklyPlan
 import com.example.ironpath.data.local.entity.WorkoutLog
 import com.example.ironpath.data.repository.LoggedExerciseDetail
 import com.example.ironpath.data.repository.WorkoutLogDetail
+import com.example.ironpath.domain.planner.Equipment
+import com.example.ironpath.domain.planner.ExerciseCautionTag
 import com.example.ironpath.domain.planner.GeneratedPlan
-import com.example.ironpath.domain.planner.TrainingGoal
+import com.example.ironpath.domain.planner.PlanningGoal
+import com.example.ironpath.domain.planner.TrainingExperience
 import com.example.ironpath.ui.screens.active.ActiveContent
 import com.example.ironpath.ui.screens.active.ActiveUiState
 import com.example.ironpath.ui.screens.entry.EntryScreen
@@ -52,8 +57,10 @@ import com.example.ironpath.ui.screens.history.WorkoutLogDetailContent
 import com.example.ironpath.ui.screens.history.WorkoutLogDetailUiState
 import com.example.ironpath.ui.screens.home.HomeContent
 import com.example.ironpath.ui.screens.home.HomeUiState
+import com.example.ironpath.ui.screens.plan.AiGenerationUiState
 import com.example.ironpath.ui.screens.plan.PlanContent
 import com.example.ironpath.ui.screens.plan.PlanUiState
+import com.example.ironpath.ui.screens.plan.PlannerIntakeUiState
 import com.example.ironpath.ui.screens.workoutpreview.WorkoutPreviewContent
 import com.example.ironpath.ui.screens.workoutpreview.WorkoutPreviewUiState
 import com.example.ironpath.ui.testing.TestTags
@@ -109,11 +116,21 @@ class AdaptiveLayoutTest {
         setAdaptiveContent(COMPACT_PORTRAIT) {
             PlanContent(
                 uiState = PlanUiState.Setup,
-                selectedGoal = TrainingGoal.Strength,
-                selectedDays = setOf(1),
+                intakeState = PlannerIntakeUiState(selectedDays = setOf(1)),
+                aiAvailable = true,
+                aiGenerationState = AiGenerationUiState.Idle,
                 onGoalSelected = {},
                 onDayToggled = {},
+                onExperienceSelected = {},
+                onEquipmentToggled = {},
+                onCautionTagToggled = {},
+                onInjuryNotesChanged = {},
+                onPreferencesChanged = {},
+                onDislikesChanged = {},
                 onGenerate = {},
+                onGenerateWithAi = {},
+                onCancelAiGeneration = {},
+                onClearAiResult = {},
                 onDeleteWorkout = {},
                 onBackToSetup = {},
                 onAccept = {},
@@ -122,9 +139,9 @@ class AdaptiveLayoutTest {
             )
         }
 
-        TrainingGoal.entries.forEach { goal ->
+        PlanningGoal.entries.forEach { goal ->
             composeRule
-                .onNodeWithTag(TestTags.planGoal(goal.name))
+                .onNodeWithTag(TestTags.planGoal(goal.slug))
                 .performScrollTo()
                 .assertIsDisplayed()
                 .assertIsSelectable()
@@ -154,6 +171,55 @@ class AdaptiveLayoutTest {
                         .touchBoundsInRoot
             }
         assertTouchTargetsDoNotOverlap(dayTargets)
+
+        TrainingExperience.entries.forEach { experience ->
+            composeRule
+                .onNodeWithTag(TestTags.planExperience(experience.name))
+                .performScrollTo()
+                .assertIsDisplayed()
+                .assertIsSelectable()
+                .assertMinimumTouchTarget("${experience.name} experience")
+        }
+
+        Equipment.entries.forEach { equipment ->
+            composeRule
+                .onNodeWithTag(TestTags.planEquipment(equipment.name))
+                .performScrollTo()
+                .assertIsDisplayed()
+                .assertIsToggleable()
+                .assertMinimumTouchTarget("${equipment.name} equipment")
+        }
+
+        ExerciseCautionTag.entries.forEach { caution ->
+            composeRule
+                .onNodeWithTag(TestTags.planCaution(caution.name))
+                .performScrollTo()
+                .assertIsDisplayed()
+                .assertIsToggleable()
+                .assertMinimumTouchTarget("${caution.name} caution")
+        }
+
+        listOf(
+                TestTags.PLAN_INJURY_NOTES,
+                TestTags.PLAN_PREFERENCES,
+                TestTags.PLAN_DISLIKES,
+            )
+            .forEach { tag ->
+                composeRule
+                    .onNodeWithTag(tag)
+                    .performScrollTo()
+                    .assertIsDisplayed()
+                    .assert(hasSetTextAction())
+                    .assertMinimumTouchTarget(tag)
+            }
+
+        composeRule
+            .onNodeWithTag(TestTags.PLAN_GENERATE_AI)
+            .performScrollTo()
+            .assertIsDisplayed()
+            .assertIsEnabled()
+            .assertHasClickAction()
+            .assertMinimumTouchTarget("Generate with AI")
 
         composeRule
             .onNodeWithTag(TestTags.PLAN_GENERATE)
@@ -446,7 +512,7 @@ class AdaptiveLayoutTest {
                         exercises = listOf(plannedExercise),
                     )
                 ),
-            selectedGoal = TrainingGoal.Strength,
+            selectedGoal = PlanningGoal.STRENGTH,
             selectedDays = setOf(1),
             onGoalSelected = {},
             onDayToggled = {},
