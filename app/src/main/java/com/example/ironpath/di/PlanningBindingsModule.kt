@@ -1,10 +1,12 @@
 package com.example.ironpath.di
 
+import com.example.ironpath.data.repository.LocalPlanningHistoryProvider
 import com.example.ironpath.domain.planner.DefaultExerciseCatalog
 import com.example.ironpath.domain.planner.ExerciseCatalog
 import com.example.ironpath.domain.planner.PlanningEngine
 import com.example.ironpath.domain.planner.PlanningEngineKey
 import com.example.ironpath.domain.planner.PlanningEngineType
+import com.example.ironpath.domain.planner.PlanningHistoryProvider
 import com.example.ironpath.domain.planner.RuleBasedPlanningEngine
 import dagger.Binds
 import dagger.Module
@@ -19,6 +21,12 @@ abstract class PlanningBindingsModule {
     @Binds
     @Singleton
     abstract fun bindExerciseCatalog(implementation: DefaultExerciseCatalog): ExerciseCatalog
+
+    @Binds
+    @Singleton
+    abstract fun bindPlanningHistoryProvider(
+        implementation: LocalPlanningHistoryProvider
+    ): PlanningHistoryProvider
 
     @Binds
     @IntoMap

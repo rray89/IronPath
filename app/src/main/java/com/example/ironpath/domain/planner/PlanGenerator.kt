@@ -9,13 +9,6 @@ import java.time.temporal.TemporalAdjusters
 import javax.inject.Inject
 import javax.inject.Singleton
 
-enum class TrainingGoal {
-    Strength,
-    Hypertrophy,
-    Endurance,
-    Rehab
-}
-
 data class GeneratedPlan(
     val plan: WeeklyPlan,
     val workouts: List<PlannedWorkout>,
@@ -32,7 +25,7 @@ internal constructor(
 ) {
 
     fun generate(
-        goal: TrainingGoal,
+        goal: PlanningGoal,
         selectedDays: Set<Int>, // 1=Mon..7=Sun (ISO)
     ): GeneratedPlan {
         val today = timeProvider.today()
@@ -43,8 +36,7 @@ internal constructor(
                 request =
                     PlanningRequest(
                         targetWeekStart = nextMonday,
-                        goal = goal,
-                        selectedDays = selectedDays,
+                        intake = PlanningIntake(goal = goal, selectedDays = selectedDays),
                     ),
                 providerMetadata =
                     PlanningProviderMetadata(

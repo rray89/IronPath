@@ -14,6 +14,11 @@ object TestTags {
     const val PLAN_LOADING = "plan_loading"
     const val PLAN_GENERATE = "plan_generate"
     const val PLAN_GOAL_GROUP = "plan_goal_group"
+    const val PLAN_GENERATE_AI = "plan_generate_ai"
+    const val PLAN_AI_GENERATING = "plan_ai_generating"
+    const val PLAN_INJURY_NOTES = "plan_injury_notes"
+    const val PLAN_PREFERENCES = "plan_preferences"
+    const val PLAN_DISLIKES = "plan_dislikes"
     const val HOME_LOADING = "home_loading"
     const val HOME_WEEK_COMPLETE = "home_week_complete"
     const val ACTIVE_LOADING = "active_loading"
@@ -37,6 +42,12 @@ object TestTags {
     fun log(id: String) = "log_$id"
 
     fun planGoal(goal: String) = "plan_goal_$goal"
+
+    fun planExperience(experience: String) = "plan_experience_$experience"
+
+    fun planEquipment(equipment: String) = "plan_equipment_$equipment"
+
+    fun planCaution(caution: String) = "plan_caution_$caution"
 
     fun planDay(dayOfWeek: Int) = "plan_day_$dayOfWeek"
 

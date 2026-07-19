@@ -34,8 +34,10 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
@@ -54,8 +56,11 @@ import com.example.ironpath.data.local.entity.PlannedExercise
 import com.example.ironpath.data.local.entity.PlannedWorkout
 import com.example.ironpath.data.local.entity.WeeklyPlan
 import com.example.ironpath.data.local.entity.WorkoutStatus
+import com.example.ironpath.domain.planner.Equipment
+import com.example.ironpath.domain.planner.ExerciseCautionTag
 import com.example.ironpath.domain.planner.GeneratedPlan
-import com.example.ironpath.domain.planner.TrainingGoal
+import com.example.ironpath.domain.planner.PlanningGoal
+import com.example.ironpath.domain.planner.TrainingExperience
 import com.example.ironpath.ui.components.GreenGradientButton
 import com.example.ironpath.ui.screens.home.dayOfWeekAbbrev
 import com.example.ironpath.ui.testing.TestTags
@@ -72,21 +77,37 @@ fun PlanScreen(
     onOpenWorkoutPreview: (String) -> Unit,
     modifier: Modifier = Modifier,
     viewModel: PlanViewModel = hiltViewModel(),
+    intakeViewModel: PlannerIntakeViewModel = hiltViewModel(),
 ) {
     val uiState by viewModel.planUiState.collectAsStateWithLifecycle()
-    val selectedGoal by viewModel.selectedGoal.collectAsStateWithLifecycle()
-    val selectedDays by viewModel.selectedDays.collectAsStateWithLifecycle()
+    val intakeState by intakeViewModel.intakeState.collectAsStateWithLifecycle()
+    val aiGenerationState by intakeViewModel.aiGenerationState.collectAsStateWithLifecycle()
 
     PlanContent(
         uiState = uiState,
-        selectedGoal = selectedGoal,
-        selectedDays = selectedDays,
-        onGoalSelected = viewModel::setGoal,
-        onDayToggled = viewModel::toggleDay,
-        onGenerate = viewModel::generatePlan,
+        intakeState = intakeState,
+        aiAvailable = intakeViewModel.aiAvailable,
+        aiGenerationState = aiGenerationState,
+        onGoalSelected = intakeViewModel::setGoal,
+        onDayToggled = intakeViewModel::toggleDay,
+        onExperienceSelected = intakeViewModel::setExperience,
+        onEquipmentToggled = intakeViewModel::toggleEquipment,
+        onCautionTagToggled = intakeViewModel::toggleCautionTag,
+        onInjuryNotesChanged = intakeViewModel::setInjuryNotes,
+        onPreferencesChanged = intakeViewModel::setExercisePreferences,
+        onDislikesChanged = intakeViewModel::setExerciseDislikes,
+        onGenerate = { viewModel.generatePlan(intakeState.goal, intakeState.selectedDays) },
+        onGenerateWithAi = intakeViewModel::generateWithAi,
+        onCancelAiGeneration = intakeViewModel::cancelGeneration,
+        onClearAiResult = intakeViewModel::clearGeneratedDraft,
         onDeleteWorkout = viewModel::deleteWorkoutFromReview,
         onBackToSetup = viewModel::backToSetup,
-        onAccept = { viewModel.acceptPlan(onPlanAccepted) },
+        onAccept = {
+            viewModel.acceptPlan {
+                intakeViewModel.resetAfterAcceptance()
+                onPlanAccepted()
+            }
+        },
         onStartWorkout = onStartWorkout,
         onOpenWorkoutPreview = onOpenWorkoutPreview,
         modifier = modifier,
@@ -98,11 +119,21 @@ fun PlanScreen(
 @Composable
 internal fun PlanContent(
     uiState: PlanUiState,
-    selectedGoal: TrainingGoal,
-    selectedDays: Set<Int>,
-    onGoalSelected: (TrainingGoal) -> Unit,
+    intakeState: PlannerIntakeUiState,
+    aiAvailable: Boolean,
+    aiGenerationState: AiGenerationUiState,
+    onGoalSelected: (PlanningGoal) -> Unit,
     onDayToggled: (Int) -> Unit,
+    onExperienceSelected: (TrainingExperience) -> Unit,
+    onEquipmentToggled: (Equipment) -> Unit,
+    onCautionTagToggled: (ExerciseCautionTag) -> Unit,
+    onInjuryNotesChanged: (String) -> Unit,
+    onPreferencesChanged: (String) -> Unit,
+    onDislikesChanged: (String) -> Unit,
     onGenerate: () -> Unit,
+    onGenerateWithAi: () -> Unit,
+    onCancelAiGeneration: () -> Unit,
+    onClearAiResult: () -> Unit,
     onDeleteWorkout: (String) -> Unit,
     onBackToSetup: () -> Unit,
     onAccept: () -> Unit,
@@ -121,11 +152,21 @@ internal fun PlanContent(
         }
         PlanUiState.Setup ->
             PlanSetupScreen(
-                selectedGoal = selectedGoal,
-                selectedDays = selectedDays,
+                intakeState = intakeState,
+                aiAvailable = aiAvailable,
+                aiGenerationState = aiGenerationState,
                 onGoalSelected = onGoalSelected,
                 onDayToggled = onDayToggled,
+                onExperienceSelected = onExperienceSelected,
+                onEquipmentToggled = onEquipmentToggled,
+                onCautionTagToggled = onCautionTagToggled,
+                onInjuryNotesChanged = onInjuryNotesChanged,
+                onPreferencesChanged = onPreferencesChanged,
+                onDislikesChanged = onDislikesChanged,
                 onGenerate = onGenerate,
+                onGenerateWithAi = onGenerateWithAi,
+                onCancelAiGeneration = onCancelAiGeneration,
+                onClearAiResult = onClearAiResult,
                 modifier = modifier,
             )
         is PlanUiState.Review ->
@@ -151,16 +192,67 @@ internal fun PlanContent(
     }
 }
 
+@Composable
+internal fun PlanContent(
+    uiState: PlanUiState,
+    selectedGoal: PlanningGoal,
+    selectedDays: Set<Int>,
+    onGoalSelected: (PlanningGoal) -> Unit,
+    onDayToggled: (Int) -> Unit,
+    onGenerate: () -> Unit,
+    onDeleteWorkout: (String) -> Unit,
+    onBackToSetup: () -> Unit,
+    onAccept: () -> Unit,
+    onStartWorkout: () -> Unit,
+    onOpenWorkoutPreview: (String) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    PlanContent(
+        uiState = uiState,
+        intakeState = PlannerIntakeUiState(goal = selectedGoal, selectedDays = selectedDays),
+        aiAvailable = false,
+        aiGenerationState = AiGenerationUiState.Idle,
+        onGoalSelected = onGoalSelected,
+        onDayToggled = onDayToggled,
+        onExperienceSelected = {},
+        onEquipmentToggled = {},
+        onCautionTagToggled = {},
+        onInjuryNotesChanged = {},
+        onPreferencesChanged = {},
+        onDislikesChanged = {},
+        onGenerate = onGenerate,
+        onGenerateWithAi = {},
+        onCancelAiGeneration = {},
+        onClearAiResult = {},
+        onDeleteWorkout = onDeleteWorkout,
+        onBackToSetup = onBackToSetup,
+        onAccept = onAccept,
+        onStartWorkout = onStartWorkout,
+        onOpenWorkoutPreview = onOpenWorkoutPreview,
+        modifier = modifier,
+    )
+}
+
 // -- Setup Screen --
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun PlanSetupScreen(
-    selectedGoal: TrainingGoal,
-    selectedDays: Set<Int>,
-    onGoalSelected: (TrainingGoal) -> Unit,
+    intakeState: PlannerIntakeUiState,
+    aiAvailable: Boolean,
+    aiGenerationState: AiGenerationUiState,
+    onGoalSelected: (PlanningGoal) -> Unit,
     onDayToggled: (Int) -> Unit,
+    onExperienceSelected: (TrainingExperience) -> Unit,
+    onEquipmentToggled: (Equipment) -> Unit,
+    onCautionTagToggled: (ExerciseCautionTag) -> Unit,
+    onInjuryNotesChanged: (String) -> Unit,
+    onPreferencesChanged: (String) -> Unit,
+    onDislikesChanged: (String) -> Unit,
     onGenerate: () -> Unit,
+    onGenerateWithAi: () -> Unit,
+    onCancelAiGeneration: () -> Unit,
+    onClearAiResult: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Column(
@@ -185,12 +277,12 @@ private fun PlanSetupScreen(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            TrainingGoal.entries.forEach { goal ->
+            PlanningGoal.entries.forEach { goal ->
                 GoalChip(
-                    label = goal.name.uppercase(),
-                    selected = goal == selectedGoal,
+                    label = goal.displayLabel.uppercase(),
+                    selected = goal == intakeState.goal,
                     onClick = { onGoalSelected(goal) },
-                    modifier = Modifier.testTag(TestTags.planGoal(goal.name)),
+                    modifier = Modifier.testTag(TestTags.planGoal(goal.slug)),
                 )
             }
         }
@@ -216,7 +308,7 @@ private fun PlanSetupScreen(
                 DayChip(
                     label = label,
                     accessibleLabel = accessibleLabel,
-                    selected = dow in selectedDays,
+                    selected = dow in intakeState.selectedDays,
                     onClick = { onDayToggled(dow) },
                     modifier = Modifier.testTag(TestTags.planDay(dow)),
                 )
@@ -226,18 +318,129 @@ private fun PlanSetupScreen(
         Spacer(Modifier.height(8.dp))
 
         Text(
-            text = "SELECT THE DAYS YOU WANT TO TRAIN THIS WEEK",
+            text = "CHOOSE UP TO SIX DAYS. YOUR PLAN TARGETS NEXT WEEK.",
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
 
+        intakeState.daySelectionMessage?.let { message ->
+            Spacer(Modifier.height(8.dp))
+            Text(
+                text = message,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error,
+            )
+        }
+
+        SetupSectionTitle("Training Experience")
+        FlowRow(
+            modifier = Modifier.selectableGroup(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            TrainingExperience.entries.forEach { experience ->
+                GoalChip(
+                    label = experience.displayText(),
+                    selected = experience == intakeState.experience,
+                    onClick = { onExperienceSelected(experience) },
+                    modifier = Modifier.testTag(TestTags.planExperience(experience.name)),
+                )
+            }
+        }
+
+        SetupSectionTitle("Available Equipment")
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Equipment.entries.forEach { equipment ->
+                ToggleChip(
+                    label = equipment.displayText(),
+                    selected = equipment in intakeState.availableEquipment,
+                    onClick = { onEquipmentToggled(equipment) },
+                    modifier = Modifier.testTag(TestTags.planEquipment(equipment.name)),
+                )
+            }
+        }
+        if (intakeState.availableEquipment.isEmpty()) {
+            Spacer(Modifier.height(8.dp))
+            Text(
+                text = "Choose at least one equipment option.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error,
+            )
+        }
+
+        SetupSectionTitle("Movement Limits")
+        Text(
+            text = "Skip exercises carrying any selected caution tag.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Spacer(Modifier.height(8.dp))
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            ExerciseCautionTag.entries.forEach { tag ->
+                ToggleChip(
+                    label = tag.displayText(),
+                    selected = tag in intakeState.forbiddenCautionTags,
+                    onClick = { onCautionTagToggled(tag) },
+                    modifier = Modifier.testTag(TestTags.planCaution(tag.name)),
+                )
+            }
+        }
+
+        SetupSectionTitle("Training Notes")
+        PlanningTextField(
+            value = intakeState.injuryNotes,
+            onValueChange = onInjuryNotesChanged,
+            label = "Injury notes",
+            supportingText = "Context only. IronPath does not provide medical advice.",
+            modifier = Modifier.testTag(TestTags.PLAN_INJURY_NOTES),
+        )
+        Spacer(Modifier.height(12.dp))
+        PlanningTextField(
+            value = intakeState.exercisePreferences,
+            onValueChange = onPreferencesChanged,
+            label = "Exercise preferences",
+            supportingText = "Movements you enjoy or want to prioritize.",
+            modifier = Modifier.testTag(TestTags.PLAN_PREFERENCES),
+        )
+        Spacer(Modifier.height(12.dp))
+        PlanningTextField(
+            value = intakeState.exerciseDislikes,
+            onValueChange = onDislikesChanged,
+            label = "Exercise dislikes",
+            supportingText = "A soft preference unless covered by a movement limit above.",
+            modifier = Modifier.testTag(TestTags.PLAN_DISLIKES),
+        )
+
         Spacer(Modifier.height(32.dp))
 
+        if (aiAvailable) {
+            GreenGradientButton(
+                text = "Generate with AI",
+                onClick = onGenerateWithAi,
+                modifier = Modifier.testTag(TestTags.PLAN_GENERATE_AI),
+                enabled =
+                    intakeState.canGenerateWithAi &&
+                        aiGenerationState !is AiGenerationUiState.Generating,
+            )
+            AiGenerationStatus(
+                state = aiGenerationState,
+                onCancel = onCancelAiGeneration,
+                onClear = onClearAiResult,
+            )
+            Spacer(Modifier.height(12.dp))
+        }
+
         GreenGradientButton(
-            text = "Generate Week",
+            text = "Use Rule-Based Planner",
             onClick = onGenerate,
             modifier = Modifier.testTag(TestTags.PLAN_GENERATE),
-            enabled = selectedDays.isNotEmpty(),
+            enabled = intakeState.canGenerateRuleBased,
             leadingIcon = {
                 Icon(
                     imageVector = Icons.Default.CalendarMonth,
@@ -251,6 +454,165 @@ private fun PlanSetupScreen(
         Spacer(Modifier.height(32.dp))
     }
 }
+
+@Composable
+private fun SetupSectionTitle(title: String) {
+    Spacer(Modifier.height(32.dp))
+    Text(
+        text = title,
+        style = MaterialTheme.typography.titleMedium,
+        color = MaterialTheme.colorScheme.onSurface,
+    )
+    Spacer(Modifier.height(12.dp))
+}
+
+@Composable
+private fun PlanningTextField(
+    value: String,
+    onValueChange: (String) -> Unit,
+    label: String,
+    supportingText: String,
+    modifier: Modifier = Modifier,
+) {
+    OutlinedTextField(
+        value = value,
+        onValueChange = onValueChange,
+        label = { Text(label) },
+        supportingText = { Text(supportingText) },
+        modifier = modifier.fillMaxWidth(),
+        minLines = 2,
+        maxLines = 4,
+    )
+}
+
+@Composable
+private fun ToggleChip(
+    label: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val backgroundColor = if (selected) MaterialTheme.colorScheme.primary else SurfaceContainerHigh
+    val contentColor =
+        if (selected) MaterialTheme.colorScheme.surface else MaterialTheme.colorScheme.onSurface
+    Box(
+        modifier =
+            modifier
+                .sizeIn(minWidth = 48.dp, minHeight = 48.dp)
+                .clip(RoundedCornerShape(4.dp))
+                .background(backgroundColor)
+                .toggleable(
+                    value = selected,
+                    role = Role.Checkbox,
+                    onValueChange = { onClick() },
+                )
+                .padding(horizontal = 12.dp, vertical = 8.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelMedium,
+            color = contentColor,
+        )
+    }
+}
+
+@Composable
+private fun AiGenerationStatus(
+    state: AiGenerationUiState,
+    onCancel: () -> Unit,
+    onClear: () -> Unit,
+) {
+    when (state) {
+        AiGenerationUiState.Idle -> Unit
+        AiGenerationUiState.Stale -> {
+            AiResultMessage(
+                title = "Plan inputs changed",
+                detail = "Generate again to build a fresh draft.",
+                onClear = onClear,
+            )
+        }
+        is AiGenerationUiState.Generating -> {
+            Column(
+                modifier =
+                    Modifier.fillMaxWidth()
+                        .padding(top = 16.dp)
+                        .testTag(TestTags.PLAN_AI_GENERATING),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(24.dp),
+                    color = MaterialTheme.colorScheme.primary,
+                )
+                Spacer(Modifier.height(8.dp))
+                Text("Building your draft", style = MaterialTheme.typography.bodyMedium)
+                TextButton(onClick = onCancel) { Text("Cancel") }
+            }
+        }
+        is AiGenerationUiState.Validated -> {
+            AiResultMessage(
+                title = "Draft ready",
+                detail =
+                    "${state.draft.draft.providerMetadata.engineType.displayText()} · " +
+                        "${state.draft.draft.workouts.size} workouts · Not saved",
+                onClear = onClear,
+            )
+        }
+        is AiGenerationUiState.Invalid -> {
+            AiResultMessage(
+                title = "Draft needs changes",
+                detail = state.violations.firstOrNull()?.message ?: "The draft did not validate.",
+                onClear = onClear,
+            )
+        }
+        is AiGenerationUiState.Failed -> {
+            AiResultMessage(
+                title = "Draft unavailable",
+                detail = state.failure.userMessage(),
+                onClear = onClear,
+            )
+        }
+    }
+}
+
+@Composable
+private fun AiResultMessage(
+    title: String,
+    detail: String,
+    onClear: () -> Unit,
+) {
+    Column(modifier = Modifier.fillMaxWidth().padding(top = 16.dp)) {
+        Text(
+            text = title,
+            style = MaterialTheme.typography.titleSmall,
+            color = MaterialTheme.colorScheme.primary,
+        )
+        Text(
+            text = detail,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        TextButton(onClick = onClear) { Text("Dismiss") }
+    }
+}
+
+private fun Enum<*>.displayText(): String =
+    name.lowercase().replace('_', ' ').replaceFirstChar { it.uppercaseChar() }
+
+private fun com.example.ironpath.domain.planner.PlanningEngineType.displayText(): String =
+    name.replace('_', ' ')
+
+private fun com.example.ironpath.domain.planner.PlanningFailure.userMessage(): String =
+    when (this) {
+        is com.example.ironpath.domain.planner.PlanningFailure.InvalidRequest ->
+            violations.firstOrNull() ?: "Review the planning intake and try again."
+        com.example.ironpath.domain.planner.PlanningFailure.Timeout ->
+            "Generation took too long. Try again."
+        com.example.ironpath.domain.planner.PlanningFailure.Unavailable ->
+            "No AI provider is available on this build."
+        is com.example.ironpath.domain.planner.PlanningFailure.ProviderError ->
+            "The provider could not create a draft. Try again."
+    }
 
 @Composable
 private fun GoalChip(
@@ -759,7 +1121,7 @@ private fun PreviewPlanSetup() {
         Surface(color = MaterialTheme.colorScheme.surface) {
             PlanContent(
                 uiState = PlanUiState.Setup,
-                selectedGoal = TrainingGoal.Strength,
+                selectedGoal = PlanningGoal.STRENGTH,
                 selectedDays = setOf(1, 3, 5),
                 onGoalSelected = {},
                 onDayToggled = {},
@@ -784,7 +1146,7 @@ private fun PreviewPlanReview() {
                     PlanUiState.Review(
                         GeneratedPlan(PreviewPlan, PreviewWorkouts, PreviewExercises)
                     ),
-                selectedGoal = TrainingGoal.Hypertrophy,
+                selectedGoal = PlanningGoal.HYPERTROPHY,
                 selectedDays = setOf(1, 3, 5),
                 onGoalSelected = {},
                 onDayToggled = {},
@@ -814,7 +1176,7 @@ private fun PreviewPlanAccepted() {
                         nextWorkout = PreviewWorkouts[1],
                         hasActiveSession = false,
                     ),
-                selectedGoal = TrainingGoal.Strength,
+                selectedGoal = PlanningGoal.STRENGTH,
                 selectedDays = emptySet(),
                 onGoalSelected = {},
                 onDayToggled = {},

@@ -9,7 +9,7 @@ import com.example.ironpath.data.repository.PlanRepository
 import com.example.ironpath.data.repository.SessionRepository
 import com.example.ironpath.domain.planner.GeneratedPlan
 import com.example.ironpath.domain.planner.PlanGenerator
-import com.example.ironpath.domain.planner.TrainingGoal
+import com.example.ironpath.domain.planner.PlanningGoal
 import com.example.ironpath.testutil.FakeTimeProvider
 import com.example.ironpath.util.MainDispatcherRule
 import io.mockk.coEvery
@@ -81,8 +81,7 @@ class PlanViewModelTest {
 
     private fun setupReview(plan: GeneratedPlan) {
         every { planGenerator.generate(any(), any()) } returns plan
-        viewModel.toggleDay(1)
-        viewModel.generatePlan()
+        viewModel.generatePlan(PlanningGoal.STRENGTH, setOf(1))
     }
 
     @Before
@@ -107,39 +106,22 @@ class PlanViewModelTest {
     }
 
     @Test
-    fun `setGoal updates selected goal`() {
-        viewModel.setGoal(TrainingGoal.Hypertrophy)
-
-        assertEquals(TrainingGoal.Hypertrophy, viewModel.selectedGoal.value)
-    }
-
-    @Test
-    fun `toggleDay adds and removes the selected day`() {
-        viewModel.toggleDay(3)
-        assertEquals(setOf(3), viewModel.selectedDays.value)
-
-        viewModel.toggleDay(3)
-        assertTrue(viewModel.selectedDays.value.isEmpty())
-    }
-
-    @Test
     fun `generatePlan sets generatedPlan returned by PlanGenerator`() = runTest {
         val expected =
             makeGeneratedPlan(
                 workouts = listOf(makeWorkout("w1", 1)),
                 exercises = listOf(makeExercise("ex1", "w1")),
             )
-        every { planGenerator.generate(TrainingGoal.Strength, setOf(1)) } returns expected
+        every { planGenerator.generate(PlanningGoal.STRENGTH, setOf(1)) } returns expected
 
-        viewModel.toggleDay(1)
-        viewModel.generatePlan()
+        viewModel.generatePlan(PlanningGoal.STRENGTH, setOf(1))
 
         assertEquals(expected, viewModel.generatedPlan.value)
     }
 
     @Test
     fun `generatePlan does nothing when no days selected`() {
-        viewModel.generatePlan()
+        viewModel.generatePlan(PlanningGoal.STRENGTH, emptySet())
 
         assertNull(viewModel.generatedPlan.value)
     }
@@ -149,8 +131,7 @@ class PlanViewModelTest {
         every { planGenerator.generate(any(), any()) } returns
             makeGeneratedPlan(listOf(makeWorkout("w1", 1)), emptyList())
 
-        viewModel.toggleDay(1)
-        viewModel.generatePlan()
+        viewModel.generatePlan(PlanningGoal.STRENGTH, setOf(1))
 
         coVerify(exactly = 0) { planRepository.getAllExerciseNames() }
     }
@@ -290,7 +271,6 @@ class PlanViewModelTest {
 
         assertEquals(1, callbackCount)
         assertNull(viewModel.generatedPlan.value)
-        assertTrue(viewModel.selectedDays.value.isEmpty())
         coVerify(exactly = 1) {
             planRepository.createPlan(generated.plan, generated.workouts, generated.exercises)
         }

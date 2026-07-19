@@ -14,6 +14,7 @@ import androidx.compose.ui.test.performScrollTo
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.example.ironpath.MainActivity
 import com.example.ironpath.data.local.IronPathDatabase
+import com.example.ironpath.domain.planner.PlanningGoal
 import com.example.ironpath.testutil.HiltTestDatabaseRule
 import com.example.ironpath.testutil.MutableTimeProvider
 import com.example.ironpath.testutil.SequenceIdProvider
@@ -59,16 +60,16 @@ class PlanPersistenceJourneyTest {
         clickNavigationDestination(Route.PLAN)
         waitForText("Primary Goal")
 
-        composeRule.onNodeWithTag(TestTags.planGoal("Strength")).performClick()
+        composeRule.onNodeWithTag(TestTags.planGoal(PlanningGoal.STRENGTH.slug)).performClick()
         composeRule.onNodeWithTag(TestTags.planDay(1)).performClick()
         composeRule.onNodeWithTag(TestTags.planDay(3)).performClick()
         composeRule.onNodeWithTag(TestTags.planDay(5)).performClick()
-        composeRule.onNodeWithTag(TestTags.planGoal("Strength")).assertIsSelected()
+        composeRule.onNodeWithTag(TestTags.planGoal(PlanningGoal.STRENGTH.slug)).assertIsSelected()
         composeRule.onNodeWithTag(TestTags.planDay(1)).assertIsOn()
         composeRule.onNodeWithTag(TestTags.planDay(3)).assertIsOn()
         composeRule.onNodeWithTag(TestTags.planDay(5)).assertIsOn()
 
-        composeRule.onNodeWithTag(TestTags.PLAN_GENERATE).performClick()
+        composeRule.onNodeWithTag(TestTags.PLAN_GENERATE).performScrollTo().performClick()
         waitForText("WEEKLY PLAN")
 
         composeRule.onNodeWithContentDescription("Remove Push A on Monday").assertIsDisplayed()

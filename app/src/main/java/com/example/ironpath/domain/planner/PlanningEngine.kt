@@ -14,9 +14,20 @@ enum class PlanningEngineType(val debugOnly: Boolean) {
 
 data class PlanningRequest(
     val targetWeekStart: LocalDate,
-    val goal: TrainingGoal,
-    val selectedDays: Set<Int>,
-)
+    val intake: PlanningIntake,
+) {
+    constructor(
+        targetWeekStart: LocalDate,
+        goal: PlanningGoal,
+        selectedDays: Set<Int>,
+    ) : this(targetWeekStart, PlanningIntake(goal = goal, selectedDays = selectedDays))
+
+    val goal: PlanningGoal
+        get() = intake.goal
+
+    val selectedDays: Set<Int>
+        get() = intake.selectedDays
+}
 
 data class PlanDraft(
     val targetWeekStart: LocalDate,

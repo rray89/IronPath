@@ -1,5 +1,6 @@
 package com.example.ironpath.domain.planner
 
+import java.util.Locale
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -60,6 +61,9 @@ interface ExerciseCatalog {
 
     fun find(id: ExerciseCatalogId): ExerciseCatalogEntry?
 
+    fun findByNormalizedName(name: String): ExerciseCatalogEntry? =
+        entries.firstOrNull { normalizeExerciseName(it.displayName) == normalizeExerciseName(name) }
+
     fun require(id: ExerciseCatalogId): ExerciseCatalogEntry =
         checkNotNull(find(id)) { "Unknown exercise catalog id: ${id.value}" }
 }
@@ -102,13 +106,21 @@ object ExerciseCatalogIds {
 class DefaultExerciseCatalog @Inject constructor() : ExerciseCatalog {
     override val entries: List<ExerciseCatalogEntry> = defaultExerciseEntries
     private val entriesById = entries.associateBy(ExerciseCatalogEntry::id)
+    private val entriesByName = entries.associateBy { normalizeExerciseName(it.displayName) }
 
     init {
         check(entriesById.size == entries.size) { "Exercise catalog ids must be unique" }
+        check(entriesByName.size == entries.size) { "Exercise catalog names must be unique" }
     }
 
     override fun find(id: ExerciseCatalogId): ExerciseCatalogEntry? = entriesById[id]
+
+    override fun findByNormalizedName(name: String): ExerciseCatalogEntry? =
+        entriesByName[normalizeExerciseName(name)]
 }
+
+internal fun normalizeExerciseName(name: String): String =
+    name.trim().lowercase(Locale.ROOT).replace(Regex("\\s+"), " ")
 
 private fun entry(
     id: ExerciseCatalogId,

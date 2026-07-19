@@ -80,6 +80,7 @@ class HiltStartupTest {
         assertTrue(exerciseCatalog.entries.isNotEmpty())
         assertTrue(::planningEngineRegistry.isInitialized)
         assertTrue(PlanningEngineType.RULE_BASED in planningEngineRegistry.availableTypes)
+        assertTrue(PlanningEngineType.DEBUG_FAKE_AI in planningEngineRegistry.availableTypes)
         assertTrue(::planValidator.isInitialized)
         assertTrue(::validatedPlanDraftMapper.isInitialized)
     }

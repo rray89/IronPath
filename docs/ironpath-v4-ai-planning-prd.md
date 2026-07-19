@@ -139,6 +139,8 @@ No Room schema change is required for the abstraction itself. The contract shoul
 
 ## Feature 2: Structured planning intake
 
+**Status: Implemented** - PR #39 (feat/feat9.3-structured-planning-intake)
+
 ### Context
 
 AI planning is only useful if the app gives the model enough structured context. Random plan generation would weaken the product and create injury risk. v4 should collect a small but meaningful intake before AI generation.
@@ -182,6 +184,17 @@ The intake should classify constraints so prompting, validation, and UX do not t
 - users can still generate with the rule-based planner if they skip AI.
 - historical workout context should be summarized before it is sent to any AI provider.
 - in release builds, planning intake, injury notes, and history summaries stay on device.
+
+### Locked v4 intake defaults
+
+- the canonical goal set is strength, hypertrophy, general fitness, return-to-routine, and maintenance.
+- the V4 intake accepts one to six selected days; the legacy rule generator retains its existing seven-day domain behavior outside this intake path.
+- recent workout and record context uses a bounded 28-day local history window and canonical exercise-catalog lookup.
+- forbidden movement caution tags are hard constraints; injury notes are safety context; preferences and dislikes remain soft planning guidance.
+- user-entered intake survives recreation through `SavedStateHandle`, while generated drafts and generation progress remain in memory and are never restored as accepted state.
+- `FakeAiPlanningEngine` and its binding remain debug/test-only and provide deterministic portfolio and test behavior.
+- rule-based fallback eligibility depends on valid selected days, not AI equipment selection; AI generation additionally requires at least one equipment option.
+- changing inputs after generation starts or completes cancels the old request, ignores late results, and exposes a stale state that requires regeneration.
 
 ### Data model impact
 
