@@ -195,7 +195,6 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      pull-requests: write # required to post coverage comment on PRs
 
     steps:
       - uses: actions/checkout@v4
@@ -207,11 +206,19 @@ jobs:
           distribution: "temurin"
           cache: gradle
 
+      - name: Set up Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
       - name: Grant gradlew execute permission
         run: chmod +x gradlew
 
       - name: Create local.properties
         run: echo "sdk.dir=$ANDROID_HOME" > local.properties
+
+      - name: Test coverage report renderer
+        run: node --test .github/scripts/coverage-report.test.mjs
 
       - name: Run unit tests with JaCoCo coverage
         # createDebugUnitTestCoverageReport depends on testDebugUnitTest and generates
@@ -220,13 +227,13 @@ jobs:
           ./gradlew testDebugUnitTest createDebugUnitTestCoverageReport verifyCoreCoverage
           -PenableCoverage
 
-      - name: Upload JaCoCo XML and HTML report
+      - name: Upload JVM unit coverage report
         uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: jacoco-coverage-report
+          name: jvm-unit-coverage-report
           path: app/build/reports/coverage/test/debug/
-          if-no-files-found: warn
+          if-no-files-found: error
           retention-days: 14
 
       - name: Upload unit-test XML and HTML results
@@ -240,186 +247,10 @@ jobs:
           if-no-files-found: warn
           retention-days: 14
 
-      - name: Post coverage summary
-        if: >-
-          github.event_name == 'pull_request' &&
-          github.event.pull_request.head.repo.full_name == github.repository
-        continue-on-error: true
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const fs = require('fs');
-            // AGP JaCoCo XML report path
-            const xmlPath = 'app/build/reports/coverage/test/debug/report.xml';
-            if (!fs.existsSync(xmlPath)) {
-              console.log('Coverage XML not found at ' + xmlPath + ', skipping comment');
-              return;
-            }
-            const xml = fs.readFileSync(xmlPath, 'utf8');
-            const parseCounter = (block, type) => {
-              const matches = [...block.matchAll(new RegExp(`<counter type="${type}" missed="(\\d+)" covered="(\\d+)"\\/>`, 'g'))];
-              const match = matches[matches.length - 1];
-              if (!match) return null;
-              const missed = parseInt(match[1], 10);
-              const covered = parseInt(match[2], 10);
-              const total = missed + covered;
-              const pct = total > 0 ? Math.round((covered / total) * 100) : 0;
-              return { missed, covered, total, pct };
-            };
-
-            const rootCounters = {
-              instruction: parseCounter(xml, 'INSTRUCTION'),
-              branch: parseCounter(xml, 'BRANCH'),
-              line: parseCounter(xml, 'LINE'),
-              method: parseCounter(xml, 'METHOD'),
-              class: parseCounter(xml, 'CLASS'),
-            };
-
-            if (!rootCounters.line) {
-              console.log('No LINE counter in JaCoCo report, skipping');
-              return;
-            }
-
-            const packageRows = [];
-            const packageMatches = [...xml.matchAll(/<package name="([^"]+)">([\s\S]*?)<\/package>/g)];
-            for (const [, pkgName, pkgBlock] of packageMatches) {
-              const line = parseCounter(pkgBlock, 'LINE');
-              if (!line || line.total === 0) continue;
-              packageRows.push({
-                name: pkgName.replaceAll('/', '.'),
-                ...line,
-              });
-            }
-
-            const fileRows = [];
-            const coreTotals = {
-              line: { covered: 0, missed: 0 },
-              branch: { covered: 0, missed: 0 },
-            };
-            for (const [, pkgName, pkgBlock] of packageMatches) {
-              const sourceMatches = [...pkgBlock.matchAll(/<sourcefile name="([^"]+)">([\s\S]*?)<\/sourcefile>/g)];
-              for (const [, fileName, fileBlock] of sourceMatches) {
-                const line = parseCounter(fileBlock, 'LINE');
-                if (!line || line.total === 0) continue;
-                const path = `${pkgName}/${fileName}`;
-                fileRows.push({
-                  name: path,
-                  ...line,
-                });
-                const isCore = path.endsWith('.kt') &&
-                  (path.startsWith('com/example/ironpath/domain/') ||
-                    path.startsWith('com/example/ironpath/data/repository/') ||
-                    (path.startsWith('com/example/ironpath/ui/screens/') &&
-                      path.endsWith('ViewModel.kt') &&
-                      !path.endsWith('DevToolsViewModel.kt')));
-                if (isCore) {
-                  coreTotals.line.covered += line.covered;
-                  coreTotals.line.missed += line.missed;
-                  const branch = parseCounter(fileBlock, 'BRANCH');
-                  if (branch) {
-                    coreTotals.branch.covered += branch.covered;
-                    coreTotals.branch.missed += branch.missed;
-                  }
-                }
-              }
-            }
-
-            const summarizeCore = ({ covered, missed }) => {
-              const total = covered + missed;
-              const pct = total > 0 ? (covered / total) * 100 : 0;
-              return { covered, total, pct };
-            };
-            const coreCounters = {
-              line: summarizeCore(coreTotals.line),
-              branch: summarizeCore(coreTotals.branch),
-            };
-
-            packageRows.sort((a, b) => {
-              if (a.pct !== b.pct) return a.pct - b.pct;
-              return b.missed - a.missed;
-            });
-
-            fileRows.sort((a, b) => {
-              if (a.pct !== b.pct) return a.pct - b.pct;
-              return b.missed - a.missed;
-            });
-
-            const topPackages = packageRows.slice(0, 10);
-            const topFiles = fileRows.slice(0, 20);
-
-            let body = '## Coverage Report\n\n';
-            body += '### Core merge gate\n\n';
-            body += 'Scope: domain, repositories, and non-dev ViewModels.\n\n';
-            body += '| Metric | Covered | Total | % | Minimum |\n';
-            body += '|--------|---------|-------|---|---------|\n';
-            body += `| Lines | ${coreCounters.line.covered} | ${coreCounters.line.total} | **${coreCounters.line.pct.toFixed(2)}%** | 85% |\n`;
-            body += `| Branches | ${coreCounters.branch.covered} | ${coreCounters.branch.total} | **${coreCounters.branch.pct.toFixed(2)}%** | 70% |\n`;
-            body += '\n### Overall JVM coverage\n\n';
-            body += '| Metric | Covered | Total | % |\n';
-            body += '|--------|---------|-------|---|\n';
-            for (const [label, counter] of Object.entries({
-              Instructions: rootCounters.instruction,
-              Branches: rootCounters.branch,
-              Lines: rootCounters.line,
-              Methods: rootCounters.method,
-              Classes: rootCounters.class,
-            })) {
-              if (!counter) continue;
-              body += `| ${label} | ${counter.covered} | ${counter.total} | **${counter.pct}%** |\n`;
-            }
-
-            if (topPackages.length) {
-              body += '\n### Lowest-Coverage Packages\n\n';
-              body += '| Package | Covered | Total | % |\n';
-              body += '|---------|---------|-------|---|\n';
-              for (const row of topPackages) {
-                body += `| \`${row.name}\` | ${row.covered} | ${row.total} | ${row.pct}% |\n`;
-              }
-            }
-
-            if (topFiles.length) {
-              body += '\n### Lowest-Coverage Files\n\n';
-              body += '| File | Covered | Total | % |\n';
-              body += '|------|---------|-------|---|\n';
-              for (const row of topFiles) {
-                body += `| \`${row.name}\` | ${row.covered} | ${row.total} | ${row.pct}% |\n`;
-              }
-            }
-
-            if (fileRows.length > topFiles.length) {
-              body += `\n<sub>Showing ${topFiles.length} of ${fileRows.length} files. Use the \`jacoco-coverage-report\` artifact for the full HTML report.</sub>\n`;
-            } else {
-              body += '\n<sub>Full HTML coverage report is attached as the `jacoco-coverage-report` artifact.</sub>\n';
-            }
-
-            const { data: comments } = await github.rest.issues.listComments({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: context.issue.number,
-            });
-            const existingComment = comments.find(c =>
-              c.user.type === 'Bot' && c.body.includes('## Coverage Report')
-            );
-            if (existingComment) {
-              await github.rest.issues.updateComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                comment_id: existingComment.id,
-                body,
-              });
-            } else {
-              await github.rest.issues.createComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: context.issue.number,
-                body,
-              });
-            }
-
   api29-hilt-smoke:
     name: API 29 Hilt Smoke
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 40
     permissions:
       contents: read
 
@@ -446,11 +277,20 @@ jobs:
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
 
-      - name: Run API 29 production instrumentation suite
+      - name: Run API 29 production instrumentation with coverage
         run: >-
-          ./gradlew pixel2Api29DebugAndroidTest
+          ./gradlew :app:createPixel2Api29DebugAndroidTestCoverageReport
+          -PenableAndroidTestCoverage
           -Pandroid.testInstrumentationRunnerArguments.notClass=com.example.ironpath.accessibility.PlatformAccessibilityChecksTest
           -Pandroid.testoptions.manageddevices.emulator.gpu=swiftshader_indirect
+
+      - name: Upload API 29 instrumented coverage report
+        uses: actions/upload-artifact@v4
+        with:
+          name: api29-instrumented-coverage-report
+          path: app/build/reports/coverage/androidTest/debug/pixel2Api29/
+          if-no-files-found: error
+          retention-days: 14
 
       - name: Upload API 29 HTML reports
         uses: actions/upload-artifact@v4
@@ -471,3 +311,72 @@ jobs:
             app/build/outputs/managed_device_android_test_additional_output/
           if-no-files-found: warn
           retention-days: 14
+
+  coverage-summary:
+    name: Coverage Summary
+    needs: [unit-and-coverage, api29-hilt-smoke]
+    if: >-
+      github.event_name == 'pull_request' &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download JVM unit coverage
+        uses: actions/download-artifact@v4
+        with:
+          name: jvm-unit-coverage-report
+          path: coverage/unit
+
+      - name: Download API 29 instrumented coverage
+        uses: actions/download-artifact@v4
+        with:
+          name: api29-instrumented-coverage-report
+          path: coverage/android
+
+      - name: Post layer-aware coverage summary
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const path = require('path');
+            const { pathToFileURL } = require('url');
+            const modulePath = path.join(
+              process.env.GITHUB_WORKSPACE,
+              '.github/scripts/coverage-report.mjs',
+            );
+            const { buildCoverageComment } = await import(
+              pathToFileURL(modulePath).href
+            );
+            const body = buildCoverageComment({
+              unitXml: fs.readFileSync('coverage/unit/report.xml', 'utf8'),
+              androidXml: fs.readFileSync('coverage/android/report.xml', 'utf8'),
+            });
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+            const existing = comments.find((comment) =>
+              comment.user.type === 'Bot' &&
+              comment.body.includes('## Coverage Report'),
+            );
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existing.id,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body,
+              });
+            }
