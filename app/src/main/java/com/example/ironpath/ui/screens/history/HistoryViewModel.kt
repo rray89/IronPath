@@ -1,11 +1,20 @@
 package com.example.ironpath.ui.screens.history
 
+import android.database.sqlite.SQLiteConstraintException
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.ironpath.data.local.entity.PersonalRecord
 import com.example.ironpath.data.repository.HistoryRepository
 import com.example.ironpath.data.repository.PlanRepository
 import com.example.ironpath.data.repository.RecordRepository
+import com.example.ironpath.domain.identity.IdProvider
+import com.example.ironpath.domain.time.TimeProvider
+import com.example.ironpath.domain.validation.ValidatedRecordDraft
+import dagger.hilt.android.lifecycle.HiltViewModel
+import java.time.LocalDate
+import java.time.ZoneId
+import javax.inject.Inject
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -13,10 +22,15 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
-class HistoryViewModel(
+@HiltViewModel
+class HistoryViewModel
+@Inject
+constructor(
     private val historyRepository: HistoryRepository,
     private val recordRepository: RecordRepository,
     private val planRepository: PlanRepository,
+    private val timeProvider: TimeProvider,
+    private val idProvider: IdProvider,
 ) : ViewModel() {
 
     private val _selectedTab = MutableStateFlow(HistoryTab.Logs)
@@ -36,13 +50,10 @@ class HistoryViewModel(
     private val _addRecordShown = MutableStateFlow(false)
     val addRecordShown: StateFlow<Boolean> = _addRecordShown.asStateFlow()
 
-    // Edit Record state
-    private val _editingRecord = MutableStateFlow<PersonalRecord?>(null)
-    val editingRecord: StateFlow<PersonalRecord?> = _editingRecord.asStateFlow()
+    private val _addRecordError = MutableStateFlow<String?>(null)
+    val addRecordError: StateFlow<String?> = _addRecordError.asStateFlow()
 
-    // Edit Record error (e.g. duplicate constraint)
-    private val _editRecordError = MutableStateFlow<String?>(null)
-    val editRecordError: StateFlow<String?> = _editRecordError.asStateFlow()
+    private var isSavingRecord = false
 
     // Exercise name suggestions from both plans and existing records
     private val _exerciseSuggestions = MutableStateFlow<List<String>>(emptyList())
@@ -51,6 +62,11 @@ class HistoryViewModel(
     fun selectTab(tab: HistoryTab) {
         _selectedTab.value = tab
     }
+
+    fun today(): LocalDate = timeProvider.today()
+
+    val zoneId: ZoneId
+        get() = timeProvider.zoneId
 
     private fun loadSuggestions() {
         viewModelScope.launch {
@@ -67,56 +83,46 @@ class HistoryViewModel(
 
     fun hideAddRecord() {
         _addRecordShown.value = false
+        _addRecordError.value = null
     }
 
-    fun showEditRecord(record: PersonalRecord) {
-        loadSuggestions()
-        _editingRecord.value = record
+    fun clearAddRecordError() {
+        _addRecordError.value = null
     }
 
-    fun hideEditRecord() {
-        _editingRecord.value = null
-        _editRecordError.value = null
-    }
-
-    fun clearEditRecordError() {
-        _editRecordError.value = null
-    }
-
-    fun saveRecord(record: PersonalRecord, onSaved: () -> Unit) {
+    fun saveRecord(draft: ValidatedRecordDraft, onSaved: () -> Unit) {
+        if (isSavingRecord) return
+        isSavingRecord = true
+        _addRecordError.value = null
         viewModelScope.launch {
-            recordRepository.insertRecord(record)
-            _addRecordShown.value = false
-            onSaved()
-        }
-    }
-
-    fun updateRecord(record: PersonalRecord, onUpdated: () -> Unit = {}) {
-        viewModelScope.launch {
-            val isDuplicate =
-                recordRepository.isDuplicateExcluding(
-                    normalizedName = record.normalizedExerciseName,
-                    date = record.achievedOn,
-                    weight = record.weightKg,
-                    excludeId = record.id,
-                )
-            if (isDuplicate) {
-                _editRecordError.value =
-                    "A record with this exercise, date, and weight already exists"
-                return@launch
+            try {
+                try {
+                    val record =
+                        PersonalRecord(
+                            id = idProvider.newId(),
+                            exerciseName = draft.exerciseName,
+                            normalizedExerciseName = draft.normalizedExerciseName,
+                            weightKg = draft.weightKg,
+                            achievedOn = draft.achievedOn,
+                            note = draft.note,
+                            createdAt = timeProvider.epochMillis(),
+                        )
+                    recordRepository.insertRecord(record)
+                } catch (cancellation: CancellationException) {
+                    throw cancellation
+                } catch (_: SQLiteConstraintException) {
+                    _addRecordError.value =
+                        "A record with this exercise, date, and weight already exists."
+                    return@launch
+                } catch (_: Exception) {
+                    _addRecordError.value = "Unable to save record. Please try again."
+                    return@launch
+                }
+                _addRecordShown.value = false
+                onSaved()
+            } finally {
+                isSavingRecord = false
             }
-            recordRepository.updateRecord(record)
-            _editingRecord.value = null
-            _editRecordError.value = null
-            onUpdated()
-        }
-    }
-
-    fun deleteRecord(id: String, onDeleted: () -> Unit = {}) {
-        viewModelScope.launch {
-            recordRepository.deleteRecord(id)
-            _editingRecord.value = null
-            onDeleted()
         }
     }
 }

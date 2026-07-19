@@ -3,7 +3,6 @@ package com.example.ironpath.data.local.entity
 import androidx.room.Entity
 import androidx.room.Index
 import androidx.room.PrimaryKey
-import java.util.UUID
 
 @Entity(
     tableName = "personal_records",
@@ -16,7 +15,7 @@ import java.util.UUID
         ],
 )
 data class PersonalRecord(
-    @PrimaryKey val id: String = UUID.randomUUID().toString(),
+    @PrimaryKey val id: String,
     val exerciseName: String,
     val normalizedExerciseName: String, // lowercase trimmed, for dedup
     val weightKg: Double,
@@ -24,7 +23,7 @@ data class PersonalRecord(
     val note: String? = null,
     val sourceType: RecordSource = RecordSource.Manual,
     val sourceWorkoutLogId: String? = null,
-    val createdAt: Long = System.currentTimeMillis(),
+    val createdAt: Long,
 )
 
 enum class RecordSource {

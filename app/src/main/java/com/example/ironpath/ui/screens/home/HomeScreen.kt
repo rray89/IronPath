@@ -31,19 +31,21 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.ironpath.data.local.entity.PlannedWorkout
 import com.example.ironpath.data.local.entity.WeeklyPlan
 import com.example.ironpath.data.local.entity.WorkoutStatus
 import com.example.ironpath.ui.components.GreenGradientButton
+import com.example.ironpath.ui.testing.TestTags
 import com.example.ironpath.ui.theme.IronPathTheme
 import com.example.ironpath.ui.theme.SurfaceContainerHigh
 import com.example.ironpath.ui.theme.SurfaceContainerLow
-import org.koin.androidx.compose.koinViewModel
 
-// -- Production entry point (Koin-backed) --
+// -- Production entry point (Hilt-backed) --
 
 @Composable
 fun HomeScreen(
@@ -51,7 +53,7 @@ fun HomeScreen(
     onNavigateToActive: () -> Unit,
     onOpenWorkoutPreview: (String) -> Unit,
     modifier: Modifier = Modifier,
-    viewModel: HomeViewModel = koinViewModel(),
+    viewModel: HomeViewModel = hiltViewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     HomeContent(uiState, onNavigateToPlan, onNavigateToActive, onOpenWorkoutPreview, modifier)
@@ -69,7 +71,10 @@ internal fun HomeContent(
 ) {
     when (uiState) {
         HomeUiState.Loading -> {
-            Box(modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Box(
+                modifier.fillMaxSize().testTag(TestTags.HOME_LOADING),
+                contentAlignment = Alignment.Center,
+            ) {
                 CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
             }
         }
@@ -281,6 +286,7 @@ private fun HomeWeekCompleteState(
         modifier =
             modifier
                 .fillMaxSize()
+                .testTag(TestTags.HOME_WEEK_COMPLETE)
                 .padding(horizontal = 24.dp)
                 .verticalScroll(rememberScrollState()),
     ) {
@@ -343,6 +349,7 @@ private fun WorkoutCard(
         modifier =
             modifier
                 .fillMaxWidth()
+                .testTag(TestTags.workout(workout.id))
                 .clip(RoundedCornerShape(4.dp))
                 .background(SurfaceContainerLow)
                 .clickable(onClick = onClick)
@@ -398,6 +405,7 @@ private val PreviewPlan =
         id = "preview-plan",
         startDate = "2026-03-30",
         endDate = "2026-04-05",
+        createdAt = 1L,
     )
 
 private val PreviewWorkouts =

@@ -51,11 +51,6 @@ interface SessionDao {
     )
     suspend fun getSetsForExercises(exerciseIds: List<String>): List<SessionSet>
 
-    @Query(
-        "SELECT COUNT(*) FROM session_sets WHERE sessionExerciseId IN (:exerciseIds) AND reps IS NOT NULL AND weightKg IS NOT NULL"
-    )
-    suspend fun countCompletedSets(exerciseIds: List<String>): Int
-
     @Transaction
     suspend fun startNewSession(session: ActiveSession, exercises: List<SessionExercise>) {
         val existing = getActiveSession()

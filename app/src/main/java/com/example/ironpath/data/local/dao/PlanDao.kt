@@ -41,6 +41,9 @@ interface PlanDao {
     @Query("SELECT * FROM planned_workouts WHERE id = :id")
     suspend fun getWorkoutById(id: String): PlannedWorkout?
 
+    @Query("UPDATE planned_workouts SET status = 'Completed' WHERE id = :id")
+    suspend fun markWorkoutCompleted(id: String)
+
     @Query("DELETE FROM planned_workouts WHERE id = :id") suspend fun deleteWorkout(id: String)
 
     // PlannedExercise

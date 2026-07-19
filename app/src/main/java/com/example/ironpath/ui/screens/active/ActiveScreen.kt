@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -38,21 +39,29 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.ironpath.data.local.entity.ActiveSession
 import com.example.ironpath.data.local.entity.PlannedWorkout
 import com.example.ironpath.data.local.entity.SessionExercise
 import com.example.ironpath.data.local.entity.SessionSet
+import com.example.ironpath.domain.session.SessionSetInput
 import com.example.ironpath.ui.components.GreenGradientButton
+import com.example.ironpath.ui.testing.TestTags
 import com.example.ironpath.ui.theme.IronPathTheme
 import com.example.ironpath.ui.theme.SurfaceContainerHigh
 import com.example.ironpath.ui.theme.SurfaceContainerLow
-import org.koin.androidx.compose.koinViewModel
 
 // -- Production entry point --
 
@@ -61,7 +70,7 @@ fun ActiveScreen(
     onNavigateToPlan: () -> Unit,
     onWorkoutComplete: () -> Unit,
     modifier: Modifier = Modifier,
-    viewModel: ActiveViewModel = koinViewModel(),
+    viewModel: ActiveViewModel = hiltViewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val elapsed by viewModel.elapsedSeconds.collectAsStateWithLifecycle()
@@ -69,6 +78,7 @@ fun ActiveScreen(
     ActiveContent(
         uiState = uiState,
         elapsedSeconds = elapsed,
+        nowMillis = viewModel::nowMillis,
         onNavigateToPlan = onNavigateToPlan,
         onStartSession = viewModel::startSession,
         onUpdateSet = viewModel::updateSet,
@@ -84,6 +94,7 @@ fun ActiveScreen(
 internal fun ActiveContent(
     uiState: ActiveUiState,
     elapsedSeconds: Long,
+    nowMillis: () -> Long,
     onNavigateToPlan: () -> Unit,
     onStartSession: (PlannedWorkout) -> Unit,
     onUpdateSet: (SessionSet) -> Unit,
@@ -93,7 +104,10 @@ internal fun ActiveContent(
 ) {
     when (uiState) {
         ActiveUiState.Loading -> {
-            Box(modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Box(
+                modifier.fillMaxSize().testTag(TestTags.ACTIVE_LOADING),
+                contentAlignment = Alignment.Center,
+            ) {
                 CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
             }
         }
@@ -106,6 +120,7 @@ internal fun ActiveContent(
                 exercises = uiState.exercises,
                 sets = uiState.sets,
                 elapsedSeconds = elapsedSeconds,
+                nowMillis = nowMillis,
                 onUpdateSet = onUpdateSet,
                 onAddSet = onAddSet,
                 onFinishWorkout = onFinishWorkout,
@@ -122,7 +137,12 @@ private fun ActiveNoPlanState(
     modifier: Modifier = Modifier,
 ) {
     Column(
-        modifier = modifier.fillMaxSize(),
+        modifier =
+            modifier
+                .fillMaxSize()
+                .padding(horizontal = 24.dp)
+                .verticalScroll(rememberScrollState())
+                .padding(vertical = 24.dp),
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
@@ -172,7 +192,12 @@ private fun ActiveRestDayState(
     modifier: Modifier = Modifier,
 ) {
     Column(
-        modifier = modifier.fillMaxSize(),
+        modifier =
+            modifier
+                .fillMaxSize()
+                .padding(horizontal = 24.dp)
+                .verticalScroll(rememberScrollState())
+                .padding(vertical = 24.dp),
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
@@ -217,7 +242,12 @@ private fun ActiveReadyState(
     modifier: Modifier = Modifier,
 ) {
     Column(
-        modifier = modifier.fillMaxSize(),
+        modifier =
+            modifier
+                .fillMaxSize()
+                .padding(horizontal = 24.dp)
+                .verticalScroll(rememberScrollState())
+                .padding(vertical = 24.dp),
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
@@ -252,6 +282,7 @@ private fun ActiveSessionState(
     exercises: List<SessionExercise>,
     sets: List<SessionSet>,
     elapsedSeconds: Long,
+    nowMillis: () -> Long,
     onUpdateSet: (SessionSet) -> Unit,
     onAddSet: (String, Int) -> Unit,
     onFinishWorkout: () -> Unit,
@@ -294,6 +325,7 @@ private fun ActiveSessionState(
                 exercise = exercise,
                 sets = exerciseSets,
                 onUpdateSet = onUpdateSet,
+                nowMillis = nowMillis,
                 onAddSet = { onAddSet(exercise.id, exerciseSets.size) },
             )
 
@@ -306,6 +338,7 @@ private fun ActiveSessionState(
         GreenGradientButton(
             text = "Complete Workout",
             onClick = onFinishWorkout,
+            modifier = Modifier.testTag(TestTags.ACTIVE_COMPLETE),
         )
 
         Spacer(Modifier.height(32.dp))
@@ -318,6 +351,7 @@ private fun ExerciseSection(
     exercise: SessionExercise,
     sets: List<SessionSet>,
     onUpdateSet: (SessionSet) -> Unit,
+    nowMillis: () -> Long,
     onAddSet: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -376,8 +410,10 @@ private fun ExerciseSection(
         sets.forEach { set ->
             SetRow(
                 set = set,
+                exerciseName = exercise.name,
                 planInfo = "${exercise.plannedReps}reps@${exercise.plannedWeightKg.toInt()}kg",
                 onUpdateSet = onUpdateSet,
+                nowMillis = nowMillis,
             )
             Spacer(Modifier.height(4.dp))
         }
@@ -386,15 +422,16 @@ private fun ExerciseSection(
         Row(
             modifier =
                 Modifier.fillMaxWidth()
+                    .heightIn(min = 48.dp)
                     .clip(RoundedCornerShape(4.dp))
-                    .clickable(onClick = onAddSet)
+                    .clickable(role = Role.Button, onClick = onAddSet)
                     .padding(vertical = 8.dp),
             horizontalArrangement = Arrangement.Center,
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Icon(
                 imageVector = Icons.Default.Add,
-                contentDescription = "Add set",
+                contentDescription = null,
                 modifier = Modifier.size(16.dp),
                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -411,8 +448,10 @@ private fun ExerciseSection(
 @Composable
 private fun SetRow(
     set: SessionSet,
+    exerciseName: String,
     planInfo: String,
     onUpdateSet: (SessionSet) -> Unit,
+    nowMillis: () -> Long,
     modifier: Modifier = Modifier,
 ) {
     val isDone = set.reps != null && set.weightKg != null
@@ -421,6 +460,13 @@ private fun SetRow(
         modifier =
             modifier
                 .fillMaxWidth()
+                .testTag(TestTags.set(set.id))
+                .semantics {
+                    val setLabel =
+                        if (set.isExtra) "extra set ${set.setNumber}" else "set ${set.setNumber}"
+                    val completion = if (isDone) "complete" else "incomplete"
+                    stateDescription = "$exerciseName $setLabel, $completion"
+                }
                 .background(SurfaceContainerLow, RoundedCornerShape(4.dp))
                 .padding(horizontal = 4.dp, vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -450,16 +496,10 @@ private fun SetRow(
                     if (it == it.toLong().toDouble()) it.toInt().toString() else it.toString()
                 } ?: "",
             onValueChange = { text ->
-                val weight = text.toDoubleOrNull()
-                onUpdateSet(
-                    set.copy(
-                        weightKg = weight,
-                        completedAt =
-                            if (weight != null && set.reps != null) System.currentTimeMillis()
-                            else null
-                    )
-                )
+                onUpdateSet(SessionSetInput.withWeight(set, text, nowMillis()))
             },
+            accessibilityLabel = "Weight for $exerciseName set ${set.setNumber}",
+            fieldTestTag = TestTags.setWeight(set.id),
             modifier = Modifier.weight(1f),
         )
 
@@ -469,16 +509,10 @@ private fun SetRow(
         CompactNumberField(
             value = set.reps?.toString() ?: "",
             onValueChange = { text ->
-                val reps = text.toIntOrNull()
-                onUpdateSet(
-                    set.copy(
-                        reps = reps,
-                        completedAt =
-                            if (reps != null && set.weightKg != null) System.currentTimeMillis()
-                            else null
-                    )
-                )
+                onUpdateSet(SessionSetInput.withReps(set, text, nowMillis()))
             },
+            accessibilityLabel = "Repetitions for $exerciseName set ${set.setNumber}",
+            fieldTestTag = TestTags.setReps(set.id),
             modifier = Modifier.weight(1f),
         )
 
@@ -490,7 +524,7 @@ private fun SetRow(
             if (isDone) {
                 Icon(
                     imageVector = Icons.Default.Check,
-                    contentDescription = "Set complete",
+                    contentDescription = null,
                     modifier = Modifier.size(20.dp),
                     tint = MaterialTheme.colorScheme.primary,
                 )
@@ -503,6 +537,8 @@ private fun SetRow(
 private fun CompactNumberField(
     value: String,
     onValueChange: (String) -> Unit,
+    accessibilityLabel: String,
+    fieldTestTag: String,
     modifier: Modifier = Modifier,
 ) {
     // Use TextFieldValue to preserve cursor position across recompositions
@@ -525,7 +561,11 @@ private fun CompactNumberField(
         },
         modifier =
             modifier
-                .height(40.dp)
+                .heightIn(min = 48.dp)
+                .semantics(mergeDescendants = true) {
+                    contentDescription = accessibilityLabel
+                    this[SemanticsProperties.TestTag] = fieldTestTag
+                }
                 .onFocusChanged { isFocused = it.isFocused }
                 .border(1.dp, borderColor, RoundedCornerShape(4.dp))
                 .padding(horizontal = 8.dp),
@@ -564,6 +604,7 @@ private fun PreviewActiveNoPlan() {
             ActiveContent(
                 uiState = ActiveUiState.NoPlan,
                 elapsedSeconds = 0,
+                nowMillis = { 1L },
                 onNavigateToPlan = {},
                 onStartSession = {},
                 onUpdateSet = {},
@@ -582,6 +623,7 @@ private fun PreviewActiveRestDay() {
             ActiveContent(
                 uiState = ActiveUiState.RestDay(nextWorkoutDay = "Wednesday"),
                 elapsedSeconds = 0,
+                nowMillis = { 1L },
                 onNavigateToPlan = {},
                 onStartSession = {},
                 onUpdateSet = {},
@@ -605,6 +647,8 @@ private fun PreviewActiveInSession() {
                                 id = "s1",
                                 sourcePlannedWorkoutId = "w1",
                                 workoutTitle = "Push A",
+                                startedAt = 1L,
+                                lastUpdatedAt = 1L,
                             ),
                         exercises =
                             listOf(
@@ -658,6 +702,7 @@ private fun PreviewActiveInSession() {
                             ),
                     ),
                 elapsedSeconds = 2892,
+                nowMillis = { 1L },
                 onNavigateToPlan = {},
                 onStartSession = {},
                 onUpdateSet = {},

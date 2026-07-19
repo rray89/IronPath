@@ -7,12 +7,16 @@ import com.example.ironpath.data.local.entity.PlannedWorkout
 import com.example.ironpath.data.local.entity.SessionExercise
 import com.example.ironpath.data.local.entity.SessionSet
 import com.example.ironpath.data.local.entity.WorkoutLog
-import com.example.ironpath.data.local.entity.WorkoutStatus
 import com.example.ironpath.data.repository.PlanRepository
 import com.example.ironpath.data.repository.SessionRepository
+import com.example.ironpath.domain.identity.IdProvider
 import com.example.ironpath.domain.planner.findNextUpcomingWorkout
 import com.example.ironpath.domain.planner.findWorkoutScheduledToday
 import com.example.ironpath.domain.session.StartPlannedWorkoutUseCase
+import com.example.ironpath.domain.time.TimeProvider
+import dagger.hilt.android.lifecycle.HiltViewModel
+import javax.inject.Inject
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -28,10 +32,15 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalCoroutinesApi::class)
-class ActiveViewModel(
+@HiltViewModel
+class ActiveViewModel
+@Inject
+constructor(
     private val sessionRepository: SessionRepository,
     private val planRepository: PlanRepository,
     private val startPlannedWorkout: StartPlannedWorkoutUseCase,
+    private val timeProvider: TimeProvider,
+    private val idProvider: IdProvider,
 ) : ViewModel() {
 
     private val activeSession = sessionRepository.observeActiveSession()
@@ -67,7 +76,7 @@ class ActiveViewModel(
                 delay(1_000)
                 val session = sessionRepository.getActiveSession()
                 if (session != null) {
-                    _elapsedSeconds.value = (System.currentTimeMillis() - session.startedAt) / 1_000
+                    _elapsedSeconds.value = (timeProvider.epochMillis() - session.startedAt) / 1_000
                 }
             }
         }
@@ -82,9 +91,11 @@ class ActiveViewModel(
             else flowOf(emptyList())
         }
 
-    private val todayWorkout = planWorkouts.map { workouts -> workouts.findWorkoutScheduledToday() }
+    private val todayWorkout =
+        planWorkouts.map { workouts -> workouts.findWorkoutScheduledToday(timeProvider.today()) }
 
-    private val nextWorkout = planWorkouts.map { workouts -> workouts.findNextUpcomingWorkout() }
+    private val nextWorkout =
+        planWorkouts.map { workouts -> workouts.findNextUpcomingWorkout(timeProvider.today()) }
 
     private val sessionState =
         combine(activeSession, exercises, sets) { session, exs, allSets ->
@@ -123,10 +134,13 @@ class ActiveViewModel(
         viewModelScope.launch { sessionRepository.updateSet(set) }
     }
 
+    fun nowMillis(): Long = timeProvider.epochMillis()
+
     fun addExtraSet(exerciseId: String, currentSetCount: Int) {
         viewModelScope.launch {
             sessionRepository.insertSet(
                 SessionSet(
+                    id = idProvider.newId(),
                     sessionExerciseId = exerciseId,
                     setNumber = currentSetCount + 1,
                     isExtra = true,
@@ -142,14 +156,13 @@ class ActiveViewModel(
             try {
                 val session = sessionRepository.getActiveSession() ?: return@launch
                 val exs = sessionRepository.getExercisesForSession(session.id)
-                val exerciseIds = exs.map { it.id }
-                val completedSets = sessionRepository.countCompletedSets(exerciseIds)
 
-                val now = System.currentTimeMillis()
+                val now = timeProvider.epochMillis()
                 val durationMinutes = ((now - session.startedAt) / 60_000).toInt()
 
                 val log =
                     WorkoutLog(
+                        id = idProvider.newId(),
                         title = session.workoutTitle,
                         sourcePlannedWorkoutId = session.sourcePlannedWorkoutId,
                         startedAt = session.startedAt,
@@ -160,19 +173,15 @@ class ActiveViewModel(
 
                 sessionRepository.completeSession(session.id, log)
 
-                // Mark planned workout as completed if at least one set was logged
-                if (completedSets > 0) {
-                    val workout = planRepository.getWorkoutById(session.sourcePlannedWorkoutId)
-                    if (workout != null) {
-                        planRepository.updateWorkout(workout.copy(status = WorkoutStatus.Completed))
-                    }
-                }
-
                 _elapsedSeconds.value = 0
-                onComplete()
+            } catch (cancellation: CancellationException) {
+                throw cancellation
+            } catch (_: Exception) {
+                return@launch
             } finally {
                 finishInProgress = false
             }
+            onComplete()
         }
     }
 }

@@ -7,71 +7,83 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.error
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
-import com.example.ironpath.data.local.entity.PersonalRecord
+import com.example.ironpath.domain.validation.RecordDraftResult
+import com.example.ironpath.domain.validation.RecordDraftValidator
+import com.example.ironpath.domain.validation.RecordField
+import com.example.ironpath.domain.validation.ValidatedRecordDraft
 import com.example.ironpath.ui.components.GreenGradientButton
+import com.example.ironpath.ui.testing.TestTags
 import com.example.ironpath.ui.theme.IronPathTheme
 import java.time.LocalDate
-import java.time.format.DateTimeFormatter
 
 @Composable
 internal fun AddRecordScreen(
     suggestions: List<String>,
-    onSave: (PersonalRecord) -> Unit,
+    today: LocalDate,
+    onSave: (ValidatedRecordDraft) -> Unit,
     onCancel: () -> Unit,
     modifier: Modifier = Modifier,
-    existingRecord: PersonalRecord? = null,
-    onDelete: (() -> Unit)? = null,
     externalError: String? = null,
     onExternalErrorConsumed: () -> Unit = {},
 ) {
-    val isEditMode = existingRecord != null
+    val validator = remember { RecordDraftValidator() }
 
-    var exerciseName by remember { mutableStateOf(existingRecord?.exerciseName ?: "") }
-    var weightText by remember {
-        mutableStateOf(
-            existingRecord?.weightKg?.let {
-                if (it == it.toLong().toDouble()) it.toLong().toString() else it.toString()
-            } ?: "",
-        )
-    }
-    var dateText by remember {
-        mutableStateOf(
-            existingRecord?.achievedOn ?: LocalDate.now().format(DateTimeFormatter.ISO_LOCAL_DATE),
-        )
-    }
-    var note by remember { mutableStateOf(existingRecord?.note ?: "") }
-    var errorMessage by remember { mutableStateOf<String?>(null) }
+    var exerciseName by rememberSaveable { mutableStateOf("") }
+    var weightText by rememberSaveable { mutableStateOf("") }
+    var dateText by rememberSaveable { mutableStateOf(today.toString()) }
+    var note by rememberSaveable { mutableStateOf("") }
+    var errorMessage by rememberSaveable { mutableStateOf<String?>(null) }
+    var fieldErrors by remember { mutableStateOf<Map<RecordField, String>>(emptyMap()) }
+    val filteredSuggestions =
+        remember(exerciseName, suggestions) {
+            val query = exerciseName.trim()
+            if (query.isEmpty()) {
+                emptyList()
+            } else {
+                suggestions
+                    .asSequence()
+                    .filter { it.contains(query, ignoreCase = true) }
+                    .filterNot { it.equals(query, ignoreCase = true) }
+                    .distinct()
+                    .toList()
+            }
+        }
 
-    // Show errors surfaced asynchronously from the ViewModel (e.g. duplicate-record constraint)
+    // Keep an asynchronously surfaced duplicate error visible after the ViewModel consumes it.
     LaunchedEffect(externalError) {
         if (externalError != null) {
             errorMessage = externalError
             onExternalErrorConsumed()
         }
     }
-    var showDeleteConfirmation by remember { mutableStateOf(false) }
-
     val fieldColors =
         OutlinedTextFieldDefaults.colors(
             focusedBorderColor = MaterialTheme.colorScheme.primary,
@@ -81,42 +93,6 @@ internal fun AddRecordScreen(
             focusedLabelColor = MaterialTheme.colorScheme.primary,
             unfocusedLabelColor = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-
-    // Delete confirmation dialog
-    if (showDeleteConfirmation) {
-        AlertDialog(
-            onDismissRequest = { showDeleteConfirmation = false },
-            title = {
-                Text(
-                    text = "Delete Record",
-                    style = MaterialTheme.typography.titleLarge,
-                )
-            },
-            text = {
-                Text(
-                    text = "Delete this record? This cannot be undone.",
-                    style = MaterialTheme.typography.bodyMedium,
-                )
-            },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        showDeleteConfirmation = false
-                        onDelete?.invoke()
-                    },
-                ) {
-                    Text(
-                        text = "DELETE",
-                        color = MaterialTheme.colorScheme.error,
-                    )
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showDeleteConfirmation = false }) { Text("CANCEL") }
-            },
-            containerColor = MaterialTheme.colorScheme.surface,
-        )
-    }
 
     Column(
         modifier =
@@ -128,7 +104,7 @@ internal fun AddRecordScreen(
         Spacer(Modifier.height(16.dp))
 
         Text(
-            text = if (isEditMode) "EDIT RECORD" else "ADD RECORD",
+            text = "ADD RECORD",
             style = MaterialTheme.typography.headlineMedium,
             color = MaterialTheme.colorScheme.onSurface,
         )
@@ -144,12 +120,39 @@ internal fun AddRecordScreen(
         Spacer(Modifier.height(4.dp))
         OutlinedTextField(
             value = exerciseName,
-            onValueChange = { exerciseName = it },
-            modifier = Modifier.fillMaxWidth(),
+            onValueChange = {
+                exerciseName = it
+                fieldErrors = fieldErrors - RecordField.ExerciseName
+            },
+            modifier =
+                Modifier.fillMaxWidth()
+                    .testTag(TestTags.RECORD_NAME)
+                    .recordFieldSemantics(
+                        label = "Exercise name",
+                        errorMessage = fieldErrors[RecordField.ExerciseName],
+                    ),
             placeholder = { Text("e.g. Deadlift") },
             singleLine = true,
+            isError = RecordField.ExerciseName in fieldErrors,
+            supportingText =
+                fieldErrors[RecordField.ExerciseName]?.let { message -> { Text(message) } },
             colors = fieldColors,
         )
+        filteredSuggestions.forEach { suggestion ->
+            Text(
+                text = suggestion,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurface,
+                modifier =
+                    Modifier.fillMaxWidth()
+                        .heightIn(min = 48.dp)
+                        .clickable(role = Role.Button) {
+                            exerciseName = suggestion
+                            fieldErrors = fieldErrors - RecordField.ExerciseName
+                        }
+                        .padding(horizontal = 12.dp, vertical = 10.dp),
+            )
+        }
 
         Spacer(Modifier.height(20.dp))
 
@@ -164,11 +167,23 @@ internal fun AddRecordScreen(
                 Spacer(Modifier.height(4.dp))
                 OutlinedTextField(
                     value = weightText,
-                    onValueChange = { weightText = it },
-                    modifier = Modifier.fillMaxWidth(),
+                    onValueChange = {
+                        weightText = it
+                        fieldErrors = fieldErrors - RecordField.Weight
+                    },
+                    modifier =
+                        Modifier.fillMaxWidth()
+                            .testTag(TestTags.RECORD_WEIGHT)
+                            .recordFieldSemantics(
+                                label = "Value",
+                                errorMessage = fieldErrors[RecordField.Weight],
+                            ),
                     placeholder = { Text("0.0") },
                     singleLine = true,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                    isError = RecordField.Weight in fieldErrors,
+                    supportingText =
+                        fieldErrors[RecordField.Weight]?.let { message -> { Text(message) } },
                     colors = fieldColors,
                 )
             }
@@ -185,7 +200,9 @@ internal fun AddRecordScreen(
                 OutlinedTextField(
                     value = "kg",
                     onValueChange = {},
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier =
+                        Modifier.fillMaxWidth()
+                            .recordFieldSemantics(label = "Unit / type", errorMessage = null),
                     readOnly = true,
                     singleLine = true,
                     colors = fieldColors,
@@ -204,10 +221,21 @@ internal fun AddRecordScreen(
         Spacer(Modifier.height(4.dp))
         OutlinedTextField(
             value = dateText,
-            onValueChange = { dateText = it },
-            modifier = Modifier.fillMaxWidth(),
+            onValueChange = {
+                dateText = it
+                fieldErrors = fieldErrors - RecordField.Date
+            },
+            modifier =
+                Modifier.fillMaxWidth()
+                    .testTag(TestTags.RECORD_DATE)
+                    .recordFieldSemantics(
+                        label = "Date",
+                        errorMessage = fieldErrors[RecordField.Date],
+                    ),
             placeholder = { Text("YYYY-MM-DD") },
             singleLine = true,
+            isError = RecordField.Date in fieldErrors,
+            supportingText = fieldErrors[RecordField.Date]?.let { message -> { Text(message) } },
             colors = fieldColors,
         )
 
@@ -223,7 +251,11 @@ internal fun AddRecordScreen(
         OutlinedTextField(
             value = note,
             onValueChange = { note = it },
-            modifier = Modifier.fillMaxWidth().height(100.dp),
+            modifier =
+                Modifier.fillMaxWidth()
+                    .height(100.dp)
+                    .testTag(TestTags.RECORD_NOTE)
+                    .recordFieldSemantics(label = "Note (optional)", errorMessage = null),
             placeholder = { Text("How did it feel?") },
             colors = fieldColors,
         )
@@ -234,53 +266,34 @@ internal fun AddRecordScreen(
                 text = errorMessage!!,
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.error,
+                modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },
             )
         }
 
-        Spacer(Modifier.weight(1f))
+        Spacer(Modifier.height(24.dp))
 
-        // Save / Update button
+        // Save button
         GreenGradientButton(
-            text = if (isEditMode) "Update Record" else "Save",
+            text = "Save",
             onClick = {
-                val name = exerciseName.trim()
-                val weight = weightText.toDoubleOrNull()
-                val date =
-                    try {
-                        LocalDate.parse(dateText)
-                    } catch (_: Exception) {
-                        null
-                    }
-
-                when {
-                    name.isEmpty() -> errorMessage = "Exercise name is required"
-                    weight == null || weight <= 0 ->
-                        errorMessage = "Weight must be a positive number"
-                    date == null -> errorMessage = "Invalid date format (use YYYY-MM-DD)"
-                    date.isAfter(LocalDate.now()) -> errorMessage = "Date cannot be in the future"
-                    else -> {
+                when (
+                    val result =
+                        validator.validate(
+                            exerciseName = exerciseName,
+                            weightText = weightText,
+                            dateText = dateText,
+                            note = note,
+                            today = today,
+                        )
+                ) {
+                    is RecordDraftResult.Invalid -> {
+                        fieldErrors = result.errors
                         errorMessage = null
-                        if (isEditMode) {
-                            onSave(
-                                existingRecord.copy(
-                                    exerciseName = name,
-                                    normalizedExerciseName = name.lowercase().trim(),
-                                    weightKg = weight,
-                                    achievedOn = dateText,
-                                    note = note.ifBlank { null },
-                                ),
-                            )
-                        } else {
-                            onSave(
-                                PersonalRecord(
-                                    exerciseName = name,
-                                    normalizedExerciseName = name.lowercase().trim(),
-                                    weightKg = weight,
-                                    achievedOn = dateText,
-                                    note = note.ifBlank { null },
-                                ),
-                            )
-                        }
+                    }
+                    is RecordDraftResult.Valid -> {
+                        fieldErrors = emptyMap()
+                        errorMessage = null
+                        onSave(result.draft)
                     }
                 }
             },
@@ -288,30 +301,29 @@ internal fun AddRecordScreen(
 
         Spacer(Modifier.height(12.dp))
 
-        // Delete button (edit mode only)
-        if (isEditMode && onDelete != null) {
-            Text(
-                text = "DELETE RECORD",
-                style = MaterialTheme.typography.labelLarge,
-                color = MaterialTheme.colorScheme.error,
-                modifier =
-                    Modifier.fillMaxWidth()
-                        .clickable { showDeleteConfirmation = true }
-                        .padding(vertical = 12.dp),
-            )
-            Spacer(Modifier.height(4.dp))
-        }
-
         // Cancel
         Text(
             text = "CANCEL",
             style = MaterialTheme.typography.labelLarge,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier =
-                Modifier.fillMaxWidth().clickable(onClick = onCancel).padding(vertical = 12.dp),
+                Modifier.fillMaxWidth()
+                    .heightIn(min = 48.dp)
+                    .clickable(role = Role.Button, onClick = onCancel)
+                    .padding(vertical = 12.dp),
         )
 
         Spacer(Modifier.height(32.dp))
+    }
+}
+
+private fun Modifier.recordFieldSemantics(
+    label: String,
+    errorMessage: String?,
+): Modifier = semantics {
+    contentDescription = label
+    if (errorMessage != null) {
+        error(errorMessage)
     }
 }
 
@@ -324,31 +336,9 @@ private fun PreviewAddRecord() {
         Surface(color = MaterialTheme.colorScheme.surface) {
             AddRecordScreen(
                 suggestions = listOf("Bench Press", "Squat", "Deadlift"),
+                today = LocalDate.parse("2026-07-16"),
                 onSave = {},
                 onCancel = {},
-            )
-        }
-    }
-}
-
-@Preview(showBackground = true)
-@Composable
-private fun PreviewEditRecord() {
-    IronPathTheme {
-        Surface(color = MaterialTheme.colorScheme.surface) {
-            AddRecordScreen(
-                suggestions = listOf("Bench Press", "Squat", "Deadlift"),
-                onSave = {},
-                onCancel = {},
-                existingRecord =
-                    PersonalRecord(
-                        exerciseName = "Bench Press",
-                        normalizedExerciseName = "bench press",
-                        weightKg = 100.0,
-                        achievedOn = "2026-03-23",
-                        note = "Felt strong",
-                    ),
-                onDelete = {},
             )
         }
     }

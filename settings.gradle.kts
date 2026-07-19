@@ -22,4 +22,4 @@ dependencyResolutionManagement {
 
 rootProject.name = "IronPath"
 
-include(":app")
+include(":app", ":benchmark")

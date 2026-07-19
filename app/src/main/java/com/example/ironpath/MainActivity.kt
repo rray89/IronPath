@@ -30,25 +30,38 @@ import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.testTagsAsResourceId
+import androidx.navigation.NavHostController
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import com.example.ironpath.domain.time.TimeProvider
 import com.example.ironpath.ui.navigation.BottomNavItem
 import com.example.ironpath.ui.navigation.IronPathNavHost
 import com.example.ironpath.ui.navigation.Route
+import com.example.ironpath.ui.testing.TestTags
 import com.example.ironpath.ui.theme.IronPathTheme
+import dagger.hilt.android.AndroidEntryPoint
+import javax.inject.Inject
 
+@AndroidEntryPoint
 class MainActivity : ComponentActivity() {
+    @Inject lateinit var timeProvider: TimeProvider
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-        setContent { IronPathTheme { IronPathApp() } }
+        setContent { IronPathTheme { IronPathApp(timeProvider) } }
     }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun IronPathApp() {
-    val navController = rememberNavController()
+fun IronPathApp(
+    timeProvider: TimeProvider,
+    navController: NavHostController = rememberNavController(),
+) {
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = navBackStackEntry?.destination?.route
 
@@ -59,7 +72,7 @@ fun IronPathApp() {
     var devLastTapAt by remember { mutableLongStateOf(0L) }
 
     Scaffold(
-        modifier = Modifier.fillMaxSize(),
+        modifier = Modifier.fillMaxSize().semantics { testTagsAsResourceId = true },
         topBar = {
             AnimatedVisibility(
                 visible = showBars,
@@ -77,7 +90,7 @@ fun IronPathApp() {
                                     interactionSource = remember { MutableInteractionSource() },
                                     indication = null,
                                 ) {
-                                    val now = System.currentTimeMillis()
+                                    val now = timeProvider.epochMillis()
                                     if (now - devLastTapAt > 2000L) devTapCount = 0
                                     devTapCount++
                                     devLastTapAt = now
@@ -116,6 +129,7 @@ fun IronPathApp() {
                     BottomNavItem.entries.forEach { item ->
                         val selected = currentRoute == item.route
                         NavigationBarItem(
+                            modifier = Modifier.testTag(TestTags.bottomNav(item.route)),
                             selected = selected,
                             onClick = {
                                 if (currentRoute != item.route) {

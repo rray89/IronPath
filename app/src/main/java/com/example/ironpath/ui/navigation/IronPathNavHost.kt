@@ -104,19 +104,15 @@ fun IronPathNavHost(
         }
         composable(Route.HISTORY) {
             HistoryScreen(
-                onOpenLog = { logId, readOnly ->
-                    navController.navigate(Route.workoutLogDetail(logId, readOnly))
-                },
+                onOpenLog = { logId -> navController.navigate(Route.workoutLogDetail(logId)) },
                 modifier = Modifier.padding(innerPadding),
             )
         }
         composable(
             route = Route.WORKOUT_PREVIEW,
             arguments = listOf(navArgument(Route.WORKOUT_ID_ARG) { type = NavType.StringType }),
-        ) { backStackEntry ->
-            val workoutId = backStackEntry.arguments?.getString(Route.WORKOUT_ID_ARG).orEmpty()
+        ) {
             WorkoutPreviewScreen(
-                workoutId = workoutId,
                 onBack = { navController.popBackStack() },
                 onStarted = {
                     navController.navigate(Route.ACTIVE) {
@@ -130,21 +126,9 @@ fun IronPathNavHost(
         }
         composable(
             route = Route.WORKOUT_LOG_DETAIL,
-            arguments =
-                listOf(
-                    navArgument(Route.WORKOUT_LOG_ID_ARG) { type = NavType.StringType },
-                    navArgument(Route.WORKOUT_LOG_READ_ONLY_ARG) {
-                        type = NavType.BoolType
-                        defaultValue = false
-                    },
-                ),
-        ) { backStackEntry ->
-            val logId = backStackEntry.arguments?.getString(Route.WORKOUT_LOG_ID_ARG).orEmpty()
-            val readOnly =
-                backStackEntry.arguments?.getBoolean(Route.WORKOUT_LOG_READ_ONLY_ARG) ?: false
+            arguments = listOf(navArgument(Route.WORKOUT_LOG_ID_ARG) { type = NavType.StringType }),
+        ) {
             WorkoutLogDetailScreen(
-                logId = logId,
-                recordActionsEnabled = !readOnly,
                 onBack = { navController.popBackStack() },
                 modifier = Modifier.padding(innerPadding),
             )

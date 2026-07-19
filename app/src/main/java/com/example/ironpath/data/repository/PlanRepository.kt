@@ -4,9 +4,12 @@ import com.example.ironpath.data.local.dao.PlanDao
 import com.example.ironpath.data.local.entity.PlannedExercise
 import com.example.ironpath.data.local.entity.PlannedWorkout
 import com.example.ironpath.data.local.entity.WeeklyPlan
+import javax.inject.Inject
+import javax.inject.Singleton
 import kotlinx.coroutines.flow.Flow
 
-class PlanRepository(private val planDao: PlanDao) {
+@Singleton
+class PlanRepository @Inject constructor(private val planDao: PlanDao) {
 
     fun observeActivePlan(): Flow<WeeklyPlan?> = planDao.observeActivePlan()
 

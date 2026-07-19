@@ -5,16 +5,21 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -30,59 +35,50 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.ironpath.data.local.entity.PersonalRecord
 import com.example.ironpath.data.local.entity.RecordSource
 import com.example.ironpath.data.local.entity.WorkoutLog
 import com.example.ironpath.ui.components.GreenGradientButton
+import com.example.ironpath.ui.testing.TestTags
 import com.example.ironpath.ui.theme.IronPathTheme
 import com.example.ironpath.ui.theme.SurfaceContainerHigh
 import com.example.ironpath.ui.theme.SurfaceContainerLow
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
-import org.koin.androidx.compose.koinViewModel
+import java.time.ZoneId
+import java.time.ZoneOffset
 
 // -- Production entry point --
 
 @Composable
 fun HistoryScreen(
     modifier: Modifier = Modifier,
-    onOpenLog: (String, Boolean) -> Unit = { _, _ -> },
-    viewModel: HistoryViewModel = koinViewModel(),
+    onOpenLog: (String) -> Unit = {},
+    viewModel: HistoryViewModel = hiltViewModel(),
 ) {
     val selectedTab by viewModel.selectedTab.collectAsStateWithLifecycle()
     val logs by viewModel.logs.collectAsStateWithLifecycle()
     val records by viewModel.records.collectAsStateWithLifecycle()
     val addRecordShown by viewModel.addRecordShown.collectAsStateWithLifecycle()
-    val editingRecord by viewModel.editingRecord.collectAsStateWithLifecycle()
-    val editRecordError by viewModel.editRecordError.collectAsStateWithLifecycle()
+    val addRecordError by viewModel.addRecordError.collectAsStateWithLifecycle()
     val suggestions by viewModel.exerciseSuggestions.collectAsStateWithLifecycle()
 
     // Intercept system back so it returns to the records list, not pops History off the nav stack
-    BackHandler(enabled = editingRecord != null, onBack = viewModel::hideEditRecord)
     BackHandler(enabled = addRecordShown, onBack = viewModel::hideAddRecord)
 
     when {
-        editingRecord != null -> {
-            AddRecordScreen(
-                suggestions = suggestions,
-                onSave = { record -> viewModel.updateRecord(record) },
-                onCancel = viewModel::hideEditRecord,
-                existingRecord = editingRecord,
-                onDelete = { editingRecord?.let { viewModel.deleteRecord(it.id) } },
-                externalError = editRecordError,
-                onExternalErrorConsumed = viewModel::clearEditRecordError,
-                modifier = modifier,
-            )
-        }
         addRecordShown -> {
             AddRecordScreen(
                 suggestions = suggestions,
-                onSave = { record -> viewModel.saveRecord(record) {} },
+                today = viewModel.today(),
+                onSave = { draft -> viewModel.saveRecord(draft) {} },
                 onCancel = viewModel::hideAddRecord,
+                externalError = addRecordError,
+                onExternalErrorConsumed = viewModel::clearAddRecordError,
                 modifier = modifier,
             )
         }
@@ -93,17 +89,8 @@ fun HistoryScreen(
                 records = records,
                 onTabSelected = viewModel::selectTab,
                 onAddRecord = viewModel::showAddRecord,
-                onRecordClick = { record ->
-                    if (
-                        record.sourceType == RecordSource.Logged &&
-                            record.sourceWorkoutLogId != null
-                    ) {
-                        onOpenLog(record.sourceWorkoutLogId, true)
-                    } else {
-                        viewModel.showEditRecord(record)
-                    }
-                },
-                onLogClick = { log -> onOpenLog(log.id, false) },
+                onLogClick = { log -> onOpenLog(log.id) },
+                zoneId = viewModel.zoneId,
                 modifier = modifier,
             )
         }
@@ -119,9 +106,9 @@ internal fun HistoryContent(
     records: List<PersonalRecord>,
     onTabSelected: (HistoryTab) -> Unit,
     onAddRecord: () -> Unit,
-    onRecordClick: (PersonalRecord) -> Unit = {},
-    onLogClick: (WorkoutLog) -> Unit = {},
+    zoneId: ZoneId,
     modifier: Modifier = Modifier,
+    onLogClick: (WorkoutLog) -> Unit = {},
 ) {
     Column(
         modifier = modifier.fillMaxSize().padding(horizontal = 16.dp),
@@ -134,8 +121,19 @@ internal fun HistoryContent(
         Spacer(Modifier.height(16.dp))
 
         when (selectedTab) {
-            HistoryTab.Logs -> LogsContent(logs, onLogClick)
-            HistoryTab.Records -> RecordsContent(records, onAddRecord, onRecordClick)
+            HistoryTab.Logs ->
+                LogsContent(
+                    logs = logs,
+                    onLogClick = onLogClick,
+                    zoneId = zoneId,
+                    modifier = Modifier.weight(1f),
+                )
+            HistoryTab.Records ->
+                RecordsContent(
+                    records = records,
+                    onAddRecord = onAddRecord,
+                    modifier = Modifier.weight(1f),
+                )
         }
     }
 }
@@ -152,6 +150,7 @@ private fun TabBar(
         modifier =
             modifier
                 .fillMaxWidth()
+                .selectableGroup()
                 .background(SurfaceContainerLow, RoundedCornerShape(4.dp))
                 .padding(2.dp),
     ) {
@@ -165,9 +164,15 @@ private fun TabBar(
             Box(
                 modifier =
                     Modifier.weight(1f)
+                        .heightIn(min = 48.dp)
+                        .testTag(TestTags.historyTab(tab.name))
                         .clip(RoundedCornerShape(4.dp))
                         .background(bgColor)
-                        .clickable { onTabSelected(tab) }
+                        .selectable(
+                            selected = selected,
+                            role = Role.Tab,
+                            onClick = { onTabSelected(tab) },
+                        )
                         .padding(vertical = 10.dp),
                 contentAlignment = Alignment.Center,
             ) {
@@ -187,16 +192,17 @@ private fun TabBar(
 private fun LogsContent(
     logs: List<WorkoutLog>,
     onLogClick: (WorkoutLog) -> Unit,
+    zoneId: ZoneId,
     modifier: Modifier = Modifier,
 ) {
     if (logs.isEmpty()) {
         LogsEmptyState(modifier)
     } else {
         Column(
-            modifier = modifier.verticalScroll(rememberScrollState()),
+            modifier = modifier.fillMaxSize().verticalScroll(rememberScrollState()),
         ) {
             logs.forEach { log ->
-                LogRow(log, onClick = { onLogClick(log) })
+                LogRow(log, zoneId = zoneId, onClick = { onLogClick(log) })
                 Spacer(Modifier.height(8.dp))
             }
         }
@@ -205,11 +211,7 @@ private fun LogsContent(
 
 @Composable
 private fun LogsEmptyState(modifier: Modifier = Modifier) {
-    Column(
-        modifier = modifier.fillMaxSize(),
-        verticalArrangement = Arrangement.Center,
-        horizontalAlignment = Alignment.CenterHorizontally,
-    ) {
+    ScrollableCenteredEmptyState(modifier = modifier) {
         Box(
             modifier =
                 Modifier.size(64.dp).background(SurfaceContainerHigh, RoundedCornerShape(12.dp)),
@@ -244,6 +246,7 @@ private fun LogsEmptyState(modifier: Modifier = Modifier) {
 @Composable
 private fun LogRow(
     log: WorkoutLog,
+    zoneId: ZoneId,
     modifier: Modifier = Modifier,
     onClick: () -> Unit = {},
 ) {
@@ -251,6 +254,7 @@ private fun LogRow(
         modifier =
             modifier
                 .fillMaxWidth()
+                .testTag(TestTags.log(log.id))
                 .clip(RoundedCornerShape(4.dp))
                 .background(SurfaceContainerLow)
                 .clickable(onClick = onClick)
@@ -265,7 +269,7 @@ private fun LogRow(
             )
             Spacer(Modifier.height(4.dp))
             Text(
-                text = formatDate(log.completedAt),
+                text = formatHistoryEpochDate(log.completedAt, zoneId),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -293,14 +297,13 @@ private fun LogRow(
 private fun RecordsContent(
     records: List<PersonalRecord>,
     onAddRecord: () -> Unit,
-    onRecordClick: (PersonalRecord) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     if (records.isEmpty()) {
         RecordsEmptyState(onAddRecord, modifier)
     } else {
         Column(
-            modifier = modifier.verticalScroll(rememberScrollState()),
+            modifier = modifier.fillMaxSize().verticalScroll(rememberScrollState()),
         ) {
             Text(
                 text = "Personal Bests",
@@ -311,7 +314,7 @@ private fun RecordsContent(
             Spacer(Modifier.height(16.dp))
 
             records.forEach { record ->
-                RecordRow(record, onClick = { onRecordClick(record) })
+                RecordRow(record)
                 Spacer(Modifier.height(8.dp))
             }
 
@@ -321,6 +324,7 @@ private fun RecordsContent(
             Box(
                 modifier =
                     Modifier.fillMaxWidth()
+                        .heightIn(min = 48.dp)
                         .clip(RoundedCornerShape(4.dp))
                         .background(SurfaceContainerLow)
                         .clickable(onClick = onAddRecord)
@@ -351,11 +355,7 @@ private fun RecordsEmptyState(
     onAddRecord: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    Column(
-        modifier = modifier.fillMaxSize(),
-        verticalArrangement = Arrangement.Center,
-        horizontalAlignment = Alignment.CenterHorizontally,
-    ) {
+    ScrollableCenteredEmptyState(modifier = modifier) {
         Box(
             modifier =
                 Modifier.size(64.dp).background(SurfaceContainerHigh, RoundedCornerShape(12.dp)),
@@ -390,6 +390,7 @@ private fun RecordsEmptyState(
         GreenGradientButton(
             text = "Add Record",
             onClick = onAddRecord,
+            modifier = Modifier.heightIn(min = 48.dp),
             leadingIcon = {
                 Icon(
                     imageVector = Icons.Default.Add,
@@ -403,18 +404,36 @@ private fun RecordsEmptyState(
 }
 
 @Composable
+private fun ScrollableCenteredEmptyState(
+    modifier: Modifier = Modifier,
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    BoxWithConstraints(modifier = modifier.fillMaxSize()) {
+        Column(
+            modifier =
+                Modifier.fillMaxWidth()
+                    .verticalScroll(rememberScrollState())
+                    .heightIn(min = maxHeight)
+                    .padding(vertical = 24.dp),
+            verticalArrangement = Arrangement.Center,
+            horizontalAlignment = Alignment.CenterHorizontally,
+            content = content,
+        )
+    }
+}
+
+@Composable
 private fun RecordRow(
     record: PersonalRecord,
     modifier: Modifier = Modifier,
-    onClick: () -> Unit = {},
 ) {
     Row(
         modifier =
             modifier
                 .fillMaxWidth()
+                .testTag(TestTags.record(record.id))
                 .clip(RoundedCornerShape(4.dp))
                 .background(SurfaceContainerLow)
-                .clickable(onClick = onClick)
                 .padding(16.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -444,28 +463,28 @@ private fun RecordRow(
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            if (record.sourceType == RecordSource.Logged) {
-                Spacer(Modifier.height(4.dp))
-                Text(
-                    text = "LOGGED",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.primary,
-                )
-            }
+            Spacer(Modifier.height(4.dp))
+            Text(
+                text =
+                    when (record.sourceType) {
+                        RecordSource.Manual -> "MANUAL"
+                        RecordSource.Logged -> "LOGGED"
+                    },
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.primary,
+            )
         }
 
         Text(
-            text = "${record.weightKg.toInt()}kg",
+            text = formatRecordWeight(record.weightKg),
             style = MaterialTheme.typography.headlineSmall,
             color = MaterialTheme.colorScheme.primary,
         )
     }
 }
 
-private fun formatDate(millis: Long): String {
-    val sdf = SimpleDateFormat("MMM dd, yyyy", Locale.US)
-    return sdf.format(Date(millis))
-}
+private fun formatRecordWeight(weightKg: Double): String =
+    if (weightKg % 1.0 == 0.0) "${weightKg.toLong()} kg" else "$weightKg kg"
 
 // -- Previews --
 
@@ -480,6 +499,7 @@ private fun PreviewHistoryLogsEmpty() {
                 records = emptyList(),
                 onTabSelected = {},
                 onAddRecord = {},
+                zoneId = ZoneOffset.UTC,
             )
         }
     }
@@ -495,6 +515,7 @@ private fun PreviewHistoryLogsWithData() {
                 logs =
                     listOf(
                         WorkoutLog(
+                            id = "preview-log-1",
                             title = "Upper Body B",
                             startedAt = 1711800000000,
                             completedAt = 1711803600000,
@@ -502,6 +523,7 @@ private fun PreviewHistoryLogsWithData() {
                             exerciseCount = 5
                         ),
                         WorkoutLog(
+                            id = "preview-log-2",
                             title = "Deadlift Focused",
                             startedAt = 1711627200000,
                             completedAt = 1711630800000,
@@ -512,6 +534,7 @@ private fun PreviewHistoryLogsWithData() {
                 records = emptyList(),
                 onTabSelected = {},
                 onAddRecord = {},
+                zoneId = ZoneOffset.UTC,
             )
         }
     }
@@ -528,6 +551,7 @@ private fun PreviewHistoryRecordsEmpty() {
                 records = emptyList(),
                 onTabSelected = {},
                 onAddRecord = {},
+                zoneId = ZoneOffset.UTC,
             )
         }
     }
@@ -544,20 +568,25 @@ private fun PreviewHistoryRecordsWithData() {
                 records =
                     listOf(
                         PersonalRecord(
+                            id = "preview-record-1",
                             exerciseName = "Bench Press",
                             normalizedExerciseName = "bench press",
                             weightKg = 100.0,
-                            achievedOn = "2026-03-23"
+                            achievedOn = "2026-03-23",
+                            createdAt = 1L,
                         ),
                         PersonalRecord(
+                            id = "preview-record-2",
                             exerciseName = "Squat",
                             normalizedExerciseName = "squat",
                             weightKg = 180.0,
-                            achievedOn = "2026-03-25"
+                            achievedOn = "2026-03-25",
+                            createdAt = 2L,
                         ),
                     ),
                 onTabSelected = {},
                 onAddRecord = {},
+                zoneId = ZoneOffset.UTC,
             )
         }
     }

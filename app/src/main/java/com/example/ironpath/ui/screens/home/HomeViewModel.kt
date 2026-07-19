@@ -8,7 +8,9 @@ import com.example.ironpath.data.repository.PlanRepository
 import com.example.ironpath.data.repository.SessionRepository
 import com.example.ironpath.domain.planner.findNextUpcomingWorkout
 import com.example.ironpath.domain.planner.findWorkoutScheduledToday
-import java.time.LocalDate
+import com.example.ironpath.domain.time.TimeProvider
+import dagger.hilt.android.lifecycle.HiltViewModel
+import javax.inject.Inject
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.combine
@@ -17,9 +19,13 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.stateIn
 
 @OptIn(ExperimentalCoroutinesApi::class)
-class HomeViewModel(
+@HiltViewModel
+class HomeViewModel
+@Inject
+constructor(
     private val planRepository: PlanRepository,
     private val sessionRepository: SessionRepository,
+    private val timeProvider: TimeProvider,
 ) : ViewModel() {
 
     private val activePlan = planRepository.observeActivePlan()
@@ -40,7 +46,7 @@ class HomeViewModel(
                 when {
                     plan == null -> HomeUiState.NoPlan
                     else -> {
-                        val today = LocalDate.now()
+                        val today = timeProvider.today()
                         val todayWorkout = workouts.findWorkoutScheduledToday(today)
                         val nextWorkout = todayWorkout ?: workouts.findNextUpcomingWorkout(today)
 

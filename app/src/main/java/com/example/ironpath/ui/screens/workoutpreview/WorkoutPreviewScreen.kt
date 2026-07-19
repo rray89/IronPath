@@ -3,12 +3,14 @@ package com.example.ironpath.ui.screens.workoutpreview
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -29,30 +31,30 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.ironpath.data.local.entity.PlannedExercise
 import com.example.ironpath.data.local.entity.PlannedWorkout
 import com.example.ironpath.data.local.entity.WorkoutStatus
 import com.example.ironpath.ui.components.GreenGradientButton
 import com.example.ironpath.ui.screens.home.dayOfWeekAbbrev
+import com.example.ironpath.ui.testing.TestTags
 import com.example.ironpath.ui.theme.IronPathTheme
 import com.example.ironpath.ui.theme.SurfaceContainerHigh
 import com.example.ironpath.ui.theme.SurfaceContainerLow
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.util.Locale
-import org.koin.androidx.compose.koinViewModel
-import org.koin.core.parameter.parametersOf
 
 @Composable
 fun WorkoutPreviewScreen(
-    workoutId: String,
     onBack: () -> Unit,
     onStarted: () -> Unit,
     modifier: Modifier = Modifier,
-    viewModel: WorkoutPreviewViewModel = koinViewModel(parameters = { parametersOf(workoutId) }),
+    viewModel: WorkoutPreviewViewModel = hiltViewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
 
@@ -73,7 +75,10 @@ internal fun WorkoutPreviewContent(
 ) {
     when (uiState) {
         WorkoutPreviewUiState.Loading -> {
-            Box(modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Box(
+                modifier.fillMaxSize().testTag(TestTags.WORKOUT_PREVIEW_LOADING),
+                contentAlignment = Alignment.Center,
+            ) {
                 CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
             }
         }
@@ -93,24 +98,34 @@ private fun WorkoutPreviewNotFound(
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    Column(
-        modifier = modifier.fillMaxSize().padding(horizontal = 24.dp),
-        verticalArrangement = Arrangement.Center,
-        horizontalAlignment = Alignment.CenterHorizontally,
-    ) {
-        Text(
-            text = "WORKOUT NOT FOUND",
-            style = MaterialTheme.typography.headlineSmall,
-            color = MaterialTheme.colorScheme.onSurface,
-        )
-        Spacer(Modifier.height(12.dp))
-        Text(
-            text = "This workout is no longer available in the accepted plan.",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        Spacer(Modifier.height(24.dp))
-        GreenGradientButton(text = "Go Back", onClick = onBack)
+    BoxWithConstraints(modifier = modifier.fillMaxSize()) {
+        Column(
+            modifier =
+                Modifier.fillMaxWidth()
+                    .verticalScroll(rememberScrollState())
+                    .heightIn(min = maxHeight)
+                    .padding(horizontal = 24.dp, vertical = 24.dp),
+            verticalArrangement = Arrangement.Center,
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Text(
+                text = "WORKOUT NOT FOUND",
+                style = MaterialTheme.typography.headlineSmall,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+            Spacer(Modifier.height(12.dp))
+            Text(
+                text = "This workout is no longer available in the accepted plan.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(Modifier.height(24.dp))
+            GreenGradientButton(
+                text = "Go Back",
+                onClick = onBack,
+                modifier = Modifier.heightIn(min = 48.dp),
+            )
+        }
     }
 }
 
@@ -131,7 +146,7 @@ private fun WorkoutPreviewReady(
         Spacer(Modifier.height(12.dp))
 
         Row(verticalAlignment = Alignment.CenterVertically) {
-            IconButton(onClick = onBack, modifier = Modifier.size(40.dp)) {
+            IconButton(onClick = onBack, modifier = Modifier.size(48.dp)) {
                 Icon(
                     imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                     contentDescription = "Back",
@@ -163,21 +178,23 @@ private fun WorkoutPreviewReady(
 
         Spacer(Modifier.height(24.dp))
 
-        if (state.canStart) {
-            GreenGradientButton(
-                text = "Start Workout",
-                onClick = onStart,
-                trailingIcon = {
-                    Icon(
-                        imageVector = Icons.Default.PlayArrow,
-                        contentDescription = null,
-                        modifier = Modifier.size(18.dp),
-                        tint = MaterialTheme.colorScheme.surface,
-                    )
-                },
-            )
-            Spacer(Modifier.height(20.dp))
-        } else if (state.hasActiveSession) {
+        GreenGradientButton(
+            text = "Start Workout",
+            onClick = onStart,
+            modifier = Modifier.heightIn(min = 48.dp),
+            enabled = state.canStart,
+            trailingIcon = {
+                Icon(
+                    imageVector = Icons.Default.PlayArrow,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp),
+                    tint = MaterialTheme.colorScheme.surface,
+                )
+            },
+        )
+        Spacer(Modifier.height(20.dp))
+
+        if (state.hasActiveSession) {
             Text(
                 text = "Finish the active session before starting this workout.",
                 style = MaterialTheme.typography.bodyMedium,
@@ -236,6 +253,7 @@ private fun PreviewExerciseRow(
         modifier =
             modifier
                 .fillMaxWidth()
+                .testTag(TestTags.planExercise(exercise.id))
                 .background(SurfaceContainerLow, RoundedCornerShape(4.dp))
                 .padding(16.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -308,6 +326,7 @@ private fun PreviewWorkoutPreviewReady() {
                         exercises =
                             listOf(
                                 PlannedExercise(
+                                    id = "preview-exercise-1",
                                     plannedWorkoutId = "w1",
                                     name = "Barbell Bench Press",
                                     sets = 4,
@@ -316,6 +335,7 @@ private fun PreviewWorkoutPreviewReady() {
                                     orderIndex = 0,
                                 ),
                                 PlannedExercise(
+                                    id = "preview-exercise-2",
                                     plannedWorkoutId = "w1",
                                     name = "Incline Dumbbell Press",
                                     sets = 3,

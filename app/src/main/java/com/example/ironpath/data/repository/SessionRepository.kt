@@ -3,6 +3,7 @@ package com.example.ironpath.data.repository
 import androidx.room.withTransaction
 import com.example.ironpath.data.local.IronPathDatabase
 import com.example.ironpath.data.local.dao.HistoryDao
+import com.example.ironpath.data.local.dao.PlanDao
 import com.example.ironpath.data.local.dao.SessionDao
 import com.example.ironpath.data.local.entity.ActiveSession
 import com.example.ironpath.data.local.entity.LoggedExercise
@@ -10,12 +11,20 @@ import com.example.ironpath.data.local.entity.LoggedSet
 import com.example.ironpath.data.local.entity.SessionExercise
 import com.example.ironpath.data.local.entity.SessionSet
 import com.example.ironpath.data.local.entity.WorkoutLog
+import com.example.ironpath.data.performance.PerformanceTracer
+import javax.inject.Inject
+import javax.inject.Singleton
 import kotlinx.coroutines.flow.Flow
 
-class SessionRepository(
+@Singleton
+class SessionRepository
+@Inject
+constructor(
     private val sessionDao: SessionDao,
     private val historyDao: HistoryDao,
+    private val planDao: PlanDao,
     private val database: IronPathDatabase,
+    private val performanceTracer: PerformanceTracer,
 ) {
 
     fun observeActiveSession(): Flow<ActiveSession?> = sessionDao.observeActiveSession()
@@ -34,9 +43,6 @@ class SessionRepository(
     fun observeSetsForExercises(exerciseIds: List<String>): Flow<List<SessionSet>> =
         sessionDao.observeSetsForExercises(exerciseIds)
 
-    suspend fun countCompletedSets(exerciseIds: List<String>): Int =
-        sessionDao.countCompletedSets(exerciseIds)
-
     /**
      * Clears any existing active session, then starts a new one with its exercises in a single
      * transaction (handled by DAO @Transaction).
@@ -53,27 +59,42 @@ class SessionRepository(
     suspend fun updateSet(set: SessionSet) = sessionDao.updateSet(set)
 
     /**
-     * Completes a session: snapshots the active session for history detail, deletes the active
-     * session, and inserts a workout log. Uses withTransaction because this spans two DAOs.
+     * Completes a session atomically: conditionally marks its planned workout complete, writes an
+     * immutable history snapshot, and deletes the active graph. Rejects a repeated completion after
+     * the source session has already been removed.
      */
     suspend fun completeSession(sessionId: String, log: WorkoutLog) {
-        database.withTransaction {
-            val sessionExercises = sessionDao.getExercisesForSession(sessionId)
-            val exerciseIds = sessionExercises.map { it.id }
-            val sessionSets =
-                if (exerciseIds.isEmpty()) emptyList()
-                else sessionDao.getSetsForExercises(exerciseIds)
+        val traceCookie = performanceTracer.beginAsyncSection(COMPLETE_SESSION_TRACE)
+        try {
+            database.withTransaction {
+                val activeSession = sessionDao.getActiveSession()
+                check(activeSession?.id == sessionId) {
+                    "Active session $sessionId no longer exists"
+                }
 
-            historyDao.insertLog(log)
-            val loggedExercises = sessionExercises.map { it.toLoggedExercise(log.id) }
-            if (loggedExercises.isNotEmpty()) {
-                historyDao.insertLoggedExercises(loggedExercises)
+                val sessionExercises = sessionDao.getExercisesForSession(sessionId)
+                val exerciseIds = sessionExercises.map { it.id }
+                val sessionSets =
+                    if (exerciseIds.isEmpty()) emptyList()
+                    else sessionDao.getSetsForExercises(exerciseIds)
+
+                if (sessionSets.any { it.reps != null && it.weightKg != null }) {
+                    planDao.markWorkoutCompleted(activeSession.sourcePlannedWorkoutId)
+                }
+
+                historyDao.insertLog(log)
+                val loggedExercises = sessionExercises.map { it.toLoggedExercise(log.id) }
+                if (loggedExercises.isNotEmpty()) {
+                    historyDao.insertLoggedExercises(loggedExercises)
+                }
+                val loggedSets = sessionSets.map { it.toLoggedSet() }
+                if (loggedSets.isNotEmpty()) {
+                    historyDao.insertLoggedSets(loggedSets)
+                }
+                sessionDao.deleteSession(sessionId)
             }
-            val loggedSets = sessionSets.map { it.toLoggedSet() }
-            if (loggedSets.isNotEmpty()) {
-                historyDao.insertLoggedSets(loggedSets)
-            }
-            sessionDao.deleteSession(sessionId)
+        } finally {
+            performanceTracer.endAsyncSection(COMPLETE_SESSION_TRACE, traceCookie)
         }
     }
 
@@ -99,3 +120,5 @@ class SessionRepository(
             completedAt = completedAt,
         )
 }
+
+private const val COMPLETE_SESSION_TRACE = "IronPath#completeSession"

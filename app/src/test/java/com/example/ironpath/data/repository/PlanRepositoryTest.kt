@@ -4,11 +4,13 @@ import com.example.ironpath.data.local.dao.PlanDao
 import com.example.ironpath.data.local.entity.PlannedExercise
 import com.example.ironpath.data.local.entity.PlannedWorkout
 import com.example.ironpath.data.local.entity.WeeklyPlan
+import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
+import org.junit.Assert.assertSame
 import org.junit.Before
 import org.junit.Test
 
@@ -17,7 +19,13 @@ class PlanRepositoryTest {
     private lateinit var planDao: PlanDao
     private lateinit var repository: PlanRepository
 
-    private val plan = WeeklyPlan(id = "plan1", startDate = "2026-04-14", endDate = "2026-04-20")
+    private val plan =
+        WeeklyPlan(
+            id = "plan1",
+            startDate = "2026-04-14",
+            endDate = "2026-04-20",
+            createdAt = 1_000L,
+        )
 
     private val workout =
         PlannedWorkout(
@@ -41,7 +49,11 @@ class PlanRepositoryTest {
 
     @Before
     fun setUp() {
-        planDao = mockk(relaxed = true)
+        planDao = mockk()
+        coEvery { planDao.createPlanWithWorkouts(any(), any(), any()) } returns Unit
+        coEvery { planDao.updateWorkout(any()) } returns Unit
+        coEvery { planDao.deleteWorkout(any()) } returns Unit
+        coEvery { planDao.getAllExerciseNames() } returns emptyList()
         repository = PlanRepository(planDao)
     }
 
@@ -52,7 +64,7 @@ class PlanRepositoryTest {
 
         val result = repository.observeActivePlan()
 
-        assert(result === expected)
+        assertSame(expected, result)
     }
 
     @Test
@@ -62,7 +74,7 @@ class PlanRepositoryTest {
 
         val result = repository.observeWorkoutsForPlan("plan1")
 
-        assert(result === expected)
+        assertSame(expected, result)
     }
 
     @Test

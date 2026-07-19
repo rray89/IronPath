@@ -1,15 +1,16 @@
 package com.example.ironpath.ui.screens.history
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -31,6 +32,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.ironpath.data.local.entity.LoggedExercise
 import com.example.ironpath.data.local.entity.LoggedSet
@@ -41,27 +43,21 @@ import com.example.ironpath.ui.components.GreenGradientButton
 import com.example.ironpath.ui.theme.IronPathTheme
 import com.example.ironpath.ui.theme.SurfaceContainerHigh
 import com.example.ironpath.ui.theme.SurfaceContainerLow
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
-import org.koin.androidx.compose.koinViewModel
-import org.koin.core.parameter.parametersOf
+import java.time.ZoneId
+import java.time.ZoneOffset
 
 @Composable
 fun WorkoutLogDetailScreen(
-    logId: String,
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
-    recordActionsEnabled: Boolean = true,
-    viewModel: WorkoutLogDetailViewModel = koinViewModel(parameters = { parametersOf(logId) }),
+    viewModel: WorkoutLogDetailViewModel = hiltViewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
 
     WorkoutLogDetailContent(
         uiState = uiState,
         onBack = onBack,
-        onSaveSetAsRecord = viewModel::saveSetAsRecord,
-        recordActionsEnabled = recordActionsEnabled,
+        zoneId = viewModel.zoneId,
         modifier = modifier,
     )
 }
@@ -70,8 +66,7 @@ fun WorkoutLogDetailScreen(
 internal fun WorkoutLogDetailContent(
     uiState: WorkoutLogDetailUiState,
     onBack: () -> Unit,
-    onSaveSetAsRecord: (LoggedExerciseDetail, LoggedSet) -> Unit = { _, _ -> },
-    recordActionsEnabled: Boolean = true,
+    zoneId: ZoneId,
     modifier: Modifier = Modifier,
 ) {
     when (uiState) {
@@ -85,8 +80,7 @@ internal fun WorkoutLogDetailContent(
             WorkoutLogDetailReady(
                 state = uiState,
                 onBack = onBack,
-                onSaveSetAsRecord = onSaveSetAsRecord,
-                recordActionsEnabled = recordActionsEnabled,
+                zoneId = zoneId,
                 modifier = modifier,
             )
     }
@@ -97,24 +91,34 @@ private fun WorkoutLogDetailNotFound(
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    Column(
-        modifier = modifier.fillMaxSize().padding(horizontal = 24.dp),
-        verticalArrangement = Arrangement.Center,
-        horizontalAlignment = Alignment.CenterHorizontally,
-    ) {
-        Text(
-            text = "LOG NOT FOUND",
-            style = MaterialTheme.typography.headlineSmall,
-            color = MaterialTheme.colorScheme.onSurface,
-        )
-        Spacer(Modifier.height(12.dp))
-        Text(
-            text = "This workout log is no longer available.",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        Spacer(Modifier.height(24.dp))
-        GreenGradientButton(text = "Go Back", onClick = onBack)
+    BoxWithConstraints(modifier = modifier.fillMaxSize()) {
+        Column(
+            modifier =
+                Modifier.fillMaxWidth()
+                    .verticalScroll(rememberScrollState())
+                    .heightIn(min = maxHeight)
+                    .padding(horizontal = 24.dp, vertical = 24.dp),
+            verticalArrangement = Arrangement.Center,
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Text(
+                text = "LOG NOT FOUND",
+                style = MaterialTheme.typography.headlineSmall,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+            Spacer(Modifier.height(12.dp))
+            Text(
+                text = "This workout log is no longer available.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(Modifier.height(24.dp))
+            GreenGradientButton(
+                text = "Go Back",
+                onClick = onBack,
+                modifier = Modifier.heightIn(min = 48.dp),
+            )
+        }
     }
 }
 
@@ -122,8 +126,7 @@ private fun WorkoutLogDetailNotFound(
 private fun WorkoutLogDetailReady(
     state: WorkoutLogDetailUiState.Ready,
     onBack: () -> Unit,
-    onSaveSetAsRecord: (LoggedExerciseDetail, LoggedSet) -> Unit,
-    recordActionsEnabled: Boolean,
+    zoneId: ZoneId,
     modifier: Modifier = Modifier,
 ) {
     val detail = state.detail
@@ -137,7 +140,7 @@ private fun WorkoutLogDetailReady(
         Spacer(Modifier.height(12.dp))
 
         Row(verticalAlignment = Alignment.CenterVertically) {
-            IconButton(onClick = onBack, modifier = Modifier.size(40.dp)) {
+            IconButton(onClick = onBack, modifier = Modifier.size(48.dp)) {
                 Icon(
                     imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                     contentDescription = "Back",
@@ -161,7 +164,7 @@ private fun WorkoutLogDetailReady(
         )
         Spacer(Modifier.height(8.dp))
         Text(
-            text = formatLogDate(detail.log.completedAt),
+            text = formatHistoryEpochDate(detail.log.completedAt, zoneId),
             style = MaterialTheme.typography.bodyLarge,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -169,15 +172,6 @@ private fun WorkoutLogDetailReady(
         Spacer(Modifier.height(24.dp))
 
         WorkoutLogSummary(log = detail.log)
-
-        if (state.recordMessage != null) {
-            Spacer(Modifier.height(12.dp))
-            Text(
-                text = state.recordMessage,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
 
         Spacer(Modifier.height(18.dp))
 
@@ -192,9 +186,6 @@ private fun WorkoutLogDetailReady(
                 LoggedExerciseRow(
                     index = index + 1,
                     detail = exerciseDetail,
-                    savedSetIds = state.savedSetIds,
-                    onSaveSetAsRecord = onSaveSetAsRecord,
-                    recordActionsEnabled = recordActionsEnabled,
                 )
                 Spacer(Modifier.height(10.dp))
             }
@@ -244,9 +235,6 @@ private fun WorkoutLogSummary(
 private fun LoggedExerciseRow(
     index: Int,
     detail: LoggedExerciseDetail,
-    savedSetIds: Set<String>,
-    onSaveSetAsRecord: (LoggedExerciseDetail, LoggedSet) -> Unit,
-    recordActionsEnabled: Boolean,
     modifier: Modifier = Modifier,
 ) {
     Column(
@@ -302,9 +290,6 @@ private fun LoggedExerciseRow(
                 .forEach { set ->
                     LoggedSetRow(
                         set = set,
-                        isSaved = savedSetIds.contains(set.id),
-                        onSaveRecord = { onSaveSetAsRecord(detail, set) },
-                        recordActionsEnabled = recordActionsEnabled,
                     )
                     Spacer(Modifier.height(8.dp))
                 }
@@ -315,11 +300,7 @@ private fun LoggedExerciseRow(
 @Composable
 private fun LoggedSetRow(
     set: LoggedSet,
-    isSaved: Boolean,
-    onSaveRecord: () -> Unit,
-    recordActionsEnabled: Boolean,
 ) {
-    val canSave = set.reps != null && set.weightKg != null && set.weightKg > 0.0
     Row(
         modifier =
             Modifier.fillMaxWidth()
@@ -335,25 +316,10 @@ private fun LoggedSetRow(
         Spacer(Modifier.width(12.dp))
         Text(
             text = formatSetResult(set),
+            modifier = Modifier.weight(1f),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurface,
         )
-        Spacer(Modifier.weight(1f))
-        if (canSave && (recordActionsEnabled || isSaved)) {
-            Text(
-                text = if (isSaved) "SAVED" else "SAVE RECORD",
-                style = MaterialTheme.typography.labelSmall,
-                color =
-                    if (isSaved) MaterialTheme.colorScheme.onSurfaceVariant
-                    else MaterialTheme.colorScheme.primary,
-                modifier =
-                    if (isSaved || !recordActionsEnabled) {
-                        Modifier
-                    } else {
-                        Modifier.clickable(onClick = onSaveRecord)
-                    },
-            )
-        }
     }
 }
 
@@ -365,11 +331,6 @@ private fun formatSetResult(set: LoggedSet): String {
     } else {
         "$reps reps · ${formatWeight(weight)}"
     }
-}
-
-private fun formatLogDate(millis: Long): String {
-    val sdf = SimpleDateFormat("MMM dd, yyyy", Locale.US)
-    return sdf.format(Date(millis))
 }
 
 private fun formatWeight(weightKg: Double): String =
@@ -432,6 +393,7 @@ private fun PreviewWorkoutLogDetailReady() {
                         ),
                     ),
                 onBack = {},
+                zoneId = ZoneOffset.UTC,
             )
         }
     }

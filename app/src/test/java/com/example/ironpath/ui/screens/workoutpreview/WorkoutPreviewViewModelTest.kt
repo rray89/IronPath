@@ -1,5 +1,6 @@
 package com.example.ironpath.ui.screens.workoutpreview
 
+import androidx.lifecycle.SavedStateHandle
 import app.cash.turbine.test
 import com.example.ironpath.data.local.entity.ActiveSession
 import com.example.ironpath.data.local.entity.PlannedExercise
@@ -8,6 +9,8 @@ import com.example.ironpath.data.local.entity.WorkoutStatus
 import com.example.ironpath.data.repository.PlanRepository
 import com.example.ironpath.data.repository.SessionRepository
 import com.example.ironpath.domain.session.StartPlannedWorkoutUseCase
+import com.example.ironpath.testutil.FakeTimeProvider
+import com.example.ironpath.ui.navigation.Route
 import com.example.ironpath.util.MainDispatcherRule
 import io.mockk.coEvery
 import io.mockk.coVerify
@@ -35,13 +38,17 @@ class WorkoutPreviewViewModelTest {
     private lateinit var planRepository: PlanRepository
     private lateinit var sessionRepository: SessionRepository
     private lateinit var startPlannedWorkout: StartPlannedWorkoutUseCase
+    private val timeProvider = FakeTimeProvider()
 
     private val exercisesFlow = MutableStateFlow<List<PlannedExercise>>(emptyList())
     private val activeSessionFlow = MutableStateFlow<ActiveSession?>(null)
 
+    private fun savedStateHandle(workoutId: String): SavedStateHandle =
+        SavedStateHandle(mapOf(Route.WORKOUT_ID_ARG to workoutId))
+
     private fun workout(
         id: String = "workout1",
-        scheduledDate: String = LocalDate.now().toString(),
+        scheduledDate: String = timeProvider.today().toString(),
         status: WorkoutStatus = WorkoutStatus.Upcoming,
     ) =
         PlannedWorkout(
@@ -96,10 +103,11 @@ class WorkoutPreviewViewModelTest {
 
             val viewModel =
                 WorkoutPreviewViewModel(
-                    workoutId = "workout1",
+                    savedStateHandle = savedStateHandle("workout1"),
                     planRepository = planRepository,
                     sessionRepository = sessionRepository,
                     startPlannedWorkout = startPlannedWorkout,
+                    timeProvider = timeProvider,
                 )
 
             viewModel.uiState.test {
@@ -115,15 +123,16 @@ class WorkoutPreviewViewModelTest {
 
     @Test
     fun `uiState does not allow starting a future workout`() = runTest {
-        val futureWorkout = workout(scheduledDate = LocalDate.now().plusDays(2).toString())
+        val futureWorkout = workout(scheduledDate = timeProvider.today().plusDays(2).toString())
         coEvery { planRepository.getWorkoutById("workout1") } returns futureWorkout
 
         val viewModel =
             WorkoutPreviewViewModel(
-                workoutId = "workout1",
+                savedStateHandle = savedStateHandle("workout1"),
                 planRepository = planRepository,
                 sessionRepository = sessionRepository,
                 startPlannedWorkout = startPlannedWorkout,
+                timeProvider = timeProvider,
             )
 
         viewModel.uiState.test {
@@ -142,10 +151,11 @@ class WorkoutPreviewViewModelTest {
 
         val viewModel =
             WorkoutPreviewViewModel(
-                workoutId = "workout1",
+                savedStateHandle = savedStateHandle("workout1"),
                 planRepository = planRepository,
                 sessionRepository = sessionRepository,
                 startPlannedWorkout = startPlannedWorkout,
+                timeProvider = timeProvider,
             )
 
         viewModel.uiState.test {
@@ -164,10 +174,11 @@ class WorkoutPreviewViewModelTest {
 
         val viewModel =
             WorkoutPreviewViewModel(
-                workoutId = "workout1",
+                savedStateHandle = savedStateHandle("workout1"),
                 planRepository = planRepository,
                 sessionRepository = sessionRepository,
                 startPlannedWorkout = startPlannedWorkout,
+                timeProvider = timeProvider,
             )
 
         viewModel.uiState.test {
@@ -185,10 +196,11 @@ class WorkoutPreviewViewModelTest {
 
         val viewModel =
             WorkoutPreviewViewModel(
-                workoutId = "workout1",
+                savedStateHandle = savedStateHandle("workout1"),
                 planRepository = planRepository,
                 sessionRepository = sessionRepository,
                 startPlannedWorkout = startPlannedWorkout,
+                timeProvider = timeProvider,
             )
 
         viewModel.uiState.test {
@@ -206,10 +218,11 @@ class WorkoutPreviewViewModelTest {
             coEvery { planRepository.getWorkoutById("workout1") } returns todayWorkout
             val viewModel =
                 WorkoutPreviewViewModel(
-                    workoutId = "workout1",
+                    savedStateHandle = savedStateHandle("workout1"),
                     planRepository = planRepository,
                     sessionRepository = sessionRepository,
                     startPlannedWorkout = startPlannedWorkout,
+                    timeProvider = timeProvider,
                 )
             var callbackInvoked = false
 
@@ -228,13 +241,14 @@ class WorkoutPreviewViewModelTest {
     @Test
     fun `startWorkout does nothing when workout cannot start`() = runTest {
         coEvery { planRepository.getWorkoutById("workout1") } returns
-            workout(scheduledDate = LocalDate.now().plusDays(1).toString())
+            workout(scheduledDate = timeProvider.today().plusDays(1).toString())
         val viewModel =
             WorkoutPreviewViewModel(
-                workoutId = "workout1",
+                savedStateHandle = savedStateHandle("workout1"),
                 planRepository = planRepository,
                 sessionRepository = sessionRepository,
                 startPlannedWorkout = startPlannedWorkout,
+                timeProvider = timeProvider,
             )
         var callbackInvoked = false
 
@@ -258,10 +272,11 @@ class WorkoutPreviewViewModelTest {
         coEvery { startPlannedWorkout.invoke(any()) } coAnswers { startCanComplete.await() }
         val viewModel =
             WorkoutPreviewViewModel(
-                workoutId = "workout1",
+                savedStateHandle = savedStateHandle("workout1"),
                 planRepository = planRepository,
                 sessionRepository = sessionRepository,
                 startPlannedWorkout = startPlannedWorkout,
+                timeProvider = timeProvider,
             )
 
         viewModel.uiState.test {
@@ -285,10 +300,11 @@ class WorkoutPreviewViewModelTest {
 
         val viewModel =
             WorkoutPreviewViewModel(
-                workoutId = "missing",
+                savedStateHandle = savedStateHandle("missing"),
                 planRepository = planRepository,
                 sessionRepository = sessionRepository,
                 startPlannedWorkout = startPlannedWorkout,
+                timeProvider = timeProvider,
             )
 
         viewModel.uiState.test {
@@ -296,5 +312,22 @@ class WorkoutPreviewViewModelTest {
             while (state !is WorkoutPreviewUiState.NotFound) state = awaitItem()
             cancelAndIgnoreRemainingEvents()
         }
+    }
+
+    @Test
+    fun missingWorkoutRouteArgument_loadsNotFound() = runTest {
+        coEvery { planRepository.getWorkoutById("") } returns null
+        val viewModel =
+            WorkoutPreviewViewModel(
+                savedStateHandle = SavedStateHandle(),
+                planRepository = planRepository,
+                sessionRepository = sessionRepository,
+                startPlannedWorkout = startPlannedWorkout,
+                timeProvider = timeProvider,
+            )
+
+        advanceUntilIdle()
+
+        assertEquals(WorkoutPreviewUiState.NotFound, viewModel.uiState.value)
     }
 }

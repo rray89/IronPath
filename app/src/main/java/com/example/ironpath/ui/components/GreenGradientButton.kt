@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -17,6 +18,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import com.example.ironpath.ui.theme.GradientEnd
 import com.example.ironpath.ui.theme.GradientStart
@@ -46,9 +48,14 @@ fun GreenGradientButton(
         modifier =
             modifier
                 .fillMaxWidth()
+                .heightIn(min = 48.dp)
                 .clip(shape)
                 .background(brush = bgBrush)
-                .then(if (enabled) Modifier.clickable(onClick = onClick) else Modifier)
+                .clickable(
+                    enabled = enabled,
+                    role = Role.Button,
+                    onClick = onClick,
+                )
                 .padding(contentPadding),
         contentAlignment = Alignment.Center,
     ) {
