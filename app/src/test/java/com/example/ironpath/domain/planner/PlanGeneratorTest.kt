@@ -16,8 +16,8 @@ class PlanGeneratorTest {
     private val timeProvider = FakeTimeProvider()
     private val exerciseCatalog = DefaultExerciseCatalog()
     private val planFactory = RuleBasedPlanFactory(exerciseCatalog)
-    private val generator =
-        PlanGenerator(timeProvider, FakeIdProvider(), planFactory, exerciseCatalog)
+    private val entityMapper = PlanEntityMapper(FakeIdProvider(), timeProvider, exerciseCatalog)
+    private val generator = PlanGenerator(timeProvider, planFactory, entityMapper)
 
     private val nextMonday: LocalDate =
         timeProvider.today().with(TemporalAdjusters.next(DayOfWeek.MONDAY))
@@ -30,7 +30,11 @@ class PlanGeneratorTest {
                 zoneId = ZoneId.of("America/Vancouver"),
             )
         val result =
-            PlanGenerator(timeProvider, FakeIdProvider(), planFactory, exerciseCatalog)
+            PlanGenerator(
+                    timeProvider,
+                    planFactory,
+                    PlanEntityMapper(FakeIdProvider(), timeProvider, exerciseCatalog),
+                )
                 .generate(
                     goal = TrainingGoal.Strength,
                     selectedDays = setOf(1),
