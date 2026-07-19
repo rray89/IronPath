@@ -12,6 +12,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ./gradlew connectedAndroidTest   # Run instrumented tests on device/emulator
 ./gradlew pixel2Api29DebugAndroidTest # Run instrumented tests on the managed API 29 fallback
 ./gradlew :app:createPixel2Api29DebugAndroidTestCoverageReport -PenableAndroidTestCoverage # API 29 instrumented XML/HTML coverage
+test -n "${SONAR_TOKEN:-}" && test -n "${SONAR_HOST_URL:-}" && test -n "${SONAR_PROJECT_KEY:-}" && test -n "${SONAR_ORGANIZATION:-}"
+./gradlew :app:assembleDebug sonar -Dsonar.projectKey="$SONAR_PROJECT_KEY" -Dsonar.organization="$SONAR_ORGANIZATION" -Dsonar.coverage.jacoco.xmlReportPaths=coverage/unit/report.xml,coverage/android/report.xml
 ./gradlew :app:productionMatrixGroupDebugAndroidTest # Run the managed API 29 + 36 matrix
 ./gradlew :app:generateReleaseBaselineProfile -PbaselineProfileUseConnectedDevices=true -Pandroid.testInstrumentationRunnerArguments.class=com.example.ironpath.benchmark.BaselineProfileGenerator -Pandroid.testInstrumentationRunnerArguments.androidx.benchmark.enabledRules=BaselineProfile # Generate the release profile on Seeker
 ./gradlew :benchmark:connectedBenchmarkReleaseAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=com.example.ironpath.benchmark.StartupBenchmark,com.example.ironpath.benchmark.CriticalFlowBenchmark -Pandroid.testInstrumentationRunnerArguments.androidx.benchmark.enabledRules=Macrobenchmark # Run benchmark classes on Seeker
@@ -26,6 +28,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - **Database:** Room 2.8.4 with KSP 2.3.6 for annotation processing
 - **Navigation:** Navigation Compose 2.9.8 with string routes
 - **Performance:** Macrobenchmark and Baseline Profiles on Seeker locally and managed API 36 in CI
+- **Static analysis:** SonarQube Cloud OSS with SonarScanner for Gradle 7.3.1.8318 on Java 21
 - **Language:** Kotlin 2.3.20 with JVM target 11
 - **Min SDK:** 29 (Android 10), Compile/Target SDK: 36
 - **Versions:** Managed via `gradle/libs.versions.toml` — add new dependencies there, not inline in `build.gradle.kts`
