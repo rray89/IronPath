@@ -1,6 +1,7 @@
 # IronPath v4 AI Planning PRD
 
 Date: 2026-07-09
+Last updated: 2026-07-19
 Status: Draft
 
 ## Purpose
@@ -39,6 +40,8 @@ The following behavior is treated as already established and carried forward int
 - records can be manually created, edited, deleted, or derived from completed workouts
 - the current local rule-based planner is good enough to remain the fallback path
 - the current planner relies on hardcoded exercise templates, not a formal catalog with stable IDs or safety metadata
+- production dependencies use Hilt with constructor injection for owned classes and explicit bindings for interfaces
+- `docs/testing-strategy.md` defines the established JVM, Room, Compose, navigation, journey, accessibility, coverage, and device gates that v4 inherits
 
 ## External context
 
@@ -121,6 +124,8 @@ Feature 1 must also formalize the minimum local exercise catalog needed by later
 - Release builds should expose an explicit "Generate with AI" choice, then auto-select the best available real provider behind that choice: on-device first, rule-based fallback when AI is unavailable.
 - `FakeAiPlanningEngine` is debug/test-only and should never be presented as a real AI provider in release builds.
 - Debug builds may expose provider selection for development and demos.
+- Owned planning implementations use constructor injection. Hilt modules are limited to interface bindings and third-party provider construction.
+- Every new planning binding must resolve in debug and release builds and in the API 29 Hilt startup or journey suite.
 
 ### Data model impact
 
@@ -300,6 +305,9 @@ Users may not:
 - AI-generated plans should include a static "not medical advice" line near validation or rationale copy.
 - validation status should be visible but not scary.
 - fallback should be framed as normal behavior, not a crash or failure.
+- only one generation request may control planner state at a time. A replacement request invalidates or cancels the previous request, and late results are ignored.
+- cancellation, timeout, navigation away, or provider failure must not persist a partial draft.
+- the accept action is disabled while persistence is in progress, and repeated acceptance must not create duplicate weekly plans.
 
 ### Data model impact
 
@@ -393,7 +401,21 @@ This order intentionally builds the demo loop before depending on real model ava
 
 ## Testing strategy
 
-### Unit tests
+V4 inherits `docs/testing-strategy.md` as the authoritative project-wide test and quality policy. The requirements below add AI-specific proof; they do not replace the repository's TDD, coverage, build, accessibility, device, or journey gates. Every implementation PR starts with a test that fails for the intended reason before production code changes.
+
+### Feature proof matrix
+
+| Implementation | Required proof |
+| --- | --- |
+| `feat9.1` planning contracts and catalog | JVM contract and catalog tests, stable-ID and metadata boundary cases, release provider-boundary verification, and API 29 Hilt graph resolution for every new binding |
+| `feat9.2` draft and validator | Exhaustive JVM validator and mapping tests using fixed time, including valid, malformed, safety, date, equipment, progression, and boundary inputs |
+| `feat9.3` intake and fake AI | JVM ViewModel tests plus isolated Compose tests for intake, loading, validation, failure, cancellation, and restored state; semantics and 200% font-scale coverage for every new control |
+| `feat9.4` review and acceptance | JVM, Compose, real NavHost, real Room, and real-app journey coverage for generation, editing, stale validation, revalidation, acceptance, duplicate actions, persistence, recreation, and back-stack behavior |
+| `feat9.5` on-device spike | Provider contract tests with deterministic fakes; timeout, cancellation, malformed output, unsupported-device, and provider-exception cases; release assembly; manual generation on a capable physical device and fallback verification on Seeker |
+| `feat9.6` debug remote experiment | Fake-transport tests for success and failure, secret-redaction checks, debug-only UI and binding coverage, and release-variant proof that remote provider selection and calls are unavailable |
+| `feat9.7` demo documentation | Documentation review against the implemented provider support, setup, fallback behavior, privacy boundary, and reproducible demo steps |
+
+### Domain and ViewModel tests
 
 Expected coverage:
 
@@ -413,12 +435,9 @@ Expected coverage:
 - injury and forbidden movement rejection
 - stale validation after review edits
 - unknown free-text exercise rejection in AI-assisted review
+- provider timeout, cancellation, unsupported-device, and exception handling
+- one repair attempt followed by deterministic fallback
 - fallback after invalid AI draft
-
-### ViewModel tests
-
-Expected coverage:
-
 - planner setup intake state
 - AI generation loading state
 - validated draft state
@@ -427,17 +446,47 @@ Expected coverage:
 - provider unavailable fallback
 - accept validated draft
 - block invalid draft acceptance
+- late result ignored after cancellation or replacement generation
+- repeated generation and acceptance actions do not create competing state or duplicate plans
 
-### Integration and device testing
+All date behavior uses the injected `TimeProvider` with fixed timezone and boundary dates. Provider doubles must cover valid, invalid, slow, cancelled, and failed responses without depending on live model output.
+
+### UI, accessibility, and navigation tests
 
 Expected coverage:
 
-- existing unit test gate remains required
-- debug assemble remains required
-- on-device provider manually tested on a capable device when available
-- Seeker physical-device smoke test remains useful for the normal rule-based and fake-AI flows
+- isolated Compose coverage for every Planner Setup and Plan Review state, action, warning, provider label, and validation status
+- accessible labels, roles, enabled or disabled state, loading state, validation state, and error associations for every new interactive control
+- 200% font-scale evidence plus compact portrait and landscape coverage for layout-changing screens
+- real NavHost coverage for setup to review, fallback, acceptance, back navigation, and recreation with a draft in progress
+- deterministic generation progress using fake engines; Compose and navigation tests never wait for a real model
 
-CI should not require real model weights, network calls, or AICore availability.
+### Persistence and journey tests
+
+Expected coverage:
+
+- real Room tests for draft-to-accepted-plan mapping and atomic persistence behavior
+- migration tests with representative data if any v4 implementation changes the Room schema
+- duplicate or concurrent acceptance cannot create multiple accepted plans for the same target week
+- cancelled, invalid, stale, or partially mapped drafts leave no persisted plan data
+- a critical real-app journey covers intake, fake generation, review editing, stale validation, final validation, acceptance, process-level recreation, and the accepted plan on Home
+- journey fixtures and provider doubles remain deterministic across the nightly state-leak repetitions
+
+### Build, coverage, and device gates
+
+Expected coverage:
+
+- the repository's core JVM line and branch coverage gate applies to planning domain, repositories, and non-dev ViewModels
+- Sonar new-code coverage and condition coverage are reviewed together with the required behavior suites; aggregate coverage never substitutes for layer-specific proof
+- pull requests pass `Static & Build`, `Unit Tests & Coverage`, and `API 29 Hilt Smoke`
+- applicable implementation PRs pass focused Room, Compose, navigation, and real-app journey tests before merge
+- new UI participates in the managed API 29 compatibility suite and API 36 accessibility and adaptive-layout suite
+- debug and release assembly prove provider variant boundaries, including the absence of debug remote behavior from release builds
+- Seeker is the default physical target for rule-based, fake-AI, fallback, and end-to-end smoke testing
+- the on-device provider is manually tested on a capable physical device when available; unsupported-device fallback remains testable everywhere
+- if v4 changes startup or a benchmarked critical flow, Baseline Profile and macrobenchmark evidence is updated using deterministic fake-provider behavior rather than live model generation
+
+CI must not require real model weights, live network calls, provider API keys, AICore availability, or nondeterministic model output. Live on-device generation is physical-device evidence, not a replacement for automated provider-contract and fallback tests.
 
 ## Portfolio demo story
 
