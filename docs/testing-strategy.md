@@ -36,11 +36,12 @@
 
 ## Coverage policy
 
-- Scope: domain, repositories, and non-dev ViewModels.
-- Minimum: 85% line and 70% branch.
-- Changed production logic must not reduce either metric.
-- Reviewers compare the scoped percentages in the coverage report; the automated threshold remains the hard merge floor.
-- Compose and generated code are assessed through behavior tests, not JaCoCo percentage.
+- The hard merge scope is domain, repositories, and non-dev ViewModels: minimum 85% line and 70% branch coverage from JVM tests.
+- JVM overall coverage is informational and includes only `src/test` execution. Its rankings include only the hard core scope; Android-only files are never presented as untested JVM-core files.
+- API 29 Android instrumented coverage is a separate informational JaCoCo report. The API 29 test task remains a hard pass/fail gate regardless of its percentage.
+- SonarQube may later combine JVM and Android XML reports for “covered by any suite” and new-code views. That combined percentage is never the only proof required for a feature.
+- Generated Hilt, Dagger, Room, Android resource, manifest, and BuildConfig classes are excluded from percentage reporting.
+- Compose, navigation, Room behavior, accessibility, journeys, and performance retain their explicit suite gates even when source lines are covered.
 
 ## Migration policy
 
@@ -70,6 +71,7 @@ The principal local gates are:
 ```bash
 ./gradlew spotlessCheck :app:lintDebug :app:lintBenchmarkRelease assembleDebug assembleRelease
 ./gradlew testDebugUnitTest createDebugUnitTestCoverageReport verifyCoreCoverage -PenableCoverage
+./gradlew :app:createPixel2Api29DebugAndroidTestCoverageReport -PenableAndroidTestCoverage -Pandroid.testInstrumentationRunnerArguments.notClass=com.example.ironpath.accessibility.PlatformAccessibilityChecksTest
 ./gradlew pixel2Api29DebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.notClass=com.example.ironpath.accessibility.PlatformAccessibilityChecksTest
 ./gradlew productionMatrixGroupDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.notClass=com.example.ironpath.accessibility.PlatformAccessibilityChecksTest
 ./gradlew pixel8Api36DebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.package=com.example.ironpath.accessibility
@@ -78,6 +80,8 @@ The principal local gates are:
 ```
 
 CI adds `-Pandroid.testoptions.manageddevices.emulator.gpu=swiftshader_indirect` to every managed-device command. Local runs use the host GPU.
+
+AGP 9.1 resolves managed-device coverage through the last registered device. The dedicated coverage property therefore registers only the managed API 29 target for that invocation; ordinary and nightly runs without the property retain the API 29 + 36 matrix.
 
 ## CI trigger policy
 
@@ -92,7 +96,7 @@ The production workflow runs for pull requests targeting `main` and pushes to `m
 
 ## Reports and retention
 
-- PR artifacts retain lint HTML/XML/text, unit-test XML/HTML, JaCoCo XML/HTML, release obfuscation mappings, and managed-device HTML/XML/logcat/additional outputs for 14 days.
+- PR artifacts retain lint HTML/XML/text, unit-test XML/HTML, JVM JaCoCo XML/HTML as `jvm-unit-coverage-report`, API 29 JaCoCo XML/HTML as `api29-instrumented-coverage-report`, release obfuscation mappings, and managed-device HTML/XML/logcat/additional outputs for 14 days.
 - Nightly artifacts retain matrix, accessibility, each of the three journey passes, generated Baseline Profiles, release APKs and obfuscation mappings, benchmark reports, and Perfetto traces for 30 days.
 - Artifact upload is evidence collection, not a substitute for a failing Gradle task. Missing required reports fail their producing task; optional additional-output directories may be absent.
 

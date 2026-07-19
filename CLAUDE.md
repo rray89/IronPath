@@ -11,6 +11,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ./gradlew test                   # Run unit tests
 ./gradlew connectedAndroidTest   # Run instrumented tests on device/emulator
 ./gradlew pixel2Api29DebugAndroidTest # Run instrumented tests on the managed API 29 fallback
+./gradlew :app:createPixel2Api29DebugAndroidTestCoverageReport -PenableAndroidTestCoverage # API 29 instrumented XML/HTML coverage
 ./gradlew :app:productionMatrixGroupDebugAndroidTest # Run the managed API 29 + 36 matrix
 ./gradlew :app:generateReleaseBaselineProfile -PbaselineProfileUseConnectedDevices=true -Pandroid.testInstrumentationRunnerArguments.class=com.example.ironpath.benchmark.BaselineProfileGenerator -Pandroid.testInstrumentationRunnerArguments.androidx.benchmark.enabledRules=BaselineProfile # Generate the release profile on Seeker
 ./gradlew :benchmark:connectedBenchmarkReleaseAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=com.example.ironpath.benchmark.StartupBenchmark,com.example.ironpath.benchmark.CriticalFlowBenchmark -Pandroid.testInstrumentationRunnerArguments.androidx.benchmark.enabledRules=Macrobenchmark # Run benchmark classes on Seeker
@@ -94,6 +95,7 @@ Data model (Room entities): WeeklyPlan → PlannedWorkout → PlannedExercise, A
 - Owned production classes use constructor injection. Reserve Hilt modules for third-party objects and interface bindings.
 - JVM tests construct subjects directly. Use Hilt only for graph/startup/instrumented integration tests.
 - Every new Hilt binding must compile in debug and release and resolve in the API 29 startup or journey suite.
+- Coverage reports must identify their producing layer. JVM rankings are limited to the hard core scope; API 29 instrumented coverage and future unified/new-code views are informational and never replace behavior-suite gates.
 - **Production-level tests are required for every feature and bug fix.** Start with a failing test and follow `docs/testing-strategy.md`. Select every applicable layer: JVM domain/ViewModel tests, real Room DAO/transaction/migration tests, isolated Compose tests, navigation tests, and a critical real-app journey test. Cover happy, empty, validation, error, boundary-time, duplicate/concurrent action, and recreation behavior where relevant. Every new interactive component requires semantic label/state coverage, and layout-changing UI requires a 200% font-scale test. No feature is complete until Spotless, lint, debug/release assembly, applicable device tests, and core coverage gates pass.
 
 ## Test Device Policy

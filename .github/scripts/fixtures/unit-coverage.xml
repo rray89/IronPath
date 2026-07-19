@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<!DOCTYPE report PUBLIC "-//JACOCO//DTD Report 1.1//EN" "report.dtd">
+<report name="unit">
+  <package name="com/example/ironpath/domain/planner">
+    <sourcefile name="PlanGenerator.kt">
+      <counter type="INSTRUCTION" missed="10" covered="90"/>
+      <counter type="BRANCH" missed="2" covered="8"/>
+      <counter type="LINE" missed="2" covered="18"/>
+    </sourcefile>
+    <counter type="INSTRUCTION" missed="10" covered="90"/>
+    <counter type="BRANCH" missed="2" covered="8"/>
+    <counter type="LINE" missed="2" covered="18"/>
+  </package>
+  <package name="com/example/ironpath/ui/screens/home">
+    <sourcefile name="HomeScreen.kt">
+      <counter type="INSTRUCTION" missed="100" covered="0"/>
+      <counter type="BRANCH" missed="10" covered="0"/>
+      <counter type="LINE" missed="20" covered="0"/>
+    </sourcefile>
+    <counter type="INSTRUCTION" missed="100" covered="0"/>
+    <counter type="BRANCH" missed="10" covered="0"/>
+    <counter type="LINE" missed="20" covered="0"/>
+  </package>
+  <package name="com/example/ironpath/data/local">
+    <sourcefile name="IronPathDatabase_Impl.java">
+      <counter type="INSTRUCTION" missed="50" covered="0"/>
+      <counter type="BRANCH" missed="4" covered="0"/>
+      <counter type="LINE" missed="10" covered="0"/>
+    </sourcefile>
+    <counter type="INSTRUCTION" missed="50" covered="0"/>
+    <counter type="BRANCH" missed="4" covered="0"/>
+    <counter type="LINE" missed="10" covered="0"/>
+  </package>
+  <counter type="INSTRUCTION" missed="160" covered="90"/>
+  <counter type="BRANCH" missed="16" covered="8"/>
+  <counter type="LINE" missed="32" covered="18"/>
+</report>

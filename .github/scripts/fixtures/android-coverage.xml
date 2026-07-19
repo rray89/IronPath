@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<!DOCTYPE report PUBLIC "-//JACOCO//DTD Report 1.1//EN" "report.dtd">
+<report name="android">
+  <package name="com/example/ironpath/data/local/dao">
+    <sourcefile name="WorkoutDao.kt">
+      <counter type="INSTRUCTION" missed="5" covered="95"/>
+      <counter type="BRANCH" missed="0" covered="0"/>
+      <counter type="LINE" missed="1" covered="19"/>
+    </sourcefile>
+    <counter type="INSTRUCTION" missed="5" covered="95"/>
+    <counter type="BRANCH" missed="0" covered="0"/>
+    <counter type="LINE" missed="1" covered="19"/>
+  </package>
+  <package name="com/example/ironpath/ui/screens/home">
+    <sourcefile name="HomeScreen.kt">
+      <counter type="INSTRUCTION" missed="20" covered="80"/>
+      <counter type="BRANCH" missed="1" covered="3"/>
+      <counter type="LINE" missed="4" covered="16"/>
+    </sourcefile>
+    <counter type="INSTRUCTION" missed="20" covered="80"/>
+    <counter type="BRANCH" missed="1" covered="3"/>
+    <counter type="LINE" missed="4" covered="16"/>
+  </package>
+  <package name="com/example/ironpath/ui/navigation">
+    <sourcefile name="NavGraph.kt">
+      <counter type="INSTRUCTION" missed="10" covered="40"/>
+      <counter type="BRANCH" missed="1" covered="1"/>
+      <counter type="LINE" missed="2" covered="8"/>
+    </sourcefile>
+    <counter type="INSTRUCTION" missed="10" covered="40"/>
+    <counter type="BRANCH" missed="1" covered="1"/>
+    <counter type="LINE" missed="2" covered="8"/>
+  </package>
+  <counter type="INSTRUCTION" missed="35" covered="215"/>
+  <counter type="BRANCH" missed="2" covered="4"/>
+  <counter type="LINE" missed="7" covered="43"/>
+</report>

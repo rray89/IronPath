@@ -1,7 +1,9 @@
 import java.util.Locale
 import javax.xml.XMLConstants
+import org.gradle.testing.jacoco.tasks.JacocoReport
 
 plugins {
+    jacoco
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.ksp)
@@ -9,6 +11,10 @@ plugins {
     alias(libs.plugins.hilt)
     alias(libs.plugins.androidx.baselineprofile)
 }
+
+jacoco { toolVersion = "0.8.14" }
+
+val androidTestCoverageRequested = providers.gradleProperty("enableAndroidTestCoverage").isPresent
 
 android {
     namespace = "com.example.ironpath"
@@ -31,6 +37,7 @@ android {
             // Local: ./gradlew testDebugUnitTest
             // CI / coverage report: ./gradlew createDebugUnitTestCoverageReport -PenableCoverage
             enableUnitTestCoverage = project.hasProperty("enableCoverage")
+            enableAndroidTestCoverage = androidTestCoverageRequested
         }
         release {
             isMinifyEnabled = true
@@ -61,6 +68,9 @@ android {
             test.jvmArgs("-XX:+UseG1GC", "-XX:MaxMetaspaceSize=512m")
         }
         managedDevices {
+            // AGP 9.1 resolves managed-device coverage through the last registered device.
+            // Register only API 29 for the dedicated coverage invocation; normal runs retain
+            // the complete API 29 + 36 production matrix below.
             localDevices {
                 create("pixel2Api29") {
                     device = "Pixel 2"
@@ -68,17 +78,21 @@ android {
                     systemImageSource = "aosp"
                     testedAbi = "x86_64"
                 }
-                create("pixel8Api36") {
-                    device = "Pixel 8"
-                    apiLevel = 36
-                    systemImageSource = "aosp"
-                    testedAbi = "x86_64"
+                if (!androidTestCoverageRequested) {
+                    create("pixel8Api36") {
+                        device = "Pixel 8"
+                        apiLevel = 36
+                        systemImageSource = "aosp"
+                        testedAbi = "x86_64"
+                    }
                 }
             }
-            groups {
-                create("productionMatrix") {
-                    targetDevices.add(allDevices.getByName("pixel2Api29"))
-                    targetDevices.add(allDevices.getByName("pixel8Api36"))
+            if (!androidTestCoverageRequested) {
+                groups {
+                    create("productionMatrix") {
+                        targetDevices.add(allDevices.getByName("pixel2Api29"))
+                        targetDevices.add(allDevices.getByName("pixel8Api36"))
+                    }
                 }
             }
         }
@@ -161,6 +175,87 @@ dependencies {
     debugImplementation(libs.androidx.compose.ui.tooling)
     debugImplementation(libs.androidx.compose.ui.test.manifest)
     baselineProfile(project(":benchmark"))
+}
+
+if (androidTestCoverageRequested) {
+    val api29ExecutionDataDirectory =
+        layout.buildDirectory.dir(
+            "outputs/managed_device_code_coverage/debug/pixel2Api29",
+        )
+    val generatedCoverageClasses =
+        listOf(
+            "**/R.class",
+            "**/R${'$'}*.class",
+            "**/BuildConfig.*",
+            "**/Manifest*.*",
+            "**/*Factory*.*",
+            "**/*_MembersInjector*.*",
+            "**/*_Impl*.*",
+            "**/Hilt_*.*",
+            "**/*_HiltModules*.*",
+            "**/*_HiltComponents*.*",
+            "**/Dagger*.*",
+            "**/hilt_aggregated_deps/**",
+            "**/dagger/hilt/internal/aggregatedroot/codegen/**",
+        )
+    val api29ExecutionData =
+        fileTree(api29ExecutionDataDirectory) { include("**/*.ec", "**/*.exec") }
+    val api29ClassDirectories =
+        fileTree(
+            layout.buildDirectory.dir(
+                "intermediates/classes/debug/transformDebugClassesWithAsm/dirs",
+            ),
+        ) {
+            exclude(generatedCoverageClasses)
+        }
+    val verifyApi29ExecutionData =
+        tasks.register("verifyPixel2Api29DebugAndroidTestCoverageData") {
+            group = "verification"
+            description = "Verifies that API 29 coverage data and matching app classes exist."
+            dependsOn("pixel2Api29DebugAndroidTest")
+            inputs.files(api29ExecutionData, api29ClassDirectories)
+
+            doLast {
+                val executionFiles = api29ExecutionData.files.filter { it.isFile }
+                check(executionFiles.isNotEmpty()) {
+                    "API 29 Android coverage execution data was not produced"
+                }
+                val api29Root = api29ExecutionDataDirectory.get().asFile.toPath()
+                check(executionFiles.all { it.toPath().startsWith(api29Root) }) {
+                    "Android coverage report contains execution data outside pixel2Api29"
+                }
+                check(api29ClassDirectories.files.any { it.isFile && it.extension == "class" }) {
+                    "Android coverage classes were not found; verify the AGP class output path"
+                }
+            }
+        }
+
+    tasks.register<JacocoReport>("createPixel2Api29DebugAndroidTestCoverageReport") {
+        group = "verification"
+        description = "Creates API 29 managed-device JaCoCo XML and HTML reports."
+        dependsOn(verifyApi29ExecutionData)
+
+        executionData.setFrom(api29ExecutionData)
+        // Match the post-Hilt/Dagger bytecode used by AGP before JaCoCo instrumentation.
+        classDirectories.setFrom(api29ClassDirectories)
+        sourceDirectories.setFrom(files("src/main/java", "src/main/kotlin"))
+
+        reports {
+            xml.required.set(true)
+            xml.outputLocation.set(
+                layout.buildDirectory.file(
+                    "reports/coverage/androidTest/debug/pixel2Api29/report.xml",
+                ),
+            )
+            html.required.set(true)
+            html.outputLocation.set(
+                layout.buildDirectory.dir(
+                    "reports/coverage/androidTest/debug/pixel2Api29/html",
+                ),
+            )
+            csv.required.set(false)
+        }
+    }
 }
 
 if (project.hasProperty("enableCoverage")) {

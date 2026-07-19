@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<!DOCTYPE report PUBLIC "-//JACOCO//DTD Report 1.1//EN" "report.dtd">
+<report name="realistic">
+  <sessioninfo id="api29" start="1710000000000" dump="1710000005000"/>
+  <package name="com/example/ironpath/domain/planner">
+    <class name="com/example/ironpath/domain/planner/PlanGenerator" sourcefilename="PlanGenerator.kt">
+      <method name="generate" desc="()V" line="10">
+        <counter type="INSTRUCTION" missed="3" covered="7"/>
+        <counter type="BRANCH" missed="1" covered="1"/>
+        <counter type="LINE" missed="2" covered="3"/>
+        <counter type="COMPLEXITY" missed="1" covered="1"/>
+        <counter type="METHOD" missed="0" covered="1"/>
+      </method>
+      <counter type="INSTRUCTION" missed="3" covered="7"/>
+      <counter type="BRANCH" missed="1" covered="1"/>
+      <counter type="LINE" missed="2" covered="3"/>
+      <counter type="COMPLEXITY" missed="1" covered="1"/>
+      <counter type="METHOD" missed="0" covered="1"/>
+      <counter type="CLASS" missed="0" covered="1"/>
+    </class>
+    <sourcefile name="PlanGenerator.kt">
+      <line nr="10" mi="3" ci="7" mb="1" cb="1"/>
+      <counter type="INSTRUCTION" missed="3" covered="7"/>
+      <counter type="BRANCH" missed="1" covered="1"/>
+      <counter type="LINE" missed="2" covered="3"/>
+      <counter type="COMPLEXITY" missed="1" covered="1"/>
+      <counter type="METHOD" missed="0" covered="1"/>
+      <counter type="CLASS" missed="0" covered="1"/>
+    </sourcefile>
+    <counter type="INSTRUCTION" missed="3" covered="7"/>
+    <counter type="BRANCH" missed="1" covered="1"/>
+    <counter type="LINE" missed="2" covered="3"/>
+    <counter type="COMPLEXITY" missed="1" covered="1"/>
+    <counter type="METHOD" missed="0" covered="1"/>
+    <counter type="CLASS" missed="0" covered="1"/>
+  </package>
+  <counter type="INSTRUCTION" missed="7" covered="13"/>
+  <counter type="BRANCH" missed="2" covered="4"/>
+  <counter type="LINE" missed="4" covered="6"/>
+  <counter type="COMPLEXITY" missed="2" covered="3"/>
+  <counter type="METHOD" missed="1" covered="2"/>
+  <counter type="CLASS" missed="0" covered="1"/>
+</report>
