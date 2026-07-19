@@ -228,6 +228,8 @@ No schema change is required unless later implementation chooses to persist AI p
 
 ## Feature 4: Deterministic plan validation
 
+**Status: Implemented** - PR #38 (feat/feat9.2-plan-validation)
+
 ### Context
 
 This is the safety center of v4. AI can propose a plan, but deterministic app code decides whether the plan is allowed to become real app data.
