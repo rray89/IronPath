@@ -409,6 +409,12 @@ jobs:
       - name: Create local.properties
         run: echo "sdk.dir=$ANDROID_HOME" > local.properties
 
+      - name: Download Android lint reports
+        uses: actions/download-artifact@v4
+        with:
+          name: lint-reports
+          path: app/build/reports
+
       - name: Download JVM unit coverage
         uses: actions/download-artifact@v4
         with:
@@ -436,6 +442,7 @@ jobs:
               exit 1
             fi
           done
+          test -s app/build/reports/lint-results-debug.xml
           test -s coverage/unit/report.xml
           test -s coverage/android/report.xml
 

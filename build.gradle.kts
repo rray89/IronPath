@@ -16,6 +16,7 @@ sonar {
         property("sonar.projectName", "IronPath")
         property("sonar.sourceEncoding", "UTF-8")
         property("sonar.kotlin.source.version", "2.3")
+        property("sonar.exclusions", "**/*.otf,**/*.webp")
         property(
             "sonar.coverage.exclusions",
             listOf(
