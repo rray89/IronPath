@@ -92,6 +92,8 @@ v4 does not aim to solve:
 
 ## Feature 1: Planning engine abstraction
 
+**Status: Implemented** - PR #37 (feat/feat9.1-planning-engine-contracts)
+
 ### Context
 
 The existing local planner is useful and should not be discarded. v4 should place it behind an explicit planning boundary so AI can be added without spreading model-specific behavior through ViewModels, repositories, or UI code.
