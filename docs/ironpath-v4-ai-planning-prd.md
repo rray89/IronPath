@@ -267,6 +267,22 @@ Validator responsibilities:
 - after repair failure, the app falls back to the rule-based planner.
 - validation rules must be covered by JVM unit tests.
 
+### Locked v4 validator defaults
+
+These defaults are implemented by the v4 validator in `feat9.2`. They do not change the legacy v2 planner UI or acceptance behavior until Feature 5 wires the validated path end to end.
+
+- plans contain 1-6 workouts, leaving at least one rest day in every Monday-Sunday week.
+- workouts contain 1-8 unique catalog exercises.
+- each exercise contains 1-6 sets and 1-30 reps per set.
+- `targetWeightKg` is the only accepted load field and must be a finite value from 0-300 kg.
+- weekly volume is capped at 120 hard sets total and 25 hard sets for any catalog primary-muscle group. The primary-muscle cap is intentionally an approximation; `CORE` and `FULL_BODY` remain their own catalog groups rather than being distributed fractionally across other groups.
+- workouts sharing a catalog primary-muscle group require at least one full rest day between them. `CORE` and `FULL_BODY` are exempt until the catalog can represent secondary-muscle contribution accurately.
+- load progression compares only the same stable exercise catalog ID. A target may increase by the larger of 10 percent or 2.5 kg over the recent maximum. With no exact-exercise history, v4 does not invent a cross-exercise limit; the normal absolute bounds still apply.
+- free-text injury notes inform prompting but are not parsed as deterministic medical rules. Only explicit structured forbidden-movement caution tags can block matching catalog entries.
+- catalog entries marked as unsuitable for AI drafts are rejected for every AI provider. The local rule-based engine may still use them when its structured template semantics are unambiguous.
+
+`feat9.2` establishes the pure validator, immutable validation token, and token-gated entity mapper. Feature 5 (`feat9.4`) must route AI-assisted review and final acceptance through this boundary before the PRD's persistence invariant is considered wired end to end. The legacy v2 rule-based acceptance path remains behaviorally unchanged during this intermediate slice and can still persist empty or seven-day plans that the v4 validator rejects.
+
 ### Data model impact
 
 Validation depends on the minimum exercise catalog defined in Feature 1. Avoid Room schema changes unless the catalog truly needs persisted app data rather than local domain definitions.

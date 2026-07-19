@@ -11,8 +11,10 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.example.ironpath.MainActivity
 import com.example.ironpath.domain.identity.IdProvider
 import com.example.ironpath.domain.planner.ExerciseCatalog
+import com.example.ironpath.domain.planner.PlanValidator
 import com.example.ironpath.domain.planner.PlanningEngineRegistry
 import com.example.ironpath.domain.planner.PlanningEngineType
+import com.example.ironpath.domain.planner.ValidatedPlanDraftMapper
 import com.example.ironpath.domain.time.TimeProvider
 import com.example.ironpath.testutil.HiltTestDatabaseRule
 import com.example.ironpath.ui.navigation.Route
@@ -42,6 +44,10 @@ class HiltStartupTest {
     @Inject lateinit var exerciseCatalog: ExerciseCatalog
 
     @Inject lateinit var planningEngineRegistry: PlanningEngineRegistry
+
+    @Inject lateinit var planValidator: PlanValidator
+
+    @Inject lateinit var validatedPlanDraftMapper: ValidatedPlanDraftMapper
 
     @Before
     fun inject() {
@@ -74,6 +80,8 @@ class HiltStartupTest {
         assertTrue(exerciseCatalog.entries.isNotEmpty())
         assertTrue(::planningEngineRegistry.isInitialized)
         assertTrue(PlanningEngineType.RULE_BASED in planningEngineRegistry.availableTypes)
+        assertTrue(::planValidator.isInitialized)
+        assertTrue(::validatedPlanDraftMapper.isInitialized)
     }
 
     private fun waitForText(text: String) {
