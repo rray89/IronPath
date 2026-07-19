@@ -200,12 +200,20 @@ if (androidTestCoverageRequested) {
         )
     val api29ExecutionData =
         fileTree(api29ExecutionDataDirectory) { include("**/*.ec", "**/*.exec") }
+    val api29ClassDirectories =
+        fileTree(
+            layout.buildDirectory.dir(
+                "intermediates/classes/debug/transformDebugClassesWithAsm/dirs",
+            ),
+        ) {
+            exclude(generatedCoverageClasses)
+        }
     val verifyApi29ExecutionData =
         tasks.register("verifyPixel2Api29DebugAndroidTestCoverageData") {
             group = "verification"
-            description = "Verifies that API 29 managed-device coverage data exists and is scoped."
+            description = "Verifies that API 29 coverage data and matching app classes exist."
             dependsOn("pixel2Api29DebugAndroidTest")
-            inputs.files(api29ExecutionData)
+            inputs.files(api29ExecutionData, api29ClassDirectories)
 
             doLast {
                 val executionFiles = api29ExecutionData.files.filter { it.isFile }
@@ -216,6 +224,9 @@ if (androidTestCoverageRequested) {
                 check(executionFiles.all { it.toPath().startsWith(api29Root) }) {
                     "Android coverage report contains execution data outside pixel2Api29"
                 }
+                check(api29ClassDirectories.files.any { it.isFile && it.extension == "class" }) {
+                    "Android coverage classes were not found; verify the AGP class output path"
+                }
             }
         }
 
@@ -225,16 +236,8 @@ if (androidTestCoverageRequested) {
         dependsOn(verifyApi29ExecutionData)
 
         executionData.setFrom(api29ExecutionData)
-        classDirectories.setFrom(
-            // Match the post-Hilt/Dagger bytecode used by AGP before JaCoCo instrumentation.
-            fileTree(
-                layout.buildDirectory.dir(
-                    "intermediates/classes/debug/transformDebugClassesWithAsm/dirs",
-                ),
-            ) {
-                exclude(generatedCoverageClasses)
-            },
-        )
+        // Match the post-Hilt/Dagger bytecode used by AGP before JaCoCo instrumentation.
+        classDirectories.setFrom(api29ClassDirectories)
         sourceDirectories.setFrom(files("src/main/java", "src/main/kotlin"))
 
         reports {

@@ -45,6 +45,23 @@ test("parser uses report-level counters and preserves exact percentages", () => 
   assert.equal(report.files.length, 3);
 });
 
+test("parser ignores nested real-world counters when selecting report totals", () => {
+  const report = parseJacocoReport(fixture("realistic-coverage.xml"));
+  assert.deepEqual(report.root.line, {
+    missed: 4,
+    covered: 6,
+    total: 10,
+    pct: 60,
+  });
+  assert.deepEqual(report.root.branch, {
+    missed: 2,
+    covered: 4,
+    total: 6,
+    pct: 67,
+  });
+  assert.equal(report.files[0].name, "com/example/ironpath/domain/planner/PlanGenerator.kt");
+});
+
 test("combined comment labels both test layers and never ranks Android-only zeroes as JVM gaps", () => {
   const body = buildCoverageComment({
     unitXml: fixture("unit-coverage.xml"),
