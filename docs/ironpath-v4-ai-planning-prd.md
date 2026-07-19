@@ -22,7 +22,7 @@ The portfolio story should be:
 
 - modern Android architecture with a pluggable planning engine
 - on-device-first AI where available
-- deterministic safety validation before any plan is persisted
+- deterministic constraint validation before any plan is persisted
 - graceful fallback when AI is unavailable, slow, invalid, or unsafe
 - optional debug-only API experimentation without creating a production backend
 
@@ -125,7 +125,9 @@ Feature 1 must also formalize the minimum local exercise catalog needed by later
 - `FakeAiPlanningEngine` is debug/test-only and should never be presented as a real AI provider in release builds.
 - Debug builds may expose provider selection for development and demos.
 - Owned planning implementations use constructor injection. Hilt modules are limited to interface bindings and third-party provider construction.
-- Every new planning binding must resolve in debug and release builds and in the API 29 Hilt startup or journey suite.
+- `feat9.1` must establish a real provider variant boundary before debug-only engines are added. Debug provider implementations, bindings, and selector UI belong in `src/debug`; a narrowly scoped `BuildConfig.DEBUG` gate is acceptable only when source-set isolation is impractical.
+- The existing release-shipping hidden DevTools gesture is not an acceptable security boundary for a remote provider or API key.
+- Shared and release planning bindings must resolve in debug and release builds. Debug-only bindings must resolve in debug, remain absent from release, and participate in the API 29 Hilt startup or journey suite where applicable.
 
 ### Data model impact
 
@@ -154,6 +156,8 @@ Planner Setup should collect or derive:
 - recent records summary
 
 The initial version may keep intake local and lightweight. It does not need a full user profile system.
+
+V4 should introduce a canonical `PlanningGoal` with exactly those five intake values. `RuleBasedPlanningEngine` must define an explicit template strategy for every value rather than silently falling through to a generic plan; it may adapt the current Strength, Hypertrophy, Endurance, and Rehab template pools, but user-facing copy must not present return-to-routine as medical rehabilitation. The goal mapping and fallback output for all five values are part of `feat9.3` acceptance criteria.
 
 ### Constraint classification
 
@@ -252,6 +256,7 @@ Validator responsibilities:
 ### Product rules
 
 - nothing unvalidated ever persists.
+- validation is an app-level constraint and consistency check, not medical clearance; a "validated" label must not imply that a workout is clinically safe for a specific injury.
 - validation runs once when a draft is created and again at final accept.
 - any user edit in Plan Review marks the prior validation result stale and removes the "validated" badge until the edited plan passes validation again.
 - if final validation fails, the app blocks acceptance and shows the validator warnings; it does not persist the plan.
@@ -307,7 +312,7 @@ Users may not:
 - fallback should be framed as normal behavior, not a crash or failure.
 - only one generation request may control planner state at a time. A replacement request invalidates or cancels the previous request, and late results are ignored.
 - cancellation, timeout, navigation away, or provider failure must not persist a partial draft.
-- the accept action is disabled while persistence is in progress, and repeated acceptance must not create duplicate weekly plans.
+- the accept action is disabled while persistence is in progress. Repeated acceptance of the same draft is idempotent and must not create another `WeeklyPlan` row, while accepting a genuinely different validated plan keeps the existing archive-then-insert replacement behavior.
 
 ### Data model impact
 
@@ -389,7 +394,7 @@ No Room schema change is expected.
 ## Suggested implementation order
 
 1. `feat9: add V4 AI Planning PRD`
-2. `feat9.1: add planning engine contracts and minimum exercise catalog`
+2. `feat9.1: add planning engine contracts, provider variant boundary, and minimum exercise catalog`
 3. `feat9.2: add plan draft contract and deterministic validator`
 4. `feat9.3: add structured planning intake and fake AI planning engine`
 5. `feat9.4: add AI-assisted planner review flow with catalog-backed exercise edits and final validation`
@@ -407,7 +412,7 @@ V4 inherits `docs/testing-strategy.md` as the authoritative project-wide test an
 
 | Implementation | Required proof |
 | --- | --- |
-| `feat9.1` planning contracts and catalog | JVM contract and catalog tests, stable-ID and metadata boundary cases, release provider-boundary verification, and API 29 Hilt graph resolution for every new binding |
+| `feat9.1` planning contracts, variant boundary, and catalog | JVM contract and catalog tests, stable-ID and metadata boundary cases, source-set and release provider-boundary verification, release graph compilation, and API 29 Hilt graph resolution for bindings present in the tested variant |
 | `feat9.2` draft and validator | Exhaustive JVM validator and mapping tests using fixed time, including valid, malformed, safety, date, equipment, progression, and boundary inputs |
 | `feat9.3` intake and fake AI | JVM ViewModel tests plus isolated Compose tests for intake, loading, validation, failure, cancellation, and restored state; semantics and 200% font-scale coverage for every new control |
 | `feat9.4` review and acceptance | JVM, Compose, real NavHost, real Room, and real-app journey coverage for generation, editing, stale validation, revalidation, acceptance, duplicate actions, persistence, recreation, and back-stack behavior |
@@ -425,7 +430,7 @@ Expected coverage:
 - malformed draft rejection
 - unknown exercise rejection
 - invalid week/date rejection
-- past scheduled workout rejection
+- past scheduled workout rejection using a hand-built invalid `PlanDraft`, because the rule-based generator itself targets the upcoming week
 - duplicate workout day rejection
 - requested training-day mismatch rejection
 - selected training-day mismatch rejection
@@ -444,6 +449,7 @@ Expected coverage:
 - stale validation state after user edits
 - validation warning state
 - provider unavailable fallback
+- explicit rule-based fallback behavior for all five `PlanningGoal` values
 - accept validated draft
 - block invalid draft acceptance
 - late result ignored after cancellation or replacement generation
@@ -467,7 +473,7 @@ Expected coverage:
 
 - real Room tests for draft-to-accepted-plan mapping and atomic persistence behavior
 - migration tests with representative data if any v4 implementation changes the Room schema
-- duplicate or concurrent acceptance cannot create multiple accepted plans for the same target week
+- repeated acceptance of the same draft produces no competing Active plan and no orphaned Archived duplicate; accepting a different validated plan still archives the previous Active plan and inserts the replacement atomically
 - cancelled, invalid, stale, or partially mapped drafts leave no persisted plan data
 - a critical real-app journey covers intake, fake generation, review editing, stale validation, final validation, acceptance, process-level recreation, and the accepted plan on Home
 - journey fixtures and provider doubles remain deterministic across the nightly state-leak repetitions
@@ -490,7 +496,9 @@ CI must not require real model weights, live network calls, provider API keys, A
 
 ## Portfolio demo story
 
-A strong 60-second demo should show:
+A strong 60-second demo assumes either a debug build using `FakeAiPlanningEngine` or a physical device with a supported on-device provider. On a release build without on-device capability, the honest demo outcome is the rule-based fallback rather than a simulated AI draft.
+
+The demo should show:
 
 1. Open Planner Setup.
 2. Enter a goal, available days, equipment, and one injury or forbidden movement.
