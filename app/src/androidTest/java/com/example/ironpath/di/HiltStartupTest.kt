@@ -10,6 +10,9 @@ import androidx.compose.ui.test.performClick
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.example.ironpath.MainActivity
 import com.example.ironpath.domain.identity.IdProvider
+import com.example.ironpath.domain.planner.ExerciseCatalog
+import com.example.ironpath.domain.planner.PlanningEngineRegistry
+import com.example.ironpath.domain.planner.PlanningEngineType
 import com.example.ironpath.domain.time.TimeProvider
 import com.example.ironpath.testutil.HiltTestDatabaseRule
 import com.example.ironpath.ui.navigation.Route
@@ -35,6 +38,10 @@ class HiltStartupTest {
     @Inject lateinit var timeProvider: TimeProvider
 
     @Inject lateinit var idProvider: IdProvider
+
+    @Inject lateinit var exerciseCatalog: ExerciseCatalog
+
+    @Inject lateinit var planningEngineRegistry: PlanningEngineRegistry
 
     @Before
     fun inject() {
@@ -63,6 +70,10 @@ class HiltStartupTest {
     fun productionGraph_resolvesDeterministicBoundaries() {
         assertTrue(::timeProvider.isInitialized)
         assertTrue(::idProvider.isInitialized)
+        assertTrue(::exerciseCatalog.isInitialized)
+        assertTrue(exerciseCatalog.entries.isNotEmpty())
+        assertTrue(::planningEngineRegistry.isInitialized)
+        assertTrue(PlanningEngineType.RULE_BASED in planningEngineRegistry.availableTypes)
     }
 
     private fun waitForText(text: String) {
