@@ -402,6 +402,8 @@ No Room schema change is expected.
 
 ## Feature 7: Debug-only remote provider experiment
 
+**Status: Implemented** - PR #42 (feat/feat9.6-debug-remote-provider)
+
 ### Context
 
 Remote models may produce better plans than small on-device models, but production remote AI implies auth, backend routing, secrets, monitoring, abuse handling, and cost controls. That is not v4 scope.
@@ -427,6 +429,14 @@ Not allowed:
 - production backend claims
 - bypassing local validation because a remote model seems stronger
 - remote AI calls in release builds
+
+Implementation decision: `feat9.6` uses the Gemini Interactions API with
+`gemini-3.5-flash` and structured JSON output. The developer-supplied key stays only
+in process memory, so secure persistence is not needed; disabling the experiment or
+ending the process clears it. Release and release-like variants contain no remote
+transport, provider engine, or candidate binding. See
+`docs/debug-remote-ai-experiment.md` for setup, privacy boundaries, provider order,
+and verification evidence.
 
 ### Data model impact
 
