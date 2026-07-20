@@ -216,6 +216,6 @@ private class FakeOnDeviceModelClient(
 
     override suspend fun generate(prompt: OnDeviceModelPrompt): OnDeviceModelGeneration {
         prompts += prompt
-        return generationBlock?.invoke(prompt) ?: generations.removeFirst()
+        return generationBlock?.invoke(prompt) ?: generations.removeAt(0)
     }
 }
