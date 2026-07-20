@@ -78,30 +78,30 @@ class MlKitOnDeviceModelClient @Inject constructor() : OnDeviceModelClient {
             else -> OnDeviceModelStatus.UNAVAILABLE
         }
 
-    private fun MlKitPlanResponse.toProposal() =
-        OnDevicePlanProposal(
-            rationale = rationale,
-            warnings = warnings,
-            workouts =
-                workouts.map { workout ->
-                    OnDeviceWorkoutProposal(
-                        dayOfWeek = workout.dayOfWeek,
-                        title = workout.title,
-                        exercises =
-                            workout.exercises.map { exercise ->
-                                OnDeviceExerciseProposal(
-                                    catalogId = exercise.catalogId,
-                                    sets = exercise.sets,
-                                    reps = exercise.reps,
-                                    targetWeightKg = exercise.targetWeightKg,
-                                )
-                            },
-                    )
-                },
-        )
-
     private companion object {
         const val TEMPERATURE = 0.2f
         const val MAX_OUTPUT_TOKENS = 2_048
     }
 }
+
+internal fun MlKitPlanResponse.toProposal() =
+    OnDevicePlanProposal(
+        rationale = rationale,
+        warnings = warnings,
+        workouts =
+            workouts.map { workout ->
+                OnDeviceWorkoutProposal(
+                    dayOfWeek = workout.dayOfWeek,
+                    title = workout.title,
+                    exercises =
+                        workout.exercises.map { exercise ->
+                            OnDeviceExerciseProposal(
+                                catalogId = exercise.catalogId,
+                                sets = exercise.sets,
+                                reps = exercise.reps,
+                                targetWeightKg = exercise.targetWeightKg,
+                            )
+                        },
+                )
+            },
+    )
