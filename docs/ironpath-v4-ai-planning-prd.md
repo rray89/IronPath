@@ -357,6 +357,8 @@ Accepted drafts map into the existing weekly plan persistence flow. No new accep
 
 ## Feature 6: On-device provider spike
 
+**Status: Implemented** - PR #41 (feat/feat9.5-on-device-provider)
+
 ### Context
 
 On-device AI is the preferred long-term portfolio story, but device support and API maturity are uncertain. v4 should prove the integration path without making the entire feature depend on it.
@@ -371,6 +373,12 @@ Preferred spike path:
 - runtime capability check before exposing or selecting the provider
 - local generation timeout
 - graceful fallback to rule-based generation
+
+Implementation decision: `feat9.5` selected the ML Kit Prompt API with typed
+structured output. The app does not trigger model downloads in this slice;
+downloadable, downloading, unsupported, timeout, and provider-error states continue
+through the variant-specific fallback chain. See `docs/on-device-ai-spike.md` for the
+capability matrix, architecture boundary, and device evidence.
 
 Alternate spike path:
 
@@ -549,7 +557,6 @@ The message to interviewers is that IronPath uses AI as a bounded planning compo
 ## Open questions
 
 - Should v4 persist a local planning profile, or keep intake ephemeral until the AI flow proves useful?
-- Should the first on-device spike use ML Kit Prompt API / AICore first, or compare it against MediaPipe LLM Inference?
 - Which catalog metadata beyond the v4 minimum is worth adding for later analytics or coaching features?
 - How strict should the first progression cap be for users with sparse history?
 

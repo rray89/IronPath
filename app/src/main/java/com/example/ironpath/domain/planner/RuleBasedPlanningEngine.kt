@@ -44,7 +44,7 @@ constructor(
                     )
             )
         return when (
-            val validation = planValidator.validate(completedDraft, request.validationContext())
+            val validation = planValidator.validate(completedDraft, request.validationContext(type))
         ) {
             is PlanValidationResult.Valid -> PlanningResult.Success(validation.validatedPlan.draft)
             is PlanValidationResult.Invalid ->
@@ -113,7 +113,7 @@ constructor(
         request: PlanningRequest,
         providerMetadata: PlanningProviderMetadata,
     ): RuleBasedDraftResult {
-        val context = request.validationContext()
+        val context = request.validationContext(PlanningEngineType.RULE_BASED)
         val eligibleEntries = exerciseEligibilityPolicy.eligibleEntries(context)
         val warnings = mutableListOf<String>()
         val emptyDays = mutableListOf<Int>()
@@ -283,17 +283,6 @@ constructor(
                 weightKg.takeIf { original.requiredEquipment == selected.requiredEquipment },
         )
 }
-
-private fun PlanningRequest.validationContext() =
-    PlanValidationContext(
-        expectedTargetWeekStart = targetWeekStart,
-        invokedEngineType = PlanningEngineType.RULE_BASED,
-        selectedDays = selectedDays,
-        experience = intake.experience,
-        availableEquipment = intake.availableEquipment,
-        forbiddenCautionTags = intake.forbiddenCautionTags,
-        recentExerciseLoads = intake.recentTraining.exerciseLoads,
-    )
 
 private fun PlanningRequest.basicViolations(): List<String> = buildList {
     if (targetWeekStart.dayOfWeek != DayOfWeek.MONDAY) {

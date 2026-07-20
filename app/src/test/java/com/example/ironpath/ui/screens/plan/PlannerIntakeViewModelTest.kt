@@ -1,6 +1,8 @@
 package com.example.ironpath.ui.screens.plan
 
 import androidx.lifecycle.SavedStateHandle
+import com.example.ironpath.domain.planner.AiPlanningCandidate
+import com.example.ironpath.domain.planner.AiPlanningCoordinator
 import com.example.ironpath.domain.planner.DefaultExerciseCatalog
 import com.example.ironpath.domain.planner.Equipment
 import com.example.ironpath.domain.planner.ExerciseCatalogIds
@@ -184,6 +186,19 @@ class PlannerIntakeViewModelTest {
     }
 
     @Test
+    fun `provider timeout leaves generating state with retryable failure`() = runTest {
+        val viewModel =
+            createViewModel(engine = StaticEngine(PlanningResult.Failure(PlanningFailure.Timeout)))
+        viewModel.toggleDay(1)
+
+        viewModel.generateWithAi()
+        runCurrent()
+
+        val state = viewModel.aiGenerationState.value as AiGenerationUiState.Failed
+        assertEquals(PlanningFailure.Timeout, state.failure)
+    }
+
+    @Test
     fun `rule fallback uses registered rule engine and validates with its provider type`() =
         runTest {
             val aiEngine = StaticEngine(validResult(setOf(1)))
@@ -318,14 +333,31 @@ class PlannerIntakeViewModelTest {
     private fun createViewModelWithEngines(
         handle: SavedStateHandle = SavedStateHandle(),
         engines: Map<PlanningEngineType, PlanningEngine>,
-    ) =
-        PlannerIntakeViewModel(
+    ): PlannerIntakeViewModel {
+        val registry = PlanningEngineRegistry(engines)
+        val priorities =
+            mapOf(
+                PlanningEngineType.ON_DEVICE_AI to 0,
+                PlanningEngineType.DEBUG_FAKE_AI to 50,
+                PlanningEngineType.DEBUG_REMOTE_AI to 75,
+                PlanningEngineType.RULE_BASED to 100,
+            )
+        val coordinator =
+            AiPlanningCoordinator(
+                planningEngineRegistry = registry,
+                planValidator = PlanValidator(catalog, timeProvider),
+                candidates =
+                    engines.keys.mapTo(linkedSetOf()) { type ->
+                        AiPlanningCandidate(type, priorities.getValue(type))
+                    },
+            )
+        return PlannerIntakeViewModel(
             savedStateHandle = handle,
-            planningEngineRegistry = PlanningEngineRegistry(engines),
-            planValidator = PlanValidator(catalog, timeProvider),
+            aiPlanningCoordinator = coordinator,
             planningHistoryProvider = historyProvider,
             timeProvider = timeProvider,
         )
+    }
 
     private fun validResult(
         days: Set<Int>,

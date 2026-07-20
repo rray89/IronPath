@@ -263,6 +263,10 @@ class AdaptiveLayoutTest {
         setAdaptiveContent(COMPACT_LANDSCAPE) { AiPlanReviewContent() }
 
         composeRule
+            .onNodeWithTag(TestTags.PLAN_AI_FALLBACK_REASON)
+            .performScrollTo()
+            .assertIsDisplayed()
+        composeRule
             .onNodeWithTag(TestTags.planAiExercise(1, ExerciseCatalogIds.PUSH_UPS.value))
             .performScrollTo()
             .assertIsDisplayed()
@@ -645,7 +649,13 @@ class AdaptiveLayoutTest {
                     ),
                 rationale = "A simple week that leaves room to recover.",
                 warnings = listOf("Adjust the session when form changes."),
-                providerMetadata = PlanningProviderMetadata(PlanningEngineType.DEBUG_FAKE_AI, 20),
+                providerMetadata =
+                    PlanningProviderMetadata(
+                        PlanningEngineType.DEBUG_FAKE_AI,
+                        generationDurationMillis = 20,
+                        fallbackReason =
+                            "On-device AI is unavailable, so the debug AI provider generated this draft.",
+                    ),
             )
         val context =
             PlanValidationContext(

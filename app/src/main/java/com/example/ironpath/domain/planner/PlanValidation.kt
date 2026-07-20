@@ -30,6 +30,17 @@ data class PlanValidationContext(
     val recentExerciseLoads: List<RecentExerciseLoad> = emptyList(),
 )
 
+internal fun PlanningRequest.validationContext(engineType: PlanningEngineType) =
+    PlanValidationContext(
+        expectedTargetWeekStart = targetWeekStart,
+        invokedEngineType = engineType,
+        selectedDays = selectedDays,
+        experience = intake.experience,
+        availableEquipment = intake.availableEquipment,
+        forbiddenCautionTags = intake.forbiddenCautionTags,
+        recentExerciseLoads = intake.recentTraining.exerciseLoads,
+    )
+
 object PlanValidationLimits {
     const val MIN_TRAINING_DAYS = 1
     const val MAX_TRAINING_DAYS = 6
@@ -581,7 +592,7 @@ private fun PlanDraft.validationSnapshot() =
         providerMetadata = providerMetadata.copy(),
     )
 
-private fun String.normalizedModelText(maxLength: Int): String =
+internal fun String.normalizedModelText(maxLength: Int): String =
     map { character -> if (character.isISOControl()) ' ' else character }
         .joinToString(separator = "")
         .replace(Regex("\\s+"), " ")

@@ -78,7 +78,8 @@ interface PlanningEngine {
 
     /**
      * Generates a draft without blocking the main thread. Implementations must let coroutine
-     * cancellation propagate; cancellation is never converted to a [PlanningResult.Failure].
+     * cancellation propagate; cancellation is never converted to a [PlanningResult.Failure]. A
+     * provider's own deadline is returned as [PlanningFailure.Timeout], not coroutine cancellation.
      */
     suspend fun generate(request: PlanningRequest): PlanningResult
 }

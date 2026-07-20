@@ -24,6 +24,8 @@ androidxTestRunner = "1.7.0"
 benchmarkTooling = "1.5.0-alpha07"
 profileInstaller = "1.4.1"
 uiAutomator = "2.4.0"
+mlKitGenAiPrompt = "1.0.0-beta3"
+mlKitGenAiSchemaCompiler = "1.0.0-alpha1"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -70,6 +72,8 @@ androidx-benchmark-macro-junit4 = { group = "androidx.benchmark", name = "benchm
 androidx-profileinstaller = { group = "androidx.profileinstaller", name = "profileinstaller", version.ref = "profileInstaller" }
 androidx-test-uiautomator = { group = "androidx.test.uiautomator", name = "uiautomator", version.ref = "uiAutomator" }
 kotlinx-serialization-bom = { module = "org.jetbrains.kotlinx:kotlinx-serialization-bom", version.ref = "serialization" }
+mlkit-genai-prompt = { module = "com.google.mlkit:genai-prompt", version.ref = "mlKitGenAiPrompt" }
+mlkit-genai-schema-compiler = { module = "com.google.mlkit:genai-schema-compiler", version.ref = "mlKitGenAiSchemaCompiler" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
