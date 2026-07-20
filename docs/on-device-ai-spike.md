@@ -42,8 +42,9 @@ initial generation, mapping, validation, and an optional repair attempt.
 Debug builds use this order:
 
 1. on-device provider
-2. deterministic debug fake
-3. rule-based generator
+2. opt-in remote experiment, when configured
+3. deterministic debug fake
+4. rule-based generator
 
 Release builds use this order:
 
@@ -102,5 +103,6 @@ ANDROID_SERIAL=<seeker-serial> ./gradlew connectedDebugAndroidTest
 
 For the Seeker demo, install the debug build, choose at least one training day, and
 tap **Generate with AI**. Plan Review should identify `DEBUG FAKE AI` and explain that
-on-device AI was unavailable. A release build on the same device should identify the
-rule-based generator instead.
+on-device AI was unavailable when the remote experiment is disabled. See
+`docs/debug-remote-ai-experiment.md` for the optional remote comparison path. A
+release build on the same device should identify the rule-based generator instead.

@@ -55,6 +55,7 @@ import com.example.ironpath.domain.planner.PlanValidationContext
 import com.example.ironpath.domain.planner.PlanningEngineType
 import com.example.ironpath.domain.planner.PlanningGoal
 import com.example.ironpath.domain.planner.PlanningProviderMetadata
+import com.example.ironpath.domain.planner.RemotePlanningExperimentState
 import com.example.ironpath.domain.planner.TrainingExperience
 import com.example.ironpath.domain.planner.ValidatedPlanDraft
 import com.example.ironpath.domain.planner.WorkoutDraft
@@ -142,6 +143,11 @@ class SemanticsContractTest {
                 onAccept = {},
                 onStartWorkout = {},
                 onOpenWorkoutPreview = {},
+                remotePlanningExperimentState =
+                    RemotePlanningExperimentState(
+                        available = true,
+                        enabled = true,
+                    ),
             )
         }
 
@@ -195,6 +201,17 @@ class SemanticsContractTest {
             .onNodeWithTag(TestTags.PLAN_DISLIKES)
             .performScrollTo()
             .assert(hasAccessibleLabel("Exercise dislikes"))
+        composeRule
+            .onNodeWithTag(TestTags.PLAN_REMOTE_AI_TOGGLE)
+            .performScrollTo()
+            .assertIsToggleable()
+            .assertIsOn()
+            .assert(SemanticsMatcher.expectValue(SemanticsProperties.Role, Role.Switch))
+        composeRule
+            .onNodeWithTag(TestTags.PLAN_REMOTE_AI_KEY)
+            .performScrollTo()
+            .assert(hasAccessibleLabel("Gemini API key"))
+            .assert(SemanticsMatcher.keyIsDefined(SemanticsProperties.Password))
         composeRule
             .onNodeWithTag(TestTags.PLAN_GENERATE_AI)
             .performScrollTo()

@@ -63,6 +63,65 @@ class AiPlanningCoordinatorTest {
     }
 
     @Test
+    fun `remote provider failure is explained when debug fake wins`() = runTest {
+        val onDevice =
+            StaticEngine(
+                PlanningEngineType.ON_DEVICE_AI,
+                PlanningResult.Failure(PlanningFailure.Unavailable),
+            )
+        val remote =
+            StaticEngine(
+                PlanningEngineType.DEBUG_REMOTE_AI,
+                PlanningResult.Failure(
+                    PlanningFailure.ProviderError(
+                        "The remote planning experiment could not finish."
+                    )
+                ),
+            )
+        val fake =
+            StaticEngine(
+                PlanningEngineType.DEBUG_FAKE_AI,
+                success(PlanningEngineType.DEBUG_FAKE_AI),
+            )
+
+        val result = coordinator(onDevice, remote, fake).generateWithAi(request())
+
+        result as AiPlanningOutcome.Validated
+        assertEquals(PlanningEngineType.DEBUG_FAKE_AI, result.effectiveEngineType)
+        assertEquals(
+            "Remote AI could not finish, so the debug AI provider generated this draft.",
+            result.draft.draft.providerMetadata.fallbackReason,
+        )
+    }
+
+    @Test
+    fun `disabled remote experiment does not obscure on-device fallback reason`() = runTest {
+        val onDevice =
+            StaticEngine(
+                PlanningEngineType.ON_DEVICE_AI,
+                PlanningResult.Failure(PlanningFailure.Unavailable),
+            )
+        val remote =
+            StaticEngine(
+                PlanningEngineType.DEBUG_REMOTE_AI,
+                PlanningResult.Failure(PlanningFailure.Unavailable),
+            )
+        val fake =
+            StaticEngine(
+                PlanningEngineType.DEBUG_FAKE_AI,
+                success(PlanningEngineType.DEBUG_FAKE_AI),
+            )
+
+        val result = coordinator(onDevice, remote, fake).generateWithAi(request())
+
+        result as AiPlanningOutcome.Validated
+        assertEquals(
+            "On-device AI is unavailable, so the debug AI provider generated this draft.",
+            result.draft.draft.providerMetadata.fallbackReason,
+        )
+    }
+
+    @Test
     fun `invalid AI attempt falls back with rule provenance and rule validation context`() =
         runTest {
             val onDevice =
@@ -140,8 +199,8 @@ class AiPlanningCoordinatorTest {
         val priorities =
             mapOf(
                 PlanningEngineType.ON_DEVICE_AI to 0,
-                PlanningEngineType.DEBUG_FAKE_AI to 1,
-                PlanningEngineType.DEBUG_REMOTE_AI to 2,
+                PlanningEngineType.DEBUG_REMOTE_AI to 1,
+                PlanningEngineType.DEBUG_FAKE_AI to 2,
                 PlanningEngineType.RULE_BASED to 3,
             )
         return AiPlanningCoordinator(

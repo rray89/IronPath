@@ -10,10 +10,13 @@ constructor(
     private val exerciseCatalog: ExerciseCatalog,
     private val exerciseEligibilityPolicy: ExerciseEligibilityPolicy,
 ) {
-    fun build(request: PlanningRequest): OnDeviceModelPrompt =
+    fun build(
+        request: PlanningRequest,
+        engineType: PlanningEngineType = PlanningEngineType.ON_DEVICE_AI,
+    ): OnDeviceModelPrompt =
         OnDeviceModelPrompt(
             systemInstruction = SYSTEM_INSTRUCTION,
-            userPrompt = request.promptBody().take(MAX_PROMPT_LENGTH),
+            userPrompt = request.promptBody(engineType).take(MAX_PROMPT_LENGTH),
         )
 
     fun buildRepair(
@@ -33,12 +36,15 @@ constructor(
         }
         return OnDeviceModelPrompt(
             systemInstruction = SYSTEM_INSTRUCTION,
-            userPrompt = (repairHeader + request.promptBody()).take(MAX_PROMPT_LENGTH),
+            userPrompt =
+                (repairHeader + request.promptBody(PlanningEngineType.ON_DEVICE_AI)).take(
+                    MAX_PROMPT_LENGTH
+                ),
         )
     }
 
-    private fun PlanningRequest.promptBody(): String {
-        val context = validationContext(PlanningEngineType.ON_DEVICE_AI)
+    private fun PlanningRequest.promptBody(engineType: PlanningEngineType): String {
+        val context = validationContext(engineType)
         val eligibleEntries = exerciseEligibilityPolicy.eligibleEntries(context)
         return buildString {
             appendLine("Create exactly one safe plan for the app-controlled target week.")

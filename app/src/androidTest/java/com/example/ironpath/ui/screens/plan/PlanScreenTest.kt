@@ -45,6 +45,7 @@ import com.example.ironpath.domain.planner.PlanningEngineType
 import com.example.ironpath.domain.planner.PlanningFailure
 import com.example.ironpath.domain.planner.PlanningGoal
 import com.example.ironpath.domain.planner.PlanningProviderMetadata
+import com.example.ironpath.domain.planner.RemotePlanningExperimentState
 import com.example.ironpath.domain.planner.TrainingExperience
 import com.example.ironpath.domain.planner.ValidatedPlanDraft
 import com.example.ironpath.domain.planner.WorkoutDraft
@@ -120,6 +121,10 @@ class PlanScreenTest {
         onReplaceAiExercise: (Int, ExerciseCatalogId, ExerciseDraft) -> Unit = { _, _, _ -> },
         onRegenerateAi: () -> Unit = {},
         onUseRuleFallback: () -> Unit = {},
+        remotePlanningExperimentState: RemotePlanningExperimentState =
+            RemotePlanningExperimentState(),
+        onRemotePlanningEnabledChanged: (Boolean) -> Unit = {},
+        onRemotePlanningApiKeyChanged: (String) -> Unit = {},
     ) {
         composeRule.setContent {
             var intakeState by remember {
@@ -131,6 +136,7 @@ class PlanScreenTest {
                         )
                 )
             }
+            var remoteState by remember { mutableStateOf(remotePlanningExperimentState) }
             IronPathTheme {
                 Surface {
                     PlanContent(
@@ -196,6 +202,15 @@ class PlanScreenTest {
                         onReplaceAiExercise = onReplaceAiExercise,
                         onRegenerateAi = onRegenerateAi,
                         onUseRuleFallback = onUseRuleFallback,
+                        remotePlanningExperimentState = remoteState,
+                        onRemotePlanningEnabledChanged = {
+                            remoteState = remoteState.copy(enabled = it)
+                            onRemotePlanningEnabledChanged(it)
+                        },
+                        onRemotePlanningApiKeyChanged = {
+                            remoteState = remoteState.copy(apiKey = it)
+                            onRemotePlanningApiKeyChanged(it)
+                        },
                     )
                 }
             }
@@ -226,6 +241,49 @@ class PlanScreenTest {
         composeRule.onNodeWithTag(TestTags.planDay(1)).assertIsOn()
         composeRule.onNodeWithTag(TestTags.planDay(2)).assertIsOff()
         composeRule.onNodeWithTag(TestTags.planDay(5)).assertIsOn()
+    }
+
+    @Test
+    fun setup_hidesRemoteAiLabWhenTheBuildDoesNotExposeIt() {
+        setPlanContent(uiState = PlanUiState.Setup)
+
+        composeRule.onNodeWithTag(TestTags.PLAN_REMOTE_AI_LAB).assertDoesNotExist()
+        composeRule.onNodeWithTag(TestTags.PLAN_REMOTE_AI_KEY).assertDoesNotExist()
+    }
+
+    @Test
+    fun setup_remoteAiLabRequiresOptInAndAcceptsAnInMemoryKey() {
+        var enabled: Boolean? = null
+        var key = ""
+        setPlanContent(
+            uiState = PlanUiState.Setup,
+            remotePlanningExperimentState = RemotePlanningExperimentState(available = true),
+            onRemotePlanningEnabledChanged = { enabled = it },
+            onRemotePlanningApiKeyChanged = { key = it },
+        )
+
+        composeRule.onNodeWithTag(TestTags.PLAN_REMOTE_AI_LAB).performScrollTo().assertIsDisplayed()
+        composeRule
+            .onNodeWithText(
+                "Planning inputs, injury notes, and summarized 28-day history are sent to Google Gemini."
+            )
+            .performScrollTo()
+            .assertIsDisplayed()
+        composeRule.onNodeWithTag(TestTags.PLAN_REMOTE_AI_KEY).assertDoesNotExist()
+
+        composeRule
+            .onNodeWithTag(TestTags.PLAN_REMOTE_AI_TOGGLE)
+            .performScrollTo()
+            .assertIsOff()
+            .performClick()
+        composeRule
+            .onNodeWithTag(TestTags.PLAN_REMOTE_AI_KEY)
+            .performScrollTo()
+            .assertIsDisplayed()
+            .performTextReplacement("local-test-key")
+
+        assertEquals(true, enabled)
+        assertEquals("local-test-key", key)
     }
 
     @Test

@@ -23,6 +23,7 @@ import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CalendarMonth
@@ -36,6 +37,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -49,6 +51,8 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
@@ -63,6 +67,7 @@ import com.example.ironpath.domain.planner.ExerciseCautionTag
 import com.example.ironpath.domain.planner.ExerciseDraft
 import com.example.ironpath.domain.planner.GeneratedPlan
 import com.example.ironpath.domain.planner.PlanningGoal
+import com.example.ironpath.domain.planner.RemotePlanningExperimentState
 import com.example.ironpath.domain.planner.TrainingExperience
 import com.example.ironpath.ui.components.GreenGradientButton
 import com.example.ironpath.ui.screens.home.dayOfWeekAbbrev
@@ -85,6 +90,8 @@ fun PlanScreen(
     val uiState by viewModel.planUiState.collectAsStateWithLifecycle()
     val intakeState by intakeViewModel.intakeState.collectAsStateWithLifecycle()
     val aiGenerationState by intakeViewModel.aiGenerationState.collectAsStateWithLifecycle()
+    val remotePlanningExperimentState by
+        intakeViewModel.remotePlanningExperimentState.collectAsStateWithLifecycle()
     val validatedDraft = (aiGenerationState as? AiGenerationUiState.Validated)?.draft
 
     LaunchedEffect(validatedDraft) {
@@ -125,6 +132,9 @@ fun PlanScreen(
         onReplaceAiExercise = viewModel::replaceAiExercise,
         onRegenerateAi = intakeViewModel::generateWithAi,
         onUseRuleFallback = intakeViewModel::generateWithRuleBasedFallback,
+        remotePlanningExperimentState = remotePlanningExperimentState,
+        onRemotePlanningEnabledChanged = intakeViewModel::setRemotePlanningEnabled,
+        onRemotePlanningApiKeyChanged = intakeViewModel::setRemotePlanningApiKey,
         modifier = modifier,
     )
 }
@@ -159,6 +169,9 @@ internal fun PlanContent(
     onReplaceAiExercise: (Int, ExerciseCatalogId, ExerciseDraft) -> Unit = { _, _, _ -> },
     onRegenerateAi: () -> Unit = {},
     onUseRuleFallback: () -> Unit = {},
+    remotePlanningExperimentState: RemotePlanningExperimentState = RemotePlanningExperimentState(),
+    onRemotePlanningEnabledChanged: (Boolean) -> Unit = {},
+    onRemotePlanningApiKeyChanged: (String) -> Unit = {},
 ) {
     when (uiState) {
         PlanUiState.Loading -> {
@@ -186,6 +199,9 @@ internal fun PlanContent(
                 onGenerateWithAi = onGenerateWithAi,
                 onCancelAiGeneration = onCancelAiGeneration,
                 onClearAiResult = onClearAiResult,
+                remotePlanningExperimentState = remotePlanningExperimentState,
+                onRemotePlanningEnabledChanged = onRemotePlanningEnabledChanged,
+                onRemotePlanningApiKeyChanged = onRemotePlanningApiKeyChanged,
                 modifier = modifier,
             )
         is PlanUiState.Review ->
@@ -289,6 +305,9 @@ private fun PlanSetupScreen(
     onGenerateWithAi: () -> Unit,
     onCancelAiGeneration: () -> Unit,
     onClearAiResult: () -> Unit,
+    remotePlanningExperimentState: RemotePlanningExperimentState,
+    onRemotePlanningEnabledChanged: (Boolean) -> Unit,
+    onRemotePlanningApiKeyChanged: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Column(
@@ -453,6 +472,14 @@ private fun PlanSetupScreen(
             modifier = Modifier.testTag(TestTags.PLAN_DISLIKES),
         )
 
+        if (remotePlanningExperimentState.available) {
+            RemoteAiLab(
+                state = remotePlanningExperimentState,
+                onEnabledChanged = onRemotePlanningEnabledChanged,
+                onApiKeyChanged = onRemotePlanningApiKeyChanged,
+            )
+        }
+
         Spacer(Modifier.height(32.dp))
 
         if (aiAvailable) {
@@ -492,14 +519,84 @@ private fun PlanSetupScreen(
 }
 
 @Composable
-private fun SetupSectionTitle(title: String) {
+private fun SetupSectionTitle(
+    title: String,
+    modifier: Modifier = Modifier,
+) {
     Spacer(Modifier.height(32.dp))
     Text(
         text = title,
+        modifier = modifier,
         style = MaterialTheme.typography.titleMedium,
         color = MaterialTheme.colorScheme.onSurface,
     )
     Spacer(Modifier.height(12.dp))
+}
+
+@Composable
+private fun RemoteAiLab(
+    state: RemotePlanningExperimentState,
+    onEnabledChanged: (Boolean) -> Unit,
+    onApiKeyChanged: (String) -> Unit,
+) {
+    SetupSectionTitle(
+        title = "Remote AI Lab",
+        modifier = Modifier.testTag(TestTags.PLAN_REMOTE_AI_LAB),
+    )
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(modifier = Modifier.weight(1f).padding(end = 16.dp)) {
+            Text(
+                text = "Use Google Gemini",
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+            Text(
+                text = "Debug experiment only. Gemini quota may apply.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        Switch(
+            checked = state.enabled,
+            onCheckedChange = onEnabledChanged,
+            modifier =
+                Modifier.testTag(TestTags.PLAN_REMOTE_AI_TOGGLE).semantics {
+                    contentDescription = "Use remote AI experiment"
+                },
+        )
+    }
+
+    Spacer(Modifier.height(12.dp))
+    Text(
+        text =
+            "Planning inputs, injury notes, and summarized 28-day history are sent to Google Gemini.",
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+    Spacer(Modifier.height(4.dp))
+    Text(
+        text = "Key stays in memory and clears when the app process ends.",
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+
+    if (state.enabled) {
+        Spacer(Modifier.height(12.dp))
+        OutlinedTextField(
+            value = state.apiKey,
+            onValueChange = onApiKeyChanged,
+            label = { Text("Gemini API key") },
+            supportingText = { Text("Required for remote generation. Never stored on disk.") },
+            modifier = Modifier.fillMaxWidth().testTag(TestTags.PLAN_REMOTE_AI_KEY),
+            singleLine = true,
+            visualTransformation = PasswordVisualTransformation(),
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+        )
+    }
 }
 
 @Composable
