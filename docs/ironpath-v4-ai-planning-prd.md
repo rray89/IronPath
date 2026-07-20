@@ -557,12 +557,14 @@ The demo should show:
 2. Enter a goal, available days, equipment, and one injury or forbidden movement.
 3. Tap "Generate with AI".
 4. Show a validated one-week draft in Plan Review.
-5. Point out the provider badge and validation status.
-6. Edit one field and show validation becoming stale until final validation passes.
+5. Point out the provider label, fallback explanation when present, and the fact that
+   acceptance is available only for a validated draft.
+6. Edit one catalog-backed exercise prescription and show that the draft is
+   revalidated immediately.
 7. Accept the plan.
 8. Briefly show fallback behavior when AI is unavailable or produces an invalid draft.
 
-The message to interviewers is that IronPath uses AI as a bounded planning component inside a normal Android architecture, not as an uncontrolled text generator.
+The message to interviewers is that IronPath uses AI as a bounded planning component inside a normal Android architecture, not as an uncontrolled text generator. The reproducible debug, release fallback, optional remote, and optional live on-device paths are documented in `docs/v4-ai-planning-demo.md`.
 
 ## Open questions
 

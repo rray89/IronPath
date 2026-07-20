@@ -106,3 +106,5 @@ tap **Generate with AI**. Plan Review should identify `DEBUG FAKE AI` and explai
 on-device AI was unavailable when the remote experiment is disabled. See
 `docs/debug-remote-ai-experiment.md` for the optional remote comparison path. A
 release build on the same device should identify the rule-based generator instead.
+The complete interview walkthrough and verification commands are in
+`docs/v4-ai-planning-demo.md`.

@@ -1,60 +1,97 @@
 # IronPath
 
-IronPath is a local-first Android workout planning app I built as a portfolio project.
+IronPath is a local-first Android workout planner built as a portfolio project. It
+covers the full weekly loop: create and review a plan, run a workout, inspect the
+completed log, and save records derived from completed sets.
 
-I wanted to make something that felt like a real product, not just a set of polished screens or a tutorial-style app. The goal was to keep the scope small, focus on one useful workout flow, and build an MVP that feels intentional from both a product and engineering perspective.
+The current version also explores AI-assisted planning without treating model output
+as trusted application state. AI proposes a one-week draft; IronPath owns the
+exercise catalog, validates every constraint deterministically, lets the user review
+and edit the draft, and persists it only after a valid acceptance.
 
-## What the MVP does
-- generate a one-week workout plan
-- let the user review and accept that plan
-- support the current week through Home / Plan / Active / History
-- run an active workout session for today
-- save workout history logs
-- save simple personal records
+## Product flow
 
-## What I wanted to practice
-With IronPath, I wanted to practice more than just Android implementation. This project was a way to get better at:
-- turning a rough idea into clear product rules
-- making solid MVP tradeoffs
-- keeping scope under control
-- building local-first flows with real persistence and state
-- creating something small, coherent, and easy to explain
+- Create a plan for the upcoming Monday-Sunday week.
+- Choose a goal, workout days, experience, equipment, and movement limits.
+- Generate with AI or use the deterministic rule-based planner.
+- Review and edit a catalog-backed draft before accepting it.
+- Preview an accepted workout and run today's active session.
+- Inspect completed workout logs and manage personal records.
 
-## Tech stack
-- Kotlin
-- Jetpack Compose
-- Material 3
-- Room
-- Dagger Hilt
+## AI architecture
+
+`PlanningEngine` keeps provider code behind an application-owned domain contract.
+The selection order depends on the build and runtime capability:
+
+| Build | Provider order |
+| --- | --- |
+| Debug | On-device AI, opted-in remote experiment, deterministic fake AI, rule-based fallback |
+| Release | On-device AI, rule-based fallback |
+
+The on-device adapter uses ML Kit GenAI and Gemini Nano through AICore on supported
+devices. Unsupported devices continue through the provider chain. The debug-only
+Gemini experiment accepts a developer key in process memory so hosted output can be
+compared locally; its transport, configuration, UI, and provider binding are absent
+from release builds.
+
+Every provider receives a bounded request and must return catalog IDs rather than
+free-form exercise names. `PlanValidator` checks dates, selected days, equipment,
+movement limits, volume, progression, and catalog membership. One repair attempt is
+allowed before deterministic fallback, and invalid drafts are never persisted.
+
+See the [V4 AI Planning PRD](docs/ironpath-v4-ai-planning-prd.md),
+[on-device provider notes](docs/on-device-ai-spike.md), and
+[debug remote experiment notes](docs/debug-remote-ai-experiment.md) for the detailed
+boundaries.
+
+## Architecture
+
+- Kotlin and coroutines
+- Jetpack Compose with Material 3
 - Navigation Compose
+- Room local persistence
+- Dagger Hilt with constructor injection for owned production classes
+- Build-variant isolation for debug-only AI providers
+- ML Kit GenAI Prompt API for the optional on-device provider
+- JVM, Room, Compose, navigation, accessibility, real-app journey, and benchmark tests
 
-## Why I kept the scope narrow
-A big part of this project was learning to resist unnecessary complexity.
+The app is a single-activity Compose application with four tabs: Home, Plan, Active,
+and History. Room remains the source of truth for accepted plans, sessions, logs, and
+records. Planning intake and unaccepted AI drafts are intentionally ephemeral.
 
-So for MVP, I intentionally left out:
-- auth
-- backend sync
-- AI coaching
-- multi-device support
-- advanced analytics
-- full program-builder complexity
+## Run locally
 
-I wanted the first version to feel clean, credible, and complete enough to demo, discuss, and improve over time.
+Requirements:
 
-## What I'm happy with
-- the app has a clear product shape
-- the flows connect end-to-end instead of stopping at static UI
-- the architecture stays simple enough to reason about
-- the scope feels disciplined, which was one of the main goals of the project
+- Android SDK with API 36 installed
+- JDK 21
+- an API 29+ device or emulator
 
-## What I'd improve next
-- smarter plan generation
-- stronger active-session UX
-- records derived from completed workouts
-- more testing and edge-case hardening
-- another pass on polish and interaction details
+Build and install a debug APK:
 
-## Status
-IronPath is intentionally still an MVP. That is part of the point.
+```bash
+./gradlew assembleDebug
+./gradlew installDebug
+```
 
-I built it to show how I think about product scope, user flow, Android architecture, and iterative improvement — not to pretend I built a full production fitness platform in one pass.
+Run the main quality gates:
+
+```bash
+./gradlew spotlessCheck test verifyCoreCoverage lintDebug assembleRelease -PenableCoverage
+./gradlew pixel2Api29DebugAndroidTest
+```
+
+Seeker is the default physical test target for this repository. The
+[V4 demo guide](docs/v4-ai-planning-demo.md) contains reproducible setup, demo,
+fallback, and verification paths.
+
+## Scope boundary
+
+IronPath demonstrates Android architecture and bounded AI integration. It is not a
+medical product or an autonomous coach. V4 deliberately excludes production auth,
+cloud sync, subscriptions, wearable ingestion, multi-week periodization, and remote
+AI in release builds.
+
+The product history and future scope remain documented in the
+[MVP](docs/ironpath-mvp-prd.md), [V2](docs/ironpath-v2-prd.md),
+[V3](docs/ironpath-v3-prd.md), and [V4](docs/ironpath-v4-ai-planning-prd.md) PRDs.
