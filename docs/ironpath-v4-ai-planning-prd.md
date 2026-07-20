@@ -357,6 +357,8 @@ Accepted drafts map into the existing weekly plan persistence flow. No new accep
 
 ## Feature 6: On-device provider spike
 
+**Status: Implemented** - PR #41 (feat/feat9.5-on-device-provider)
+
 ### Context
 
 On-device AI is the preferred long-term portfolio story, but device support and API maturity are uncertain. v4 should prove the integration path without making the entire feature depend on it.
