@@ -2,7 +2,7 @@
 
 Date: 2026-07-09
 Last updated: 2026-07-19
-Status: Draft
+Status: Implemented
 
 ## Purpose
 
@@ -548,6 +548,8 @@ Expected coverage:
 CI must not require real model weights, live network calls, provider API keys, AICore availability, or nondeterministic model output. Live on-device generation is physical-device evidence, not a replacement for automated provider-contract and fallback tests.
 
 ## Portfolio demo story
+
+**Status: Implemented** - PR #43 (feat/feat9.7-v4-demo-documentation)
 
 A strong 60-second demo assumes either a debug build using `FakeAiPlanningEngine` or a physical device with a supported on-device provider. On a release build without on-device capability, the honest demo outcome is the rule-based fallback rather than a simulated AI draft.
 
