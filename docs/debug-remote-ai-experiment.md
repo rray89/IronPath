@@ -82,3 +82,5 @@ ANDROID_SERIAL=<seeker-serial> ./gradlew connectedDebugAndroidTest
 
 A real Gemini request is optional manual evidence and should only be made with the
 developer's own restricted key after reviewing possible quota or billing impact.
+The reproducible default demo and provider comparison paths are in
+`docs/v4-ai-planning-demo.md`.
