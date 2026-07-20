@@ -14,6 +14,8 @@ import com.example.ironpath.domain.planner.PlanningGoal
 import com.example.ironpath.domain.planner.PlanningHistoryProvider
 import com.example.ironpath.domain.planner.PlanningIntake
 import com.example.ironpath.domain.planner.PlanningRequest
+import com.example.ironpath.domain.planner.RemotePlanningExperiment
+import com.example.ironpath.domain.planner.RemotePlanningExperimentState
 import com.example.ironpath.domain.planner.TrainingExperience
 import com.example.ironpath.domain.planner.ValidatedPlanDraft
 import com.example.ironpath.domain.time.TimeProvider
@@ -86,12 +88,16 @@ constructor(
     private val aiPlanningCoordinator: AiPlanningCoordinator,
     private val planningHistoryProvider: PlanningHistoryProvider,
     private val timeProvider: TimeProvider,
+    private val remotePlanningExperiment: RemotePlanningExperiment,
 ) : ViewModel() {
     private val _intakeState = MutableStateFlow(restoredState())
     val intakeState: StateFlow<PlannerIntakeUiState> = _intakeState.asStateFlow()
 
     private val _aiGenerationState = MutableStateFlow<AiGenerationUiState>(AiGenerationUiState.Idle)
     val aiGenerationState: StateFlow<AiGenerationUiState> = _aiGenerationState.asStateFlow()
+
+    val remotePlanningExperimentState: StateFlow<RemotePlanningExperimentState> =
+        remotePlanningExperiment.state
 
     val validatedDraft: ValidatedPlanDraft?
         get() = (_aiGenerationState.value as? AiGenerationUiState.Validated)?.draft
@@ -100,6 +106,14 @@ constructor(
     private var currentRequestId = 0L
 
     val aiAvailable: Boolean = aiPlanningCoordinator.aiAvailable
+
+    fun setRemotePlanningEnabled(enabled: Boolean) {
+        remotePlanningExperiment.setEnabled(enabled)
+    }
+
+    fun setRemotePlanningApiKey(apiKey: String) {
+        remotePlanningExperiment.setApiKey(apiKey)
+    }
 
     fun setGoal(goal: PlanningGoal) = updateIntake { copy(goal = goal) }
 

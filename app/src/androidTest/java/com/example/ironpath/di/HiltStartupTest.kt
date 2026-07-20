@@ -15,6 +15,7 @@ import com.example.ironpath.domain.planner.OnDeviceModelClient
 import com.example.ironpath.domain.planner.PlanValidator
 import com.example.ironpath.domain.planner.PlanningEngineRegistry
 import com.example.ironpath.domain.planner.PlanningEngineType
+import com.example.ironpath.domain.planner.RemotePlanningExperiment
 import com.example.ironpath.domain.planner.ValidatedPlanDraftMapper
 import com.example.ironpath.domain.time.TimeProvider
 import com.example.ironpath.testutil.HiltTestDatabaseRule
@@ -53,6 +54,8 @@ class HiltStartupTest {
 
     @Inject lateinit var validatedPlanDraftMapper: ValidatedPlanDraftMapper
 
+    @Inject lateinit var remotePlanningExperiment: RemotePlanningExperiment
+
     @Before
     fun inject() {
         hiltRule.inject()
@@ -86,9 +89,12 @@ class HiltStartupTest {
         assertTrue(PlanningEngineType.RULE_BASED in planningEngineRegistry.availableTypes)
         assertTrue(PlanningEngineType.ON_DEVICE_AI in planningEngineRegistry.availableTypes)
         assertTrue(PlanningEngineType.DEBUG_FAKE_AI in planningEngineRegistry.availableTypes)
+        assertTrue(PlanningEngineType.DEBUG_REMOTE_AI in planningEngineRegistry.availableTypes)
         assertTrue(::onDeviceModelClient.isInitialized)
         assertTrue(::planValidator.isInitialized)
         assertTrue(::validatedPlanDraftMapper.isInitialized)
+        assertTrue(::remotePlanningExperiment.isInitialized)
+        assertTrue(remotePlanningExperiment.state.value.available)
     }
 
     @Test

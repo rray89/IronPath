@@ -15,6 +15,7 @@ class OnDevicePlanDraftMapper @Inject constructor(private val exerciseCatalog: E
         proposal: OnDevicePlanProposal,
         request: PlanningRequest,
         generationDurationMillis: Long,
+        engineType: PlanningEngineType = PlanningEngineType.ON_DEVICE_AI,
     ): OnDeviceDraftMapping {
         val workouts = mutableListOf<WorkoutDraft>()
         proposal.workouts.forEach { workout ->
@@ -56,7 +57,7 @@ class OnDevicePlanDraftMapper @Inject constructor(private val exerciseCatalog: E
                 warnings = proposal.warnings,
                 providerMetadata =
                     PlanningProviderMetadata(
-                        engineType = PlanningEngineType.ON_DEVICE_AI,
+                        engineType = engineType,
                         generationDurationMillis = generationDurationMillis,
                     ),
             )

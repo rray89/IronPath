@@ -20,6 +20,8 @@ import com.example.ironpath.domain.planner.PlanningProviderMetadata
 import com.example.ironpath.domain.planner.PlanningRequest
 import com.example.ironpath.domain.planner.PlanningResult
 import com.example.ironpath.domain.planner.RecentTrainingSummary
+import com.example.ironpath.domain.planner.RemotePlanningExperiment
+import com.example.ironpath.domain.planner.RemotePlanningExperimentState
 import com.example.ironpath.domain.planner.TrainingExperience
 import com.example.ironpath.domain.planner.WorkoutDraft
 import com.example.ironpath.testutil.FakeTimeProvider
@@ -31,6 +33,8 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withContext
@@ -63,6 +67,26 @@ class PlannerIntakeViewModelTest {
         assertTrue(viewModel.intakeState.value.selectedDays.isEmpty())
         assertTrue(viewModel.aiAvailable)
         assertTrue(viewModel.aiGenerationState.value is AiGenerationUiState.Idle)
+    }
+
+    @Test
+    fun `remote experiment settings stay outside saved state`() {
+        val handle = SavedStateHandle()
+        val experiment = FakeRemotePlanningExperiment()
+        val engine = StaticEngine(validResult(setOf(1)))
+        val viewModel = createViewModel(handle, engine, experiment)
+
+        viewModel.setRemotePlanningApiKey("secret-key")
+        viewModel.setRemotePlanningEnabled(true)
+
+        assertTrue(viewModel.remotePlanningExperimentState.value.configured)
+        assertFalse(
+            handle.keys().any { key -> handle.get<Any?>(key).toString().contains("secret-key") }
+        )
+
+        val recreated = createViewModel(handle, engine, FakeRemotePlanningExperiment())
+        assertEquals("", recreated.remotePlanningExperimentState.value.apiKey)
+        assertFalse(recreated.remotePlanningExperimentState.value.configured)
     }
 
     @Test
@@ -328,11 +352,18 @@ class PlannerIntakeViewModelTest {
     private fun createViewModel(
         handle: SavedStateHandle = SavedStateHandle(),
         engine: PlanningEngine,
-    ) = createViewModelWithEngines(handle, mapOf(engine.type to engine))
+        remotePlanningExperiment: RemotePlanningExperiment = FakeRemotePlanningExperiment(),
+    ) =
+        createViewModelWithEngines(
+            handle,
+            mapOf(engine.type to engine),
+            remotePlanningExperiment,
+        )
 
     private fun createViewModelWithEngines(
         handle: SavedStateHandle = SavedStateHandle(),
         engines: Map<PlanningEngineType, PlanningEngine>,
+        remotePlanningExperiment: RemotePlanningExperiment = FakeRemotePlanningExperiment(),
     ): PlannerIntakeViewModel {
         val registry = PlanningEngineRegistry(engines)
         val priorities =
@@ -356,6 +387,7 @@ class PlannerIntakeViewModelTest {
             aiPlanningCoordinator = coordinator,
             planningHistoryProvider = historyProvider,
             timeProvider = timeProvider,
+            remotePlanningExperiment = remotePlanningExperiment,
         )
     }
 
@@ -424,6 +456,19 @@ class PlannerIntakeViewModelTest {
             } catch (_: CancellationException) {
                 withContext(NonCancellable) { result.await() }
             }
+        }
+    }
+
+    private class FakeRemotePlanningExperiment : RemotePlanningExperiment {
+        private val mutableState = MutableStateFlow(RemotePlanningExperimentState(available = true))
+        override val state: StateFlow<RemotePlanningExperimentState> = mutableState
+
+        override fun setEnabled(enabled: Boolean) {
+            mutableState.value = mutableState.value.copy(enabled = enabled)
+        }
+
+        override fun setApiKey(apiKey: String) {
+            mutableState.value = mutableState.value.copy(apiKey = apiKey)
         }
     }
 }

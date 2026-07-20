@@ -56,6 +56,7 @@ import com.example.ironpath.domain.planner.PlanValidationContext
 import com.example.ironpath.domain.planner.PlanningEngineType
 import com.example.ironpath.domain.planner.PlanningGoal
 import com.example.ironpath.domain.planner.PlanningProviderMetadata
+import com.example.ironpath.domain.planner.RemotePlanningExperimentState
 import com.example.ironpath.domain.planner.TrainingExperience
 import com.example.ironpath.domain.planner.ValidatedPlanDraft
 import com.example.ironpath.domain.planner.WorkoutDraft
@@ -150,6 +151,11 @@ class AdaptiveLayoutTest {
                 onAccept = {},
                 onStartWorkout = {},
                 onOpenWorkoutPreview = {},
+                remotePlanningExperimentState =
+                    RemotePlanningExperimentState(
+                        available = true,
+                        enabled = true,
+                    ),
             )
         }
 
@@ -217,6 +223,7 @@ class AdaptiveLayoutTest {
                 TestTags.PLAN_INJURY_NOTES,
                 TestTags.PLAN_PREFERENCES,
                 TestTags.PLAN_DISLIKES,
+                TestTags.PLAN_REMOTE_AI_KEY,
             )
             .forEach { tag ->
                 composeRule
@@ -226,6 +233,19 @@ class AdaptiveLayoutTest {
                     .assert(hasSetTextAction())
                     .assertMinimumTouchTarget(tag)
             }
+
+        composeRule
+            .onNodeWithTag(TestTags.PLAN_REMOTE_AI_TOGGLE)
+            .performScrollTo()
+            .assertIsDisplayed()
+            .assertIsToggleable()
+            .assertIsOn()
+            .assertMinimumTouchTarget("Remote AI experiment")
+
+        composeRule
+            .onNodeWithText("Key stays in memory and clears when the app process ends.")
+            .performScrollTo()
+            .assertIsDisplayed()
 
         composeRule
             .onNodeWithTag(TestTags.PLAN_GENERATE_AI)

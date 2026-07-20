@@ -167,9 +167,11 @@ constructor(
         failedAttempts: List<FailedAttempt>,
     ): String? {
         if (failedAttempts.isEmpty()) return null
-        val failure =
-            failedAttempts.firstOrNull { it.type == PlanningEngineType.ON_DEVICE_AI }?.failure
-                ?: failedAttempts.first().failure
+        val failedAttempt =
+            failedAttempts.lastOrNull {
+                it.type != PlanningEngineType.DEBUG_REMOTE_AI ||
+                    it.failure != PlanningFailure.Unavailable
+            } ?: failedAttempts.first()
         val destination =
             when (effectiveType) {
                 PlanningEngineType.RULE_BASED -> "this plan uses the rule-based generator."
@@ -177,12 +179,20 @@ constructor(
                 PlanningEngineType.DEBUG_REMOTE_AI -> "another AI provider generated this draft."
                 PlanningEngineType.ON_DEVICE_AI -> return null
             }
+        val providerName =
+            when (failedAttempt.type) {
+                PlanningEngineType.ON_DEVICE_AI -> "On-device AI"
+                PlanningEngineType.DEBUG_REMOTE_AI -> "Remote AI"
+                PlanningEngineType.DEBUG_FAKE_AI -> "The debug AI provider"
+                PlanningEngineType.RULE_BASED -> "The rule-based generator"
+            }
         val cause =
-            when (failure) {
-                PlanningFailure.Unavailable -> "On-device AI is unavailable, so "
-                PlanningFailure.Timeout -> "On-device AI took too long, so "
-                is PlanningFailure.InvalidRequest -> "The AI draft did not pass safety checks, so "
-                is PlanningFailure.ProviderError -> "On-device AI could not finish, so "
+            when (failedAttempt.failure) {
+                PlanningFailure.Unavailable -> "$providerName is unavailable, so "
+                PlanningFailure.Timeout -> "$providerName took too long, so "
+                is PlanningFailure.InvalidRequest ->
+                    "$providerName draft did not pass safety checks, so "
+                is PlanningFailure.ProviderError -> "$providerName could not finish, so "
             }
         return cause + destination
     }
