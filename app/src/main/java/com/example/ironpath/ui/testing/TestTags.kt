@@ -20,6 +20,7 @@ object TestTags {
     const val PLAN_AI_RATIONALE = "plan_ai_rationale"
     const val PLAN_AI_WARNING = "plan_ai_warning"
     const val PLAN_AI_DISCLAIMER = "plan_ai_disclaimer"
+    const val PLAN_AI_FALLBACK_REASON = "plan_ai_fallback_reason"
     const val PLAN_AI_ACCEPT = "plan_ai_accept"
     const val PLAN_AI_REGENERATE = "plan_ai_regenerate"
     const val PLAN_AI_RULE_FALLBACK = "plan_ai_rule_fallback"

@@ -149,6 +149,7 @@ dependencies {
     implementation(libs.androidx.compose.material.icons)
     implementation(libs.androidx.navigation.compose)
     implementation(libs.androidx.profileinstaller)
+    implementation(libs.mlkit.genai.prompt)
     implementation(libs.androidx.room.runtime)
     implementation(libs.androidx.room.ktx)
     // Room 2.8.4 migration bundles use the kotlinx.serialization 1.8.1 GeneratedSerializer ABI.
@@ -157,6 +158,7 @@ dependencies {
     implementation(libs.hilt.android)
     implementation(libs.androidx.hilt.lifecycle.viewmodel.compose)
     ksp(libs.hilt.android.compiler)
+    ksp(libs.mlkit.genai.schema.compiler)
     testImplementation(libs.junit)
     testImplementation(libs.mockk)
     testImplementation(libs.kotlinx.coroutines.test)

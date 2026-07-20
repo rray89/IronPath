@@ -114,7 +114,14 @@ class RuleBasedPlanningEngineTest {
             )
             assertTrue(result.draft.warnings.any { "Replaced Barbell Bench Press" in it })
             assertTrue(result.draft.warnings.any { "Removed Overhead Press" in it })
-            assertTrue(validator.validate(result.draft, request.validationContext()).isValid())
+            assertTrue(
+                validator
+                    .validate(
+                        result.draft,
+                        request.validationContext(PlanningEngineType.RULE_BASED),
+                    )
+                    .isValid()
+            )
         }
 
     @Test
@@ -151,7 +158,11 @@ class RuleBasedPlanningEngineTest {
         assertTrue(results.all { it.second is PlanningResult.Success })
         results.forEach { (request, result) ->
             val draft = (result as PlanningResult.Success).draft
-            assertTrue(validator.validate(draft, request.validationContext()).isValid())
+            assertTrue(
+                validator
+                    .validate(draft, request.validationContext(PlanningEngineType.RULE_BASED))
+                    .isValid()
+            )
         }
     }
 
@@ -184,7 +195,9 @@ class RuleBasedPlanningEngineTest {
             val draft = (result as PlanningResult.Success).draft
             assertTrue(
                 "Fallback success did not validate for ${request.intake}",
-                validator.validate(draft, request.validationContext()).isValid(),
+                validator
+                    .validate(draft, request.validationContext(PlanningEngineType.RULE_BASED))
+                    .isValid(),
             )
         }
     }
@@ -234,7 +247,12 @@ class RuleBasedPlanningEngineTest {
                                             "Invalid success for $goal/$selectedDays/$experience/" +
                                                 "$equipment/$cautions",
                                             validator
-                                                .validate(result.draft, request.validationContext())
+                                                .validate(
+                                                    result.draft,
+                                                    request.validationContext(
+                                                        PlanningEngineType.RULE_BASED
+                                                    ),
+                                                )
                                                 .isValid(),
                                         )
                                         result.draft.workouts
@@ -323,16 +341,5 @@ class RuleBasedPlanningEngineTest {
         }
     }
 }
-
-private fun PlanningRequest.validationContext() =
-    PlanValidationContext(
-        expectedTargetWeekStart = targetWeekStart,
-        invokedEngineType = PlanningEngineType.RULE_BASED,
-        selectedDays = selectedDays,
-        experience = intake.experience,
-        availableEquipment = intake.availableEquipment,
-        forbiddenCautionTags = intake.forbiddenCautionTags,
-        recentExerciseLoads = intake.recentTraining.exerciseLoads,
-    )
 
 private fun PlanValidationResult.isValid() = this is PlanValidationResult.Valid

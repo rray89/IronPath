@@ -79,6 +79,43 @@ class PlanningIntakeTest {
     }
 
     @Test
+    fun `validation context preserves request constraints and the invoked engine`() {
+        val recentLoad = RecentExerciseLoad(ExerciseCatalogIds.BARBELL_BENCH_PRESS, 72.5)
+        val request =
+            PlanningRequest(
+                targetWeekStart = LocalDate.parse("2026-07-20"),
+                intake =
+                    PlanningIntake(
+                        goal = PlanningGoal.STRENGTH,
+                        selectedDays = setOf(1, 4),
+                        experience = TrainingExperience.ADVANCED,
+                        availableEquipment = setOf(Equipment.BARBELL, Equipment.BENCH),
+                        forbiddenCautionTags = setOf(ExerciseCautionTag.OVERHEAD),
+                        recentTraining =
+                            RecentTrainingSummary(
+                                workouts = emptyList(),
+                                records = emptyList(),
+                                exerciseLoads = listOf(recentLoad),
+                                unresolvedExerciseNames = emptySet(),
+                            ),
+                    ),
+            )
+
+        assertEquals(
+            PlanValidationContext(
+                expectedTargetWeekStart = request.targetWeekStart,
+                invokedEngineType = PlanningEngineType.ON_DEVICE_AI,
+                selectedDays = setOf(1, 4),
+                experience = TrainingExperience.ADVANCED,
+                availableEquipment = setOf(Equipment.BARBELL, Equipment.BENCH),
+                forbiddenCautionTags = setOf(ExerciseCautionTag.OVERHEAD),
+                recentExerciseLoads = listOf(recentLoad),
+            ),
+            request.validationContext(PlanningEngineType.ON_DEVICE_AI),
+        )
+    }
+
+    @Test
     fun `catalog reverse lookup normalizes case and surrounding whitespace`() {
         val entry = catalog.findByNormalizedName("  BARBELL BENCH PRESS  ")
 

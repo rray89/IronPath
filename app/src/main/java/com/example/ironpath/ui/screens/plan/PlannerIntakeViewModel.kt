@@ -3,22 +3,17 @@ package com.example.ironpath.ui.screens.plan
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.ironpath.domain.planner.AiPlanningCoordinator
+import com.example.ironpath.domain.planner.AiPlanningOutcome
 import com.example.ironpath.domain.planner.Equipment
 import com.example.ironpath.domain.planner.ExerciseCautionTag
-import com.example.ironpath.domain.planner.PlanValidationContext
 import com.example.ironpath.domain.planner.PlanValidationLimits
-import com.example.ironpath.domain.planner.PlanValidationResult
-import com.example.ironpath.domain.planner.PlanValidator
 import com.example.ironpath.domain.planner.PlanViolation
-import com.example.ironpath.domain.planner.PlanningEngine
-import com.example.ironpath.domain.planner.PlanningEngineRegistry
-import com.example.ironpath.domain.planner.PlanningEngineType
 import com.example.ironpath.domain.planner.PlanningFailure
 import com.example.ironpath.domain.planner.PlanningGoal
 import com.example.ironpath.domain.planner.PlanningHistoryProvider
 import com.example.ironpath.domain.planner.PlanningIntake
 import com.example.ironpath.domain.planner.PlanningRequest
-import com.example.ironpath.domain.planner.PlanningResult
 import com.example.ironpath.domain.planner.TrainingExperience
 import com.example.ironpath.domain.planner.ValidatedPlanDraft
 import com.example.ironpath.domain.time.TimeProvider
@@ -88,8 +83,7 @@ class PlannerIntakeViewModel
 @Inject
 constructor(
     private val savedStateHandle: SavedStateHandle,
-    private val planningEngineRegistry: PlanningEngineRegistry,
-    private val planValidator: PlanValidator,
+    private val aiPlanningCoordinator: AiPlanningCoordinator,
     private val planningHistoryProvider: PlanningHistoryProvider,
     private val timeProvider: TimeProvider,
 ) : ViewModel() {
@@ -105,7 +99,7 @@ constructor(
     private var generationJob: Job? = null
     private var currentRequestId = 0L
 
-    val aiAvailable: Boolean = preferredAiEngine() != null
+    val aiAvailable: Boolean = aiPlanningCoordinator.aiAvailable
 
     fun setGoal(goal: PlanningGoal) = updateIntake { copy(goal = goal) }
 
@@ -160,26 +154,30 @@ constructor(
     }
 
     fun generateWithAi() {
-        val engine = preferredAiEngine()
-        if (engine == null) {
+        if (!aiPlanningCoordinator.aiAvailable) {
             _aiGenerationState.value = AiGenerationUiState.Failed(PlanningFailure.Unavailable)
             return
         }
-        startGeneration(engine, requireEquipment = true)
+        startGeneration(
+            requireEquipment = true,
+            generator = aiPlanningCoordinator::generateWithAi,
+        )
     }
 
     fun generateWithRuleBasedFallback() {
-        val engine = planningEngineRegistry.find(PlanningEngineType.RULE_BASED)
-        if (engine == null) {
+        if (!aiPlanningCoordinator.ruleBasedAvailable) {
             _aiGenerationState.value = AiGenerationUiState.Failed(PlanningFailure.Unavailable)
             return
         }
-        startGeneration(engine, requireEquipment = false)
+        startGeneration(
+            requireEquipment = false,
+            generator = aiPlanningCoordinator::generateRuleBased,
+        )
     }
 
     private fun startGeneration(
-        engine: PlanningEngine,
         requireEquipment: Boolean,
+        generator: suspend (PlanningRequest) -> AiPlanningOutcome,
     ) {
         val intakeSnapshot = _intakeState.value
         val canGenerate =
@@ -218,15 +216,19 @@ constructor(
                                     .toPlanningIntake()
                                     .copy(recentTraining = recentTraining),
                         )
-                    val result = engine.generate(request)
+                    val outcome = generator(request)
                     if (requestId != currentRequestId) return@launch
-                    _aiGenerationState.value = result.toUiState(request, engine)
+                    _aiGenerationState.value = outcome.toUiState()
                 } catch (cancellation: CancellationException) {
                     throw cancellation
-                } catch (error: Exception) {
+                } catch (_: Exception) {
                     if (requestId == currentRequestId) {
                         _aiGenerationState.value =
-                            AiGenerationUiState.Failed(PlanningFailure.ProviderError(error.message))
+                            AiGenerationUiState.Failed(
+                                PlanningFailure.ProviderError(
+                                    "The planning request could not be completed."
+                                )
+                            )
                     }
                 }
             }
@@ -256,38 +258,12 @@ constructor(
         persist(_intakeState.value)
     }
 
-    private fun PlanningResult.toUiState(
-        request: PlanningRequest,
-        engine: PlanningEngine,
-    ): AiGenerationUiState =
+    private fun AiPlanningOutcome.toUiState(): AiGenerationUiState =
         when (this) {
-            is PlanningResult.Failure -> AiGenerationUiState.Failed(reason)
-            is PlanningResult.Success -> {
-                when (
-                    val validation =
-                        planValidator.validate(
-                            draft,
-                            PlanValidationContext(
-                                expectedTargetWeekStart = request.targetWeekStart,
-                                invokedEngineType = engine.type,
-                                selectedDays = request.selectedDays,
-                                experience = request.intake.experience,
-                                availableEquipment = request.intake.availableEquipment,
-                                forbiddenCautionTags = request.intake.forbiddenCautionTags,
-                                recentExerciseLoads = request.intake.recentTraining.exerciseLoads,
-                            ),
-                        )
-                ) {
-                    is PlanValidationResult.Valid ->
-                        AiGenerationUiState.Validated(validation.validatedPlan)
-                    is PlanValidationResult.Invalid ->
-                        AiGenerationUiState.Invalid(validation.violations)
-                }
-            }
+            is AiPlanningOutcome.Validated -> AiGenerationUiState.Validated(draft)
+            is AiPlanningOutcome.Invalid -> AiGenerationUiState.Invalid(violations)
+            is AiPlanningOutcome.Failure -> AiGenerationUiState.Failed(reason)
         }
-
-    private fun preferredAiEngine(): PlanningEngine? =
-        preferredAiTypes.firstNotNullOfOrNull(planningEngineRegistry::find)
 
     private fun updateIntake(transform: PlannerIntakeUiState.() -> PlannerIntakeUiState) {
         val updated = _intakeState.value.transform()
@@ -357,12 +333,6 @@ constructor(
             ?.toSet()
 
     private companion object {
-        val preferredAiTypes =
-            listOf(
-                PlanningEngineType.ON_DEVICE_AI,
-                PlanningEngineType.DEBUG_FAKE_AI,
-                PlanningEngineType.DEBUG_REMOTE_AI,
-            )
         const val MAX_NOTES_LENGTH = 500
         const val MAX_PREFERENCE_LENGTH = 300
         const val KEY_GOAL = "planner_intake_goal"

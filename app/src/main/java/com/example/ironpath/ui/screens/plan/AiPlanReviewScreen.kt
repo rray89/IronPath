@@ -120,6 +120,16 @@ internal fun AiPlanReviewScreen(
             modifier = Modifier.testTag(TestTags.PLAN_AI_DISCLAIMER),
         )
 
+        draft.providerMetadata.fallbackReason?.takeIf(String::isNotBlank)?.let { reason ->
+            Spacer(Modifier.height(8.dp))
+            Text(
+                text = reason,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.testTag(TestTags.PLAN_AI_FALLBACK_REASON),
+            )
+        }
+
         AiReplacementStatus(
             state = generationState,
             onCancel = onCancelGeneration,

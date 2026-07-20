@@ -15,6 +15,7 @@ import androidx.compose.ui.test.assertIsOff
 import androidx.compose.ui.test.assertIsOn
 import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.assertTextContains
+import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
@@ -474,6 +475,17 @@ class PlanScreenTest {
     }
 
     @Test
+    fun aiReview_explainsWhenAnotherProviderGeneratedTheDraft() {
+        val reason = "On-device AI is unavailable, so the debug AI provider generated this draft."
+        setPlanContent(PlanUiState.AiReview(aiReviewState(fallbackReason = reason)))
+
+        composeRule
+            .onNodeWithTag(TestTags.PLAN_AI_FALLBACK_REASON)
+            .assertTextEquals(reason)
+            .assertIsDisplayed()
+    }
+
+    @Test
     fun aiReview_keepsCurrentDraftVisibleWhenReplacementGenerationFails() {
         setPlanContent(
             uiState = PlanUiState.AiReview(aiReviewState()),
@@ -672,7 +684,7 @@ class PlanScreenTest {
         assertEquals(mondayWorkout.id, openedWorkoutId)
     }
 
-    private fun validatedDraft(): ValidatedPlanDraft {
+    private fun validatedDraft(fallbackReason: String? = null): ValidatedPlanDraft {
         val draft =
             PlanDraft(
                 targetWeekStart = java.time.LocalDate.parse("2026-07-20"),
@@ -695,7 +707,12 @@ class PlanScreenTest {
                     ),
                 rationale = "A measured return to training.",
                 warnings = listOf("Adjust the load if needed."),
-                providerMetadata = PlanningProviderMetadata(PlanningEngineType.DEBUG_FAKE_AI, 1),
+                providerMetadata =
+                    PlanningProviderMetadata(
+                        PlanningEngineType.DEBUG_FAKE_AI,
+                        generationDurationMillis = 1,
+                        fallbackReason = fallbackReason,
+                    ),
             )
         return ValidatedPlanDraft.create(
             draft,
@@ -713,8 +730,9 @@ class PlanScreenTest {
     private fun aiReviewState(
         valid: Boolean = true,
         includeUnsetLoad: Boolean = true,
+        fallbackReason: String? = null,
     ): AiPlanReviewUiState {
-        val token = validatedDraft()
+        val token = validatedDraft(fallbackReason)
         val dumbbellRow =
             ExerciseDraft(
                 ExerciseCatalogIds.DUMBBELL_ROWS,

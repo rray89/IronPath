@@ -11,6 +11,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.example.ironpath.MainActivity
 import com.example.ironpath.domain.identity.IdProvider
 import com.example.ironpath.domain.planner.ExerciseCatalog
+import com.example.ironpath.domain.planner.OnDeviceModelClient
 import com.example.ironpath.domain.planner.PlanValidator
 import com.example.ironpath.domain.planner.PlanningEngineRegistry
 import com.example.ironpath.domain.planner.PlanningEngineType
@@ -22,6 +23,7 @@ import com.example.ironpath.ui.testing.TestTags
 import dagger.hilt.android.testing.HiltAndroidRule
 import dagger.hilt.android.testing.HiltAndroidTest
 import javax.inject.Inject
+import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Rule
@@ -44,6 +46,8 @@ class HiltStartupTest {
     @Inject lateinit var exerciseCatalog: ExerciseCatalog
 
     @Inject lateinit var planningEngineRegistry: PlanningEngineRegistry
+
+    @Inject lateinit var onDeviceModelClient: OnDeviceModelClient
 
     @Inject lateinit var planValidator: PlanValidator
 
@@ -80,9 +84,19 @@ class HiltStartupTest {
         assertTrue(exerciseCatalog.entries.isNotEmpty())
         assertTrue(::planningEngineRegistry.isInitialized)
         assertTrue(PlanningEngineType.RULE_BASED in planningEngineRegistry.availableTypes)
+        assertTrue(PlanningEngineType.ON_DEVICE_AI in planningEngineRegistry.availableTypes)
         assertTrue(PlanningEngineType.DEBUG_FAKE_AI in planningEngineRegistry.availableTypes)
+        assertTrue(::onDeviceModelClient.isInitialized)
         assertTrue(::planValidator.isInitialized)
         assertTrue(::validatedPlanDraftMapper.isInitialized)
+    }
+
+    @Test
+    fun onDeviceProvider_capabilityCheckCompletesWithoutStartingGeneration() = runBlocking {
+        assertTrue(
+            onDeviceModelClient.checkStatus() in
+                com.example.ironpath.domain.planner.OnDeviceModelStatus.entries
+        )
     }
 
     private fun waitForText(text: String) {

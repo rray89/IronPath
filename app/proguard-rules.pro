@@ -19,3 +19,8 @@
 # If you keep the line number information, uncomment this to
 # hide the original source file name.
 #-renamesourcefileattribute SourceFile
+
+# ML Kit Prompt API structured-output schemas are reflected on after code generation.
+-keep class com.example.ironpath.data.ai.MlKitPlanResponse { *; }
+-keep class com.example.ironpath.data.ai.MlKitWorkoutResponse { *; }
+-keep class com.example.ironpath.data.ai.MlKitExerciseResponse { *; }

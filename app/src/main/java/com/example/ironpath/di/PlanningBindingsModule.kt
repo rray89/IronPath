@@ -1,8 +1,11 @@
 package com.example.ironpath.di
 
+import com.example.ironpath.data.ai.MlKitOnDeviceModelClient
 import com.example.ironpath.data.repository.LocalPlanningHistoryProvider
 import com.example.ironpath.domain.planner.DefaultExerciseCatalog
 import com.example.ironpath.domain.planner.ExerciseCatalog
+import com.example.ironpath.domain.planner.OnDeviceAiPlanningEngine
+import com.example.ironpath.domain.planner.OnDeviceModelClient
 import com.example.ironpath.domain.planner.PlanningEngine
 import com.example.ironpath.domain.planner.PlanningEngineKey
 import com.example.ironpath.domain.planner.PlanningEngineType
@@ -29,9 +32,22 @@ abstract class PlanningBindingsModule {
     ): PlanningHistoryProvider
 
     @Binds
+    @Singleton
+    abstract fun bindOnDeviceModelClient(
+        implementation: MlKitOnDeviceModelClient
+    ): OnDeviceModelClient
+
+    @Binds
     @IntoMap
     @PlanningEngineKey(PlanningEngineType.RULE_BASED)
     abstract fun bindRuleBasedPlanningEngine(
         implementation: RuleBasedPlanningEngine
+    ): PlanningEngine
+
+    @Binds
+    @IntoMap
+    @PlanningEngineKey(PlanningEngineType.ON_DEVICE_AI)
+    abstract fun bindOnDeviceAiPlanningEngine(
+        implementation: OnDeviceAiPlanningEngine
     ): PlanningEngine
 }
