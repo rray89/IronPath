@@ -108,7 +108,9 @@ the remote comparison.
 The key is held only in process memory. IronPath does not write it to Room,
 `SavedStateHandle`, logs, request URLs, request bodies, or release code. A production
 hosted provider would require authenticated backend routing and server-side secret,
-quota, abuse, monitoring, and cost controls.
+quota, abuse, monitoring, and cost controls. The debug transport sends `store: false`
+to opt out of provider-side Interaction resource retention, but planning context
+still leaves the device for Google processing.
 
 See [debug-remote-ai-experiment.md](debug-remote-ai-experiment.md) for the complete
 privacy and transport boundary.

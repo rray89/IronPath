@@ -8,6 +8,7 @@ uses Google's Interactions API, `gemini-3.5-flash`, and structured JSON output:
 
 - `POST https://generativelanguage.googleapis.com/v1/interactions`
 - API key authentication through the `x-goog-api-key` header
+- `store: false` to opt out of provider-side Interaction resource retention
 - a top-level `response_format` JSON schema that owns the required response shape
 - the same bounded prompt, owned draft mapper, deterministic validator, and fallback
   coordinator used by the on-device provider
@@ -76,6 +77,11 @@ the request URL or body, echoed in an error, or logged by IronPath. Redirects ar
 followed, unsuccessful response bodies are ignored, and successful response bodies
 are size-bounded before parsing.
 
+Every request sets `store: false`, which opts out of provider-side Interaction
+resource retention and disables server-side conversation state for this single-turn
+experiment. The planning context still leaves the device and is processed by Google
+under the applicable Gemini API terms; this is not an on-device privacy boundary.
+
 Release builds contain no remote transport, provider engine, candidate binding, or
 configurable remote state. The release-disabled settings binding is a no-op, so the
 Remote AI Lab is absent and no code path can issue a Gemini request. The release APK
@@ -111,5 +117,7 @@ On July 26, 2026, the post-fix debug build completed an authorized request from 
 physical Seeker to `gemini-3.5-flash` through stable `/v1/interactions`. The intake
 was fully synthetic, selected one Monday workout, and had empty recent history. Plan
 Review displayed `REMOTE AI EXPERIMENT · GENERATED PLAN`; the draft was not accepted
-or persisted. A process restart reset Remote AI Lab to disabled and removed the
-API-key field. No key or provider payload is stored with this evidence.
+or persisted by IronPath. The verified request opted out of provider-side Interaction
+resource retention. A process restart reset Remote AI Lab to disabled and removed the
+API-key field. No key or raw provider payload was added to the repository or test
+evidence.

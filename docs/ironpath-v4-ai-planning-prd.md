@@ -438,6 +438,10 @@ transport, provider engine, or candidate binding. See
 `docs/debug-remote-ai-experiment.md` for setup, privacy boundaries, provider order,
 and verification evidence.
 
+Every remote request sets `store: false` to opt out of provider-side Interaction
+resource retention. Planning context still leaves the device for Google processing;
+the flag does not make the remote experiment equivalent to on-device AI.
+
 Compatibility follow-up: a July 26, 2026 live Seeker smoke found that the current
 Gemini endpoint rejects IronPath's combined nested numeric and collection bounds as
 an invalid request. The remote response schema therefore owns structural typing,
@@ -451,9 +455,10 @@ Post-fix acceptance evidence: on July 26, 2026, a debug build on a physical Seek
 submitted a fully synthetic one-day intake with empty recent history to
 `gemini-3.5-flash` through stable `/v1/interactions`. Plan Review displayed
 `REMOTE AI EXPERIMENT · GENERATED PLAN`; the generated draft was not accepted or
-persisted. After force-stopping and relaunching the app, Remote AI Lab was disabled
-and the API-key field was absent, confirming the process-only secret boundary. The
-key and provider payload are not part of the recorded evidence.
+persisted by IronPath, and the verified request opted out of provider-side Interaction
+resource retention. After force-stopping and relaunching the app, Remote AI Lab was
+disabled and the API-key field was absent, confirming the process-only secret
+boundary. The key and raw provider payload are not part of the recorded evidence.
 
 ### Data model impact
 

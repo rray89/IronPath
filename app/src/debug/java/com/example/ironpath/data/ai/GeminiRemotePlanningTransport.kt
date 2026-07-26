@@ -134,6 +134,7 @@ internal object GeminiInteractionsCodec {
     fun requestBody(prompt: OnDeviceModelPrompt): String =
         buildJsonObject {
                 put("model", MODEL)
+                put("store", false)
                 put("system_instruction", prompt.systemInstruction)
                 put("input", prompt.userPrompt)
                 put(
@@ -220,7 +221,7 @@ internal object GeminiInteractionsCodec {
                 PlanValidationLimits.MIN_TRAINING_DAYS..PlanValidationLimits.MAX_TRAINING_DAYS
         )
         return OnDevicePlanProposal(
-            rationale = this["rationale"]?.jsonPrimitive?.contentOrNull,
+            rationale = getValue("rationale").jsonPrimitive.contentOrNull,
             warnings = warnings.map { it.jsonPrimitive.content },
             workouts =
                 workouts.map { workoutElement ->

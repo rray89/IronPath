@@ -56,6 +56,7 @@ class GeminiRemotePlanningTransportTest {
 
             val requestBody = checkNotNull(httpClient.body)
             val request = Json.parseToJsonElement(requestBody).jsonObject
+            assertFalse(request.getValue("store").jsonPrimitive.boolean)
             assertEquals(
                 4_096,
                 request
@@ -142,6 +143,26 @@ class GeminiRemotePlanningTransportTest {
     }
 
     @Test
+    fun `missing required rationale fails proposal mapping`() = runTest {
+        val output =
+            """{"warnings":[],"workouts":[{"dayOfWeek":1,"title":"Full Body","exercises":[{"catalogId":"push-ups","sets":3,"reps":8,"targetWeightKg":0.0}]}]}"""
+        val transport =
+            GeminiRemotePlanningTransport(
+                RecordingRemoteHttpClient(
+                    RemoteHttpResponse(statusCode = 200, body = completedResponse(output))
+                )
+            )
+
+        val result =
+            transport.generate(
+                apiKey = "test-key",
+                prompt = OnDeviceModelPrompt("system", "summary"),
+            )
+
+        assertEquals(RemotePlanningTransportResult.ProviderFailure, result)
+    }
+
+    @Test
     fun `malformed or incomplete response fails without server body leakage`() = runTest {
         listOf(
                 RemoteHttpResponse(200, "not-json"),
@@ -197,6 +218,39 @@ class GeminiRemotePlanningTransportTest {
                 result,
             )
         }
+    }
+
+    @Test
+    fun `provider collections at local maximums map successfully`() = runTest {
+        val exercises =
+            List(8) { index ->
+                    """{"catalogId":"exercise-$index","sets":3,"reps":8,"targetWeightKg":0.0}"""
+                }
+                .joinToString(separator = ",")
+        val workouts =
+            (1..6).joinToString(separator = ",") { day ->
+                """{"dayOfWeek":$day,"title":"Day $day","exercises":[$exercises]}"""
+            }
+        val warnings = List(5) { index -> "\"warning-$index\"" }.joinToString(separator = ",")
+        val output = """{"rationale":null,"warnings":[$warnings],"workouts":[$workouts]}"""
+        val transport =
+            GeminiRemotePlanningTransport(
+                RecordingRemoteHttpClient(
+                    RemoteHttpResponse(statusCode = 200, body = completedResponse(output))
+                )
+            )
+
+        val result =
+            transport.generate(
+                apiKey = "test-key",
+                prompt = OnDeviceModelPrompt("system", "summary"),
+            )
+
+        assertTrue(result is RemotePlanningTransportResult.Success)
+        result as RemotePlanningTransportResult.Success
+        assertEquals(5, result.proposal.warnings.size)
+        assertEquals(6, result.proposal.workouts.size)
+        assertTrue(result.proposal.workouts.all { workout -> workout.exercises.size == 8 })
     }
 }
 
