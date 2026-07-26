@@ -25,7 +25,7 @@
 
     <issue
         id="AndroidGradlePluginVersion"
-        message="A newer version of com.android.application than 9.1.0 is available: 9.3.0. (There is also a newer version of 9.1.𝑥 available, if upgrading to 9.3.0 is difficult: 9.1.1)"
+        message="A newer version of com.android.application than 9.1.0 is available: 9.3.1. (There is also a newer version of 9.1.𝑥 available, if upgrading to 9.3.1 is difficult: 9.1.1)"
         errorLine1="agp = &quot;9.1.0&quot;"
         errorLine2="      ~~~~~~~">
         <location
@@ -36,7 +36,7 @@
 
     <issue
         id="AndroidGradlePluginVersion"
-        message="A newer version of com.android.test than 9.1.0 is available: 9.3.0. (There is also a newer version of 9.1.𝑥 available, if upgrading to 9.3.0 is difficult: 9.1.1)"
+        message="A newer version of com.android.test than 9.1.0 is available: 9.3.1. (There is also a newer version of 9.1.𝑥 available, if upgrading to 9.3.1 is difficult: 9.1.1)"
         errorLine1="agp = &quot;9.1.0&quot;"
         errorLine2="      ~~~~~~~">
         <location
@@ -98,6 +98,17 @@
             file="../gradle/libs.versions.toml"
             line="13"
             column="16"/>
+    </issue>
+
+    <issue
+        id="GradleDependency"
+        message="A newer version of com.google.mlkit:genai-prompt than 1.0.0-beta3 is available: 1.0.0-beta4"
+        errorLine1="mlKitGenAiPrompt = &quot;1.0.0-beta3&quot;"
+        errorLine2="                   ~~~~~~~~~~~~~">
+        <location
+            file="../gradle/libs.versions.toml"
+            line="27"
+            column="20"/>
     </issue>
 
     <issue

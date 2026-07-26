@@ -60,6 +60,18 @@ constructor(
             appendLine(
                 "Forbidden caution tags: ${intake.forbiddenCautionTags.sortedBy(Enum<*>::name).joinToString()}"
             )
+            appendLine(
+                "Hard limits: " +
+                    "${PlanValidationLimits.MIN_TRAINING_DAYS}-${PlanValidationLimits.MAX_TRAINING_DAYS} workouts; " +
+                    "${PlanValidationLimits.MIN_EXERCISES_PER_DAY}-${PlanValidationLimits.MAX_EXERCISES_PER_DAY} exercises per workout; " +
+                    "${PlanValidationLimits.MIN_SETS_PER_EXERCISE}-${PlanValidationLimits.MAX_SETS_PER_EXERCISE} sets per exercise; " +
+                    "${PlanValidationLimits.MIN_REPS_PER_SET}-${PlanValidationLimits.MAX_REPS_PER_SET} reps per set; " +
+                    "targetWeightKg ${PlanValidationLimits.MIN_WEIGHT_KG.toInt()}-${PlanValidationLimits.MAX_WEIGHT_KG.toInt()}; " +
+                    "at most ${PlanDraftTextLimits.MAX_WARNING_COUNT} warnings."
+            )
+            appendLine(
+                "Exercises marked targetLoadRequired=true need targetWeightKg greater than 0."
+            )
             appendLine("<user_data>")
             appendLine(
                 "Injury notes: ${intake.injuryNotes.boundedPromptText(MAX_INTAKE_TEXT_LENGTH)}"

@@ -4,6 +4,8 @@ import com.example.ironpath.domain.planner.OnDeviceExerciseProposal
 import com.example.ironpath.domain.planner.OnDeviceModelPrompt
 import com.example.ironpath.domain.planner.OnDevicePlanProposal
 import com.example.ironpath.domain.planner.OnDeviceWorkoutProposal
+import com.example.ironpath.domain.planner.PlanDraftTextLimits
+import com.example.ironpath.domain.planner.PlanValidationLimits
 import com.example.ironpath.domain.planner.RemotePlanningTransport
 import com.example.ironpath.domain.planner.RemotePlanningTransportResult
 import java.io.ByteArrayOutputStream
@@ -132,8 +134,13 @@ internal object GeminiInteractionsCodec {
     fun requestBody(prompt: OnDeviceModelPrompt): String =
         buildJsonObject {
                 put("model", MODEL)
+                put("store", false)
                 put("system_instruction", prompt.systemInstruction)
                 put("input", prompt.userPrompt)
+                put(
+                    "generation_config",
+                    buildJsonObject { put("max_output_tokens", MAX_OUTPUT_TOKENS) },
+                )
                 put(
                     "response_format",
                     buildJsonObject {
@@ -168,8 +175,8 @@ internal object GeminiInteractionsCodec {
             "properties",
             buildJsonObject {
                 put("rationale", nullableStringSchema())
-                put("warnings", arraySchema(stringSchema(), maxItems = 5))
-                put("workouts", arraySchema(workoutSchema(), minItems = 1, maxItems = 6))
+                put("warnings", arraySchema(stringSchema()))
+                put("workouts", arraySchema(workoutSchema()))
             },
         )
         put("required", stringArray("rationale", "warnings", "workouts"))
@@ -181,9 +188,9 @@ internal object GeminiInteractionsCodec {
         put(
             "properties",
             buildJsonObject {
-                put("dayOfWeek", integerSchema(1, 7))
+                put("dayOfWeek", integerSchema())
                 put("title", stringSchema())
-                put("exercises", arraySchema(exerciseSchema(), minItems = 1, maxItems = 8))
+                put("exercises", arraySchema(exerciseSchema()))
             },
         )
         put("required", stringArray("dayOfWeek", "title", "exercises"))
@@ -196,27 +203,40 @@ internal object GeminiInteractionsCodec {
             "properties",
             buildJsonObject {
                 put("catalogId", stringSchema())
-                put("sets", integerSchema(1, 6))
-                put("reps", integerSchema(1, 30))
-                put("targetWeightKg", numberSchema(0, 300))
+                put("sets", integerSchema())
+                put("reps", integerSchema())
+                put("targetWeightKg", numberSchema())
             },
         )
         put("required", stringArray("catalogId", "sets", "reps", "targetWeightKg"))
         put("additionalProperties", false)
     }
 
-    private fun JsonObject.toProposal() =
-        OnDevicePlanProposal(
-            rationale = this["rationale"]?.jsonPrimitive?.contentOrNull,
-            warnings = array("warnings").map { it.jsonPrimitive.content },
+    private fun JsonObject.toProposal(): OnDevicePlanProposal {
+        val warnings = array("warnings")
+        check(warnings.size <= PlanDraftTextLimits.MAX_WARNING_COUNT)
+        val workouts = array("workouts")
+        check(
+            workouts.size in
+                PlanValidationLimits.MIN_TRAINING_DAYS..PlanValidationLimits.MAX_TRAINING_DAYS
+        )
+        return OnDevicePlanProposal(
+            rationale = getValue("rationale").jsonPrimitive.contentOrNull,
+            warnings = warnings.map { it.jsonPrimitive.content },
             workouts =
-                array("workouts").map { workoutElement ->
+                workouts.map { workoutElement ->
                     val workout = workoutElement.jsonObject
+                    val exercises = workout.array("exercises")
+                    check(
+                        exercises.size in
+                            PlanValidationLimits.MIN_EXERCISES_PER_DAY..PlanValidationLimits
+                                    .MAX_EXERCISES_PER_DAY
+                    )
                     OnDeviceWorkoutProposal(
                         dayOfWeek = workout.int("dayOfWeek"),
                         title = workout.string("title"),
                         exercises =
-                            workout.array("exercises").map { exerciseElement ->
+                            exercises.map { exerciseElement ->
                                 val exercise = exerciseElement.jsonObject
                                 OnDeviceExerciseProposal(
                                     catalogId = exercise.string("catalogId"),
@@ -228,6 +248,7 @@ internal object GeminiInteractionsCodec {
                     )
                 },
         )
+    }
 
     private fun stringSchema() = buildJsonObject { put("type", "string") }
 
@@ -241,27 +262,13 @@ internal object GeminiInteractionsCodec {
         )
     }
 
-    private fun integerSchema(minimum: Int, maximum: Int) = buildJsonObject {
-        put("type", "integer")
-        put("minimum", minimum)
-        put("maximum", maximum)
-    }
+    private fun integerSchema() = buildJsonObject { put("type", "integer") }
 
-    private fun numberSchema(minimum: Int, maximum: Int) = buildJsonObject {
-        put("type", "number")
-        put("minimum", minimum)
-        put("maximum", maximum)
-    }
+    private fun numberSchema() = buildJsonObject { put("type", "number") }
 
-    private fun arraySchema(
-        items: JsonObject,
-        minItems: Int? = null,
-        maxItems: Int? = null,
-    ) = buildJsonObject {
+    private fun arraySchema(items: JsonObject) = buildJsonObject {
         put("type", "array")
         put("items", items)
-        minItems?.let { put("minItems", it) }
-        maxItems?.let { put("maxItems", it) }
     }
 
     private fun stringArray(vararg values: String) = buildJsonArray {
@@ -279,4 +286,5 @@ internal object GeminiInteractionsCodec {
     private fun JsonObject.array(key: String): JsonArray = getValue(key).jsonArray
 
     private const val MODEL = "gemini-3.5-flash"
+    private const val MAX_OUTPUT_TOKENS = 4_096
 }
