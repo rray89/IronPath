@@ -168,8 +168,8 @@ internal object GeminiInteractionsCodec {
             "properties",
             buildJsonObject {
                 put("rationale", nullableStringSchema())
-                put("warnings", arraySchema(stringSchema(), maxItems = 5))
-                put("workouts", arraySchema(workoutSchema(), minItems = 1, maxItems = 6))
+                put("warnings", arraySchema(stringSchema()))
+                put("workouts", arraySchema(workoutSchema()))
             },
         )
         put("required", stringArray("rationale", "warnings", "workouts"))
@@ -181,9 +181,9 @@ internal object GeminiInteractionsCodec {
         put(
             "properties",
             buildJsonObject {
-                put("dayOfWeek", integerSchema(1, 7))
+                put("dayOfWeek", integerSchema())
                 put("title", stringSchema())
-                put("exercises", arraySchema(exerciseSchema(), minItems = 1, maxItems = 8))
+                put("exercises", arraySchema(exerciseSchema()))
             },
         )
         put("required", stringArray("dayOfWeek", "title", "exercises"))
@@ -196,9 +196,9 @@ internal object GeminiInteractionsCodec {
             "properties",
             buildJsonObject {
                 put("catalogId", stringSchema())
-                put("sets", integerSchema(1, 6))
-                put("reps", integerSchema(1, 30))
-                put("targetWeightKg", numberSchema(0, 300))
+                put("sets", integerSchema())
+                put("reps", integerSchema())
+                put("targetWeightKg", numberSchema())
             },
         )
         put("required", stringArray("catalogId", "sets", "reps", "targetWeightKg"))
@@ -241,27 +241,13 @@ internal object GeminiInteractionsCodec {
         )
     }
 
-    private fun integerSchema(minimum: Int, maximum: Int) = buildJsonObject {
-        put("type", "integer")
-        put("minimum", minimum)
-        put("maximum", maximum)
-    }
+    private fun integerSchema() = buildJsonObject { put("type", "integer") }
 
-    private fun numberSchema(minimum: Int, maximum: Int) = buildJsonObject {
-        put("type", "number")
-        put("minimum", minimum)
-        put("maximum", maximum)
-    }
+    private fun numberSchema() = buildJsonObject { put("type", "number") }
 
-    private fun arraySchema(
-        items: JsonObject,
-        minItems: Int? = null,
-        maxItems: Int? = null,
-    ) = buildJsonObject {
+    private fun arraySchema(items: JsonObject) = buildJsonObject {
         put("type", "array")
         put("items", items)
-        minItems?.let { put("minItems", it) }
-        maxItems?.let { put("maxItems", it) }
     }
 
     private fun stringArray(vararg values: String) = buildJsonArray {

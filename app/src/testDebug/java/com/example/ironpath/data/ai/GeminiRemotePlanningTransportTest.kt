@@ -3,6 +3,11 @@ package com.example.ironpath.data.ai
 import com.example.ironpath.domain.planner.OnDeviceModelPrompt
 import com.example.ironpath.domain.planner.RemotePlanningTransportResult
 import kotlinx.coroutines.test.runTest
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.boolean
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -30,6 +35,54 @@ class GeminiRemotePlanningTransportTest {
         assertTrue(httpClient.body.orEmpty().contains("gemini-3.5-flash"))
         assertTrue(httpClient.body.orEmpty().contains("response_format"))
         assertTrue(httpClient.body.orEmpty().contains("application/json"))
+    }
+
+    @Test
+    fun `request schema leaves value and collection bounds to local validation`() {
+        val requestBody =
+            GeminiInteractionsCodec.requestBody(
+                OnDeviceModelPrompt("system rules", "bounded planning summary")
+            )
+
+        val responseSchema =
+            Json.parseToJsonElement(requestBody)
+                .jsonObject
+                .getValue("response_format")
+                .jsonObject
+                .getValue("schema")
+                .jsonObject
+
+        listOf("minimum", "maximum", "minItems", "maxItems").forEach { providerBound ->
+            assertFalse(
+                "Provider schema must not include $providerBound",
+                responseSchema.toString().contains("\"$providerBound\""),
+            )
+        }
+        assertEquals(
+            listOf("rationale", "warnings", "workouts"),
+            responseSchema.getValue("required").jsonArray.map { requiredProperty ->
+                requiredProperty.jsonPrimitive.content
+            },
+        )
+        assertFalse(responseSchema.getValue("additionalProperties").jsonPrimitive.boolean)
+        val workoutSchema =
+            responseSchema
+                .getValue("properties")
+                .jsonObject
+                .getValue("workouts")
+                .jsonObject
+                .getValue("items")
+                .jsonObject
+        assertFalse(workoutSchema.getValue("additionalProperties").jsonPrimitive.boolean)
+        val exerciseSchema =
+            workoutSchema
+                .getValue("properties")
+                .jsonObject
+                .getValue("exercises")
+                .jsonObject
+                .getValue("items")
+                .jsonObject
+        assertFalse(exerciseSchema.getValue("additionalProperties").jsonPrimitive.boolean)
     }
 
     @Test

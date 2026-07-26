@@ -101,6 +101,10 @@ Gemini. Do not use personal or sensitive text in a portfolio demonstration.
 5. On success, show `REMOTE AI EXPERIMENT` in Plan Review.
 6. Disable the experiment afterward to clear the in-memory key.
 
+`DEBUG FAKE AI` is fallback evidence, not a successful remote smoke. If it appears,
+verify key/model access and the current structured-output contract before presenting
+the remote comparison.
+
 The key is held only in process memory. IronPath does not write it to Room,
 `SavedStateHandle`, logs, request URLs, request bodies, or release code. A production
 hosted provider would require authenticated backend routing and server-side secret,

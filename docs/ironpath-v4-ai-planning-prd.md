@@ -438,6 +438,15 @@ transport, provider engine, or candidate binding. See
 `docs/debug-remote-ai-experiment.md` for setup, privacy boundaries, provider order,
 and verification evidence.
 
+Compatibility follow-up: a July 26, 2026 live Seeker smoke found that the current
+Gemini endpoint rejects IronPath's combined nested numeric and collection bounds as
+an invalid request. The remote response schema therefore owns structural typing,
+required fields, and closed objects only. The existing app-owned mapper and
+`PlanValidator` remain responsible for every value, count, catalog, safety, and
+training constraint before a proposal can be reviewed or persisted. This preserves
+the original trust boundary instead of weakening validation to accommodate a
+provider-specific schema limit.
+
 ### Data model impact
 
 No Room schema change is expected.
@@ -454,6 +463,7 @@ No Room schema change is expected.
 6. `feat9.5: add on-device provider capability spike`
 7. `feat9.6: add debug-only remote provider experiment`
 8. `feat9.7: polish V4 demo documentation`
+9. `feat9.8: harden Gemini structured-output compatibility`
 
 This order intentionally builds the demo loop before depending on real model availability. The fake engine makes the UI, fallback, and validation story testable. The on-device provider can then plug into an already working flow.
 
@@ -472,6 +482,7 @@ V4 inherits `docs/testing-strategy.md` as the authoritative project-wide test an
 | `feat9.5` on-device spike | Provider contract tests with deterministic fakes; timeout, cancellation, malformed output, unsupported-device, and provider-exception cases; release assembly; manual generation on a capable physical device and fallback verification on Seeker |
 | `feat9.6` debug remote experiment | Fake-transport tests for success and failure, secret-redaction checks, debug-only UI and binding coverage, and release-variant proof that remote provider selection and calls are unavailable |
 | `feat9.7` demo documentation | Documentation review against the implemented provider support, setup, fallback behavior, privacy boundary, and reproducible demo steps |
+| `feat9.8` Gemini compatibility | Outbound codec regression proving provider-side numeric and collection bounds are absent while local validator boundary coverage remains green; debug/release assembly; an authorized live Gemini smoke on Seeker that reaches `REMOTE AI EXPERIMENT` |
 
 ### Domain and ViewModel tests
 

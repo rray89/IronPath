@@ -3,14 +3,22 @@
 ## Decision
 
 IronPath includes an optional remote planning provider in debug builds for comparing
-small on-device output with a current hosted model. As of July 19, 2026, the spike
+small on-device output with a current hosted model. As of July 26, 2026, the spike
 uses Google's Interactions API, `gemini-3.5-flash`, and structured JSON output:
 
 - `POST https://generativelanguage.googleapis.com/v1/interactions`
 - API key authentication through the `x-goog-api-key` header
-- a top-level `response_format` JSON schema
+- a top-level `response_format` JSON schema that owns the required response shape
 - the same bounded prompt, owned draft mapper, deterministic validator, and fallback
   coordinator used by the on-device provider
+
+The provider schema deliberately limits itself to JSON types, required fields, and
+closed objects. It does not repeat numeric or collection bounds. A live contract
+check found that Gemini rejected IronPath's combined nested bounds with
+`invalid_request`, while the same schema shape without those provider-side bounds
+completed successfully. `PlanValidator` remains the authoritative safety boundary
+for workout counts, day values, sets, reps, loads, weekly volume, rest, equipment,
+movement limits, and progression.
 
 Official references:
 
@@ -42,7 +50,7 @@ The normal debug provider order is:
 4. rule-based generator
 
 On Seeker, on-device AI is unavailable. A configured remote experiment therefore gets
-the first live attempt. A successful review identifies `DEBUG REMOTE AI`; a timeout,
+the first live attempt. A successful review identifies `REMOTE AI EXPERIMENT`; a timeout,
 provider error, malformed response, or locally invalid draft continues through the
 normal fallback chain with sanitized fixed copy.
 
@@ -68,9 +76,10 @@ presence alone is therefore not used as evidence of remote-provider inclusion.
 
 Automated tests use a fake HTTP transport. CI never needs a key, spends provider
 quota, or depends on a live network response. Coverage includes request construction,
-structured response mapping, malformed and non-success responses, secret redaction,
-opt-in state, process-only key behavior, local validation, provider timeout, external
-cancellation, debug Hilt bindings, Compose semantics, and 200% font scale.
+the bounds-free provider schema contract, structured response mapping, malformed and
+non-success responses, secret redaction, opt-in state, process-only key behavior,
+local validation, provider timeout, external cancellation, debug Hilt bindings,
+Compose semantics, and 200% font scale.
 
 Useful commands:
 
