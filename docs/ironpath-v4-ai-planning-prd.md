@@ -442,6 +442,9 @@ Every remote request sets `store: false` to opt out of provider-side Interaction
 resource retention. Planning context still leaves the device for Google processing;
 the flag does not make the remote experiment equivalent to on-device AI.
 
+**Compatibility follow-up status: Implemented** - PR #44
+(`feat/feat9.8-fix-gemini-schema`)
+
 Compatibility follow-up: a July 26, 2026 live Seeker smoke found that the current
 Gemini endpoint rejects IronPath's combined nested numeric and collection bounds as
 an invalid request. The remote response schema therefore owns structural typing,
