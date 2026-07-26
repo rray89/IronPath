@@ -20,11 +20,21 @@ completed successfully. `PlanValidator` remains the authoritative safety boundar
 for workout counts, day values, sets, reps, loads, weekly volume, rest, equipment,
 movement limits, and progression.
 
+The prompt still states every value and collection limit to reduce avoidable invalid
+drafts. The transport also caps model output at 4,096 tokens and rejects warning,
+workout, or exercise collections outside app limits before mapping them into an owned
+proposal.
+
 Official references:
 
 - [Gemini Interactions API](https://ai.google.dev/api/interactions-api-v1)
+- [Gemini API versions](https://ai.google.dev/gemini-api/docs/api-versions)
 - [Migrating structured output to Interactions](https://ai.google.dev/gemini-api/docs/migrate-to-interactions)
 - [Using and securing Gemini API keys](https://ai.google.dev/gemini-api/docs/generate-content/api-key)
+
+Google's API-version guide identifies the Interactions API as generally available in
+stable `v1` as of June 2026, so the `/v1/interactions` endpoint is deliberate even
+though some reference examples continue to show beta paths.
 
 Google explicitly advises against exposing provider keys in production mobile apps.
 This direct client experiment is therefore portfolio and local-development code, not
@@ -89,7 +99,17 @@ Useful commands:
 ANDROID_SERIAL=<seeker-serial> ./gradlew connectedDebugAndroidTest
 ```
 
-A real Gemini request is optional manual evidence and should only be made with the
-developer's own restricted key after reviewing possible quota or billing impact.
-The reproducible default demo and provider comparison paths are in
-`docs/v4-ai-planning-demo.md`.
+A real Gemini request is optional for routine development and CI. A provider-contract
+change such as `feat9.8` additionally requires one authorized post-fix Seeker smoke
+that reaches `REMOTE AI EXPERIMENT`. Any live request should use the developer's own
+restricted key after reviewing possible quota or billing impact. The reproducible
+default demo and provider comparison paths are in `docs/v4-ai-planning-demo.md`.
+
+### Live acceptance evidence
+
+On July 26, 2026, the post-fix debug build completed an authorized request from a
+physical Seeker to `gemini-3.5-flash` through stable `/v1/interactions`. The intake
+was fully synthetic, selected one Monday workout, and had empty recent history. Plan
+Review displayed `REMOTE AI EXPERIMENT · GENERATED PLAN`; the draft was not accepted
+or persisted. A process restart reset Remote AI Lab to disabled and removed the
+API-key field. No key or provider payload is stored with this evidence.

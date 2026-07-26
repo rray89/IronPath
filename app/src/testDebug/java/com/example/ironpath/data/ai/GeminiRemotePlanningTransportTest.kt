@@ -5,9 +5,13 @@ import com.example.ironpath.domain.planner.RemotePlanningTransportResult
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.boolean
+import kotlinx.serialization.json.buildJsonArray
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.int
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.put
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -38,52 +42,71 @@ class GeminiRemotePlanningTransportTest {
     }
 
     @Test
-    fun `request schema leaves value and collection bounds to local validation`() {
-        val requestBody =
-            GeminiInteractionsCodec.requestBody(
-                OnDeviceModelPrompt("system rules", "bounded planning summary")
-            )
+    fun `request schema leaves bounds local while preserving the full structural contract`() =
+        runTest {
+            val httpClient =
+                RecordingRemoteHttpClient(
+                    response = RemoteHttpResponse(statusCode = 401, body = "ignored")
+                )
+            GeminiRemotePlanningTransport(httpClient)
+                .generate(
+                    apiKey = "test-key",
+                    prompt = OnDeviceModelPrompt("system rules", "bounded planning summary"),
+                )
 
-        val responseSchema =
-            Json.parseToJsonElement(requestBody)
-                .jsonObject
-                .getValue("response_format")
-                .jsonObject
-                .getValue("schema")
-                .jsonObject
-
-        listOf("minimum", "maximum", "minItems", "maxItems").forEach { providerBound ->
-            assertFalse(
-                "Provider schema must not include $providerBound",
-                responseSchema.toString().contains("\"$providerBound\""),
+            val requestBody = checkNotNull(httpClient.body)
+            val request = Json.parseToJsonElement(requestBody).jsonObject
+            assertEquals(
+                4_096,
+                request
+                    .getValue("generation_config")
+                    .jsonObject
+                    .getValue("max_output_tokens")
+                    .jsonPrimitive
+                    .int,
             )
+            val responseSchema =
+                request.getValue("response_format").jsonObject.getValue("schema").jsonObject
+
+            listOf("minimum", "maximum", "minItems", "maxItems").forEach { providerBound ->
+                assertFalse(
+                    "Provider schema must not include $providerBound",
+                    responseSchema.toString().contains("\"$providerBound\""),
+                )
+            }
+            assertClosedObject(responseSchema, "rationale", "warnings", "workouts")
+            assertEquals(
+                setOf("string", "null"),
+                responseSchema
+                    .property("rationale")
+                    .getValue("type")
+                    .jsonArray
+                    .map { type -> type.jsonPrimitive.content }
+                    .toSet(),
+            )
+            assertEquals("array", responseSchema.property("warnings").type())
+            assertEquals("string", responseSchema.property("warnings").items().type())
+            assertEquals("array", responseSchema.property("workouts").type())
+
+            val workoutSchema = responseSchema.property("workouts").items()
+            assertClosedObject(workoutSchema, "dayOfWeek", "title", "exercises")
+            assertEquals("integer", workoutSchema.property("dayOfWeek").type())
+            assertEquals("string", workoutSchema.property("title").type())
+            assertEquals("array", workoutSchema.property("exercises").type())
+
+            val exerciseSchema = workoutSchema.property("exercises").items()
+            assertClosedObject(
+                exerciseSchema,
+                "catalogId",
+                "sets",
+                "reps",
+                "targetWeightKg",
+            )
+            assertEquals("string", exerciseSchema.property("catalogId").type())
+            assertEquals("integer", exerciseSchema.property("sets").type())
+            assertEquals("integer", exerciseSchema.property("reps").type())
+            assertEquals("number", exerciseSchema.property("targetWeightKg").type())
         }
-        assertEquals(
-            listOf("rationale", "warnings", "workouts"),
-            responseSchema.getValue("required").jsonArray.map { requiredProperty ->
-                requiredProperty.jsonPrimitive.content
-            },
-        )
-        assertFalse(responseSchema.getValue("additionalProperties").jsonPrimitive.boolean)
-        val workoutSchema =
-            responseSchema
-                .getValue("properties")
-                .jsonObject
-                .getValue("workouts")
-                .jsonObject
-                .getValue("items")
-                .jsonObject
-        assertFalse(workoutSchema.getValue("additionalProperties").jsonPrimitive.boolean)
-        val exerciseSchema =
-            workoutSchema
-                .getValue("properties")
-                .jsonObject
-                .getValue("exercises")
-                .jsonObject
-                .getValue("items")
-                .jsonObject
-        assertFalse(exerciseSchema.getValue("additionalProperties").jsonPrimitive.boolean)
-    }
 
     @Test
     fun `completed structured response maps into an owned proposal`() = runTest {
@@ -134,7 +157,98 @@ class GeminiRemotePlanningTransportTest {
                 assertFalse(result.toString().contains(response.body))
             }
     }
+
+    @Test
+    fun `provider collections outside local limits fail before proposal mapping`() = runTest {
+        val exercise = """{"catalogId":"push-ups","sets":3,"reps":8,"targetWeightKg":0.0}"""
+        val workout = """{"dayOfWeek":1,"title":"Full Body","exercises":[$exercise]}"""
+        val sevenWorkouts =
+            (1..7).joinToString(separator = ",") { day ->
+                """{"dayOfWeek":$day,"title":"Day $day","exercises":[$exercise]}"""
+            }
+        val nineExercises = List(9) { exercise }.joinToString(separator = ",")
+        val sixWarnings = List(6) { index -> "\"warning-$index\"" }.joinToString(separator = ",")
+        val overLimitOutputs =
+            listOf(
+                """{"rationale":null,"warnings":[],"workouts":[]}""",
+                """{"rationale":null,"warnings":[],"workouts":[$sevenWorkouts]}""",
+                """{"rationale":null,"warnings":[],"workouts":[{"dayOfWeek":1,"title":"Empty","exercises":[]}]}""",
+                """{"rationale":null,"warnings":[],"workouts":[{"dayOfWeek":1,"title":"Full Body","exercises":[$nineExercises]}]}""",
+                """{"rationale":null,"warnings":[$sixWarnings],"workouts":[$workout]}""",
+            )
+
+        overLimitOutputs.forEachIndexed { index, output ->
+            val transport =
+                GeminiRemotePlanningTransport(
+                    RecordingRemoteHttpClient(
+                        RemoteHttpResponse(statusCode = 200, body = completedResponse(output))
+                    )
+                )
+
+            val result =
+                transport.generate(
+                    apiKey = "test-key",
+                    prompt = OnDeviceModelPrompt("system", "summary"),
+                )
+
+            assertEquals(
+                "Over-limit fixture $index must be rejected",
+                RemotePlanningTransportResult.ProviderFailure,
+                result,
+            )
+        }
+    }
 }
+
+private fun assertClosedObject(
+    schema: kotlinx.serialization.json.JsonObject,
+    vararg requiredProperties: String,
+) {
+    assertEquals("object", schema.type())
+    assertFalse(schema.getValue("additionalProperties").jsonPrimitive.boolean)
+    assertEquals(
+        requiredProperties.toSet(),
+        schema
+            .getValue("required")
+            .jsonArray
+            .map { requiredProperty -> requiredProperty.jsonPrimitive.content }
+            .toSet(),
+    )
+}
+
+private fun kotlinx.serialization.json.JsonObject.property(name: String) =
+    getValue("properties").jsonObject.getValue(name).jsonObject
+
+private fun kotlinx.serialization.json.JsonObject.items() = getValue("items").jsonObject
+
+private fun kotlinx.serialization.json.JsonObject.type() = getValue("type").jsonPrimitive.content
+
+private fun completedResponse(outputText: String) =
+    buildJsonObject {
+            put("status", "completed")
+            put(
+                "steps",
+                buildJsonArray {
+                    add(
+                        buildJsonObject {
+                            put("type", "model_output")
+                            put(
+                                "content",
+                                buildJsonArray {
+                                    add(
+                                        buildJsonObject {
+                                            put("type", "text")
+                                            put("text", outputText)
+                                        }
+                                    )
+                                },
+                            )
+                        }
+                    )
+                },
+            )
+        }
+        .toString()
 
 private class RecordingRemoteHttpClient(private val response: RemoteHttpResponse) :
     RemoteHttpClient {

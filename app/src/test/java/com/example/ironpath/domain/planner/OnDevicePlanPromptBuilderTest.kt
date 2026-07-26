@@ -88,4 +88,29 @@ class OnDevicePlanPromptBuilderTest {
         assertTrue(prompt.userPrompt.contains("[/user_data]"))
         assertTrue(Regex(Regex.escape("</user_data>")).findAll(prompt.userPrompt).count() == 1)
     }
+
+    @Test
+    fun `prompt states every locally enforced provider value limit`() {
+        val prompt =
+            builder.build(
+                PlanningRequest(
+                    targetWeekStart = LocalDate.parse("2026-07-20"),
+                    goal = PlanningGoal.STRENGTH,
+                    selectedDays = setOf(1),
+                )
+            )
+
+        assertTrue(
+            prompt.userPrompt.contains(
+                "Hard limits: 1-6 workouts; 1-8 exercises per workout; " +
+                    "1-6 sets per exercise; 1-30 reps per set; targetWeightKg 0-300; " +
+                    "at most 5 warnings."
+            )
+        )
+        assertTrue(
+            prompt.userPrompt.contains(
+                "Exercises marked targetLoadRequired=true need targetWeightKg greater than 0."
+            )
+        )
+    }
 }

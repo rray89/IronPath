@@ -1,7 +1,7 @@
 # IronPath v4 AI Planning PRD
 
 Date: 2026-07-09
-Last updated: 2026-07-19
+Last updated: 2026-07-26
 Status: Implemented
 
 ## Purpose
@@ -446,6 +446,14 @@ required fields, and closed objects only. The existing app-owned mapper and
 training constraint before a proposal can be reviewed or persisted. This preserves
 the original trust boundary instead of weakening validation to accommodate a
 provider-specific schema limit.
+
+Post-fix acceptance evidence: on July 26, 2026, a debug build on a physical Seeker
+submitted a fully synthetic one-day intake with empty recent history to
+`gemini-3.5-flash` through stable `/v1/interactions`. Plan Review displayed
+`REMOTE AI EXPERIMENT · GENERATED PLAN`; the generated draft was not accepted or
+persisted. After force-stopping and relaunching the app, Remote AI Lab was disabled
+and the API-key field was absent, confirming the process-only secret boundary. The
+key and provider payload are not part of the recorded evidence.
 
 ### Data model impact
 

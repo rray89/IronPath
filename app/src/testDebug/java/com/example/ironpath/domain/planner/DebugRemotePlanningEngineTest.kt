@@ -56,14 +56,35 @@ class DebugRemotePlanningEngineTest {
     fun `invalid remote output is rejected by the local validator`() = runTest {
         val invalidProposal =
             validProposal()
-                .copy(workouts = listOf(validProposal().workouts.single().copy(dayOfWeek = 7)))
+                .copy(
+                    workouts =
+                        listOf(
+                            validProposal()
+                                .workouts
+                                .single()
+                                .copy(
+                                    exercises =
+                                        listOf(
+                                            validProposal()
+                                                .workouts
+                                                .single()
+                                                .exercises
+                                                .single()
+                                                .copy(sets = 0)
+                                        )
+                                )
+                        )
+                )
         val transport =
             FakeRemotePlanningTransport(RemotePlanningTransportResult.Success(invalidProposal))
 
         val result = engine(configuredSettings(), transport).generate(request())
 
         assertTrue(result is PlanningResult.Failure)
-        assertTrue((result as PlanningResult.Failure).reason is PlanningFailure.InvalidRequest)
+        assertEquals(
+            PlanningFailure.InvalidRequest(listOf("Sets must be between 1 and 6.")),
+            (result as PlanningResult.Failure).reason,
+        )
     }
 
     @Test
