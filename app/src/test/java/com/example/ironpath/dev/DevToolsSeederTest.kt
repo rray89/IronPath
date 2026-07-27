@@ -10,6 +10,7 @@ import com.example.ironpath.data.local.entity.PlannedExercise
 import com.example.ironpath.data.local.entity.PlannedWorkout
 import com.example.ironpath.data.local.entity.WeeklyPlan
 import com.example.ironpath.data.local.entity.WorkoutLog
+import com.example.ironpath.data.onboarding.OnboardingRepository
 import com.example.ironpath.data.repository.PlanRepository
 import com.example.ironpath.data.repository.RecordRepository
 import com.example.ironpath.testutil.FakeIdProvider
@@ -32,6 +33,7 @@ class DevToolsSeederTest {
 
     private lateinit var database: IronPathDatabase
     private lateinit var historyDao: HistoryDao
+    private lateinit var onboardingRepository: OnboardingRepository
     private lateinit var planRepository: PlanRepository
     private lateinit var recordRepository: RecordRepository
 
@@ -39,11 +41,13 @@ class DevToolsSeederTest {
     fun setUp() {
         database = mockk(relaxed = true)
         historyDao = mockk(relaxed = true)
+        onboardingRepository = mockk()
         planRepository = mockk(relaxed = true)
         recordRepository = mockk(relaxed = true)
 
         every { database.historyDao() } returns historyDao
         coEvery { historyDao.countLogsWithSourcePlannedWorkoutId(any()) } returns 0
+        coEvery { onboardingRepository.reset() } returns true
         coEvery { planRepository.getActivePlan() } returns null
 
         mockkStatic("androidx.room.RoomDatabaseKt")
@@ -201,12 +205,63 @@ class DevToolsSeederTest {
         coVerify(exactly = 1) { database.withTransaction(any<suspend () -> Unit>()) }
     }
 
+    @Test
+    fun `clearAllData resets onboarding before clearing Room`() = runTest {
+        val operations = mutableListOf<String>()
+        coEvery { onboardingRepository.reset() } coAnswers
+            {
+                operations += "onboarding"
+                true
+            }
+        coEvery { database.clearAllTables() } coAnswers
+            {
+                operations += "room"
+                Unit
+            }
+
+        seeder().clearAllData()
+
+        assertEquals(listOf("onboarding", "room"), operations)
+    }
+
+    @Test
+    fun `clearAllData preserves Room when onboarding reset fails`() = runTest {
+        coEvery { onboardingRepository.reset() } returns false
+
+        var thrown: IllegalStateException? = null
+        try {
+            seeder().clearAllData()
+        } catch (error: IllegalStateException) {
+            thrown = error
+        }
+
+        assertEquals("Failed to reset onboarding", thrown?.message)
+        coVerify(exactly = 0) { database.clearAllTables() }
+    }
+
+    @Test
+    fun `clearAllData surfaces Room failure after onboarding reset succeeds`() = runTest {
+        coEvery { database.clearAllTables() } throws IllegalStateException("Room clear failed")
+
+        var thrown: IllegalStateException? = null
+        try {
+            seeder().clearAllData()
+        } catch (error: IllegalStateException) {
+            thrown = error
+        }
+
+        assertEquals("Room clear failed", thrown?.message)
+        coVerify(exactly = 1) { onboardingRepository.reset() }
+        coVerify(exactly = 1) { database.clearAllTables() }
+    }
+
     private fun seeder(
         timeProvider: FakeTimeProvider = FakeTimeProvider(),
         idProvider: FakeIdProvider = FakeIdProvider(),
     ) =
         DevToolsSeeder(
             database = database,
+            onboardingRepository = onboardingRepository,
             planRepository = planRepository,
             recordRepository = recordRepository,
             timeProvider = timeProvider,

@@ -60,13 +60,10 @@ class WorkoutLogDetailScreenTest {
     }
 
     @Test
-    fun readySnapshot_backActionInvokesOnce() {
-        var backCount = 0
-        setContent(readyState(sets = listOf(loggedSet("set-1", 1, 10, 60.0)))) { backCount++ }
+    fun readySnapshot_doesNotRenderDuplicateBackAction() {
+        setContent(readyState(sets = listOf(loggedSet("set-1", 1, 10, 60.0))))
 
-        composeRule.onNodeWithContentDescription("Back").performClick()
-
-        assertEquals(1, backCount)
+        composeRule.onNodeWithContentDescription("Back").assertDoesNotExist()
     }
 
     @Test

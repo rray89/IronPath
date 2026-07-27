@@ -63,7 +63,7 @@ class WorkoutPreviewScreenTest {
     }
 
     @Test
-    fun ready_ordersExercises_andInvokesStartAndBackExactlyOnce() {
+    fun ready_ordersExercises_andInvokesStartExactlyOnceWithoutDuplicateBackAction() {
         val bench =
             squat.copy(
                 id = "exercise-bench",
@@ -72,7 +72,6 @@ class WorkoutPreviewScreenTest {
                 orderIndex = 1,
             )
         var startCalls = 0
-        var backCalls = 0
         setContent(
             WorkoutPreviewUiState.Ready(
                 workout = workout,
@@ -80,7 +79,6 @@ class WorkoutPreviewScreenTest {
                 canStart = true,
                 hasActiveSession = false,
             ),
-            onBack = { backCalls++ },
             onStart = { startCalls++ },
         )
 
@@ -89,12 +87,9 @@ class WorkoutPreviewScreenTest {
         composeRule.onNodeWithTag(TestTags.planExercise(bench.id)).assertIsDisplayed()
         composeRule.onNodeWithText("3 sets · 5 reps · bodyweight").assertIsDisplayed()
         composeRule.onNodeWithText("START WORKOUT").assertIsEnabled().performClick()
-        composeRule.onNodeWithContentDescription("Back").performClick()
+        composeRule.onNodeWithContentDescription("Back").assertDoesNotExist()
 
-        composeRule.runOnIdle {
-            assertEquals(1, startCalls)
-            assertEquals(1, backCalls)
-        }
+        composeRule.runOnIdle { assertEquals(1, startCalls) }
     }
 
     @Test

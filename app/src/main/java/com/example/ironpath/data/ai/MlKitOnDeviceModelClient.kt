@@ -17,30 +17,33 @@ import com.google.mlkit.genai.prompt.generateTypedContentRequest
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 @Singleton
 class MlKitOnDeviceModelClient @Inject constructor() : OnDeviceModelClient {
-    override suspend fun checkStatus(): OnDeviceModelStatus {
-        var model: GenerativeModel? = null
-        return try {
-            model = Generation.getClient()
-            val status = model.checkStatus().toOnDeviceStatus()
-            if (
-                status == OnDeviceModelStatus.AVAILABLE &&
-                    !model.isStructuredOutputFeatureAvailable()
-            ) {
+    override suspend fun checkStatus(): OnDeviceModelStatus =
+        withContext(Dispatchers.IO) {
+            var model: GenerativeModel? = null
+            try {
+                model = Generation.getClient()
+                val status = model.checkStatus().toOnDeviceStatus()
+                if (
+                    status == OnDeviceModelStatus.AVAILABLE &&
+                        !model.isStructuredOutputFeatureAvailable()
+                ) {
+                    OnDeviceModelStatus.UNAVAILABLE
+                } else {
+                    status
+                }
+            } catch (cancellation: CancellationException) {
+                throw cancellation
+            } catch (_: Exception) {
                 OnDeviceModelStatus.UNAVAILABLE
-            } else {
-                status
+            } finally {
+                model?.close()
             }
-        } catch (cancellation: CancellationException) {
-            throw cancellation
-        } catch (_: Exception) {
-            OnDeviceModelStatus.UNAVAILABLE
-        } finally {
-            model?.close()
         }
-    }
 
     override suspend fun generate(prompt: OnDeviceModelPrompt): OnDeviceModelGeneration {
         val model = Generation.getClient()

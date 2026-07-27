@@ -12,7 +12,6 @@ import androidx.compose.ui.test.ForcedSize
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.SemanticsNodeInteraction
 import androidx.compose.ui.test.assert
-import androidx.compose.ui.test.assertContentDescriptionEquals
 import androidx.compose.ui.test.assertHasClickAction
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
@@ -22,7 +21,6 @@ import androidx.compose.ui.test.assertIsSelectable
 import androidx.compose.ui.test.assertIsToggleable
 import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.junit4.createComposeRule
-import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -115,13 +113,16 @@ class AdaptiveLayoutTest {
 
     private fun assertEntryContentReachable() {
         composeRule
-            .onNodeWithText("GET STARTED")
+            .onNodeWithText("CONTINUE ON THIS DEVICE")
             .performScrollTo()
             .assertIsDisplayed()
             .assertHasClickAction()
-        composeRule.onNodeWithText("Sign in with Google").performScrollTo().assertIsDisplayed()
         composeRule
-            .onNodeWithText("By continuing, you agree to our Terms of Service")
+            .onNodeWithText(
+                "Your training data is already saved on this device. " +
+                    "IronPath cloud backup is not available in this version. " +
+                    "Android device-to-device transfer may copy it to a new phone during setup."
+            )
             .performScrollTo()
             .assertIsDisplayed()
     }
@@ -498,7 +499,6 @@ class AdaptiveLayoutTest {
             .performScrollTo()
             .assertIsDisplayed()
             .assertHasClickAction()
-        composeRule.onNodeWithText("WORKOUT PREVIEW").performScrollTo().assertIsDisplayed()
         composeRule.onNodeWithText("Strength A").performScrollTo().assertIsDisplayed()
     }
 
@@ -512,12 +512,6 @@ class AdaptiveLayoutTest {
             )
         }
 
-        composeRule
-            .onNodeWithContentDescription("Back")
-            .assertContentDescriptionEquals("Back")
-            .assertIsDisplayed()
-            .assertHasClickAction()
-            .assertMinimumTouchTarget("Workout log back")
         composeRule.onNodeWithText("Strength A").performScrollTo().assertIsDisplayed()
         composeRule.onNodeWithText("Squat").performScrollTo().assertIsDisplayed()
         composeRule.onNodeWithText("5 reps · 100 kg").performScrollTo().assertIsDisplayed()

@@ -369,10 +369,12 @@ class SemanticsContractTest {
     }
 
     @Test
-    fun unavailableGoogleSignIn_isDisabledSemantically() {
+    fun entry_exposesOnlyTheAvailableLocalContinuationAction() {
         setThemedContent { EntryScreen(onGetStarted = {}) }
 
-        composeRule.onNodeWithText("Sign in with Google").assertIsNotEnabled()
+        composeRule.onNodeWithText("CONTINUE ON THIS DEVICE").assertHasClickAction()
+        composeRule.onNodeWithText("Sign in with Google").assertDoesNotExist()
+        composeRule.onNodeWithText("Terms of Service", substring = true).assertDoesNotExist()
     }
 
     @Test
@@ -426,7 +428,7 @@ class SemanticsContractTest {
     }
 
     @Test
-    fun workoutPreview_disabledStartAndBackIconExposeTheirContracts() {
+    fun workoutPreview_disabledStartDoesNotDuplicateSharedBackAction() {
         setThemedContent {
             WorkoutPreviewContent(
                 uiState =
@@ -442,14 +444,11 @@ class SemanticsContractTest {
         }
 
         composeRule.onNodeWithText("START WORKOUT").assertIsNotEnabled()
-        composeRule
-            .onNodeWithContentDescription("Back")
-            .assertContentDescriptionContains("Back")
-            .assertHasClickAction()
+        composeRule.onNodeWithContentDescription("Back").assertDoesNotExist()
     }
 
     @Test
-    fun workoutLogBackIcon_isLabeledAndActionable() {
+    fun workoutLogReadyContent_doesNotDuplicateSharedBackAction() {
         setThemedContent {
             WorkoutLogDetailContent(
                 uiState =
@@ -470,10 +469,7 @@ class SemanticsContractTest {
             )
         }
 
-        composeRule
-            .onNodeWithContentDescription("Back")
-            .assertContentDescriptionContains("Back")
-            .assertHasClickAction()
+        composeRule.onNodeWithContentDescription("Back").assertDoesNotExist()
     }
 
     private fun setAddRecordContent(externalError: String? = null) {

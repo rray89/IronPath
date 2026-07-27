@@ -18,11 +18,9 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.FitnessCenter
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -79,7 +77,6 @@ internal fun WorkoutLogDetailContent(
         is WorkoutLogDetailUiState.Ready ->
             WorkoutLogDetailReady(
                 state = uiState,
-                onBack = onBack,
                 zoneId = zoneId,
                 modifier = modifier,
             )
@@ -125,7 +122,6 @@ private fun WorkoutLogDetailNotFound(
 @Composable
 private fun WorkoutLogDetailReady(
     state: WorkoutLogDetailUiState.Ready,
-    onBack: () -> Unit,
     zoneId: ZoneId,
     modifier: Modifier = Modifier,
 ) {
@@ -137,25 +133,7 @@ private fun WorkoutLogDetailReady(
                 .padding(horizontal = 24.dp)
                 .verticalScroll(rememberScrollState()),
     ) {
-        Spacer(Modifier.height(12.dp))
-
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            IconButton(onClick = onBack, modifier = Modifier.size(48.dp)) {
-                Icon(
-                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                    contentDescription = "Back",
-                    tint = MaterialTheme.colorScheme.onSurface,
-                )
-            }
-            Spacer(Modifier.width(8.dp))
-            Text(
-                text = "WORKOUT LOG",
-                style = MaterialTheme.typography.labelLarge,
-                color = MaterialTheme.colorScheme.primary,
-            )
-        }
-
-        Spacer(Modifier.height(20.dp))
+        Spacer(Modifier.height(24.dp))
 
         Text(
             text = detail.log.title,
