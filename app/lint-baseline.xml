@@ -146,17 +146,6 @@
 
     <issue
         id="NewerVersionAvailable"
-        message="A newer version of com.diffplug.spotless than 6.25.0 is available: 8.8.0"
-        errorLine1="spotless = &quot;6.25.0&quot;"
-        errorLine2="           ~~~~~~~~">
-        <location
-            file="../gradle/libs.versions.toml"
-            line="18"
-            column="12"/>
-    </issue>
-
-    <issue
-        id="NewerVersionAvailable"
         message="A newer version of io.mockk:mockk than 1.13.13 is available: 1.14.11"
         errorLine1="mockk = &quot;1.13.13&quot;"
         errorLine2="        ~~~~~~~~~">

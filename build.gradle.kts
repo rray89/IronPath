@@ -41,12 +41,12 @@ spotless {
         target("**/*.kt")
         targetExclude("**/build/**/*.kt")
         targetExclude(".claude/worktrees/**/*.kt")
-        ktfmt().kotlinlangStyle()
+        ktfmt("0.46").kotlinlangStyle()
     }
     kotlinGradle {
         target("**/*.kts")
         targetExclude("**/build/**/*.kts")
         targetExclude(".claude/worktrees/**/*.kts")
-        ktfmt().kotlinlangStyle()
+        ktfmt("0.46").kotlinlangStyle()
     }
 }
