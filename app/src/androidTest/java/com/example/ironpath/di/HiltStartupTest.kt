@@ -7,6 +7,7 @@ import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.example.ironpath.MainActivity
 import com.example.ironpath.data.backup.InstallationGuard
@@ -72,7 +73,17 @@ class HiltStartupTest {
 
     @Test
     fun mainDestinations_resolveHiltGraphAndRender() {
-        composeRule.onNodeWithText("CONTINUE ON THIS DEVICE").assertIsDisplayed().performClick()
+        composeRule.waitUntil(timeoutMillis = 5_000) {
+            composeRule
+                .onAllNodesWithTag(TestTags.ENTRY_GET_STARTED)
+                .fetchSemanticsNodes()
+                .isNotEmpty()
+        }
+        composeRule
+            .onNodeWithTag(TestTags.ENTRY_GET_STARTED)
+            .performScrollTo()
+            .assertIsDisplayed()
+            .performClick()
         waitForText("No workout plan yet")
 
         clickNavigationDestination(Route.PLAN)
