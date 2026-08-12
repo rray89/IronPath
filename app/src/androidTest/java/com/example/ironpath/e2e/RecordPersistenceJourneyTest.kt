@@ -47,7 +47,17 @@ class RecordPersistenceJourneyTest {
 
     @Test
     fun recordJourney_normalizesPersistsAndRejectsAnExactDuplicate() {
-        composeRule.onNodeWithText("CONTINUE ON THIS DEVICE").assertIsDisplayed().performClick()
+        composeRule.waitUntil(timeoutMillis = 5_000) {
+            composeRule
+                .onAllNodesWithTag(TestTags.ENTRY_GET_STARTED)
+                .fetchSemanticsNodes()
+                .isNotEmpty()
+        }
+        composeRule
+            .onNodeWithTag(TestTags.ENTRY_GET_STARTED)
+            .performScrollTo()
+            .assertIsDisplayed()
+            .performClick()
         waitForText("No workout plan yet")
 
         clickNavigationDestination(Route.HISTORY)
