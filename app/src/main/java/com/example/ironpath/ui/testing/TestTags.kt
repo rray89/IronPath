@@ -4,6 +4,7 @@ import java.util.Locale
 
 /** Stable semantics identifiers for fields and repeated rows whose visible text is ambiguous. */
 object TestTags {
+    const val APP_CONTENT = "app_content"
     const val ENTRY_GET_STARTED = "entry_get_started"
 
     const val RECORD_NAME = "record_name"

@@ -33,6 +33,7 @@ internal const val UI_TIMEOUT_MS = 30_000L
 internal const val SEED_TIMEOUT_MS = 45_000L
 
 internal fun MacrobenchmarkScope.seed(scenario: String) {
+    clearTargetAppData()
     device.executeShellCommand(
         "am start -W -n $SEED_ACTIVITY --es $SEED_SCENARIO_EXTRA $scenario",
     )
@@ -52,7 +53,7 @@ internal fun MacrobenchmarkScope.startAppAndDismissEntry() {
     startActivityAndWait { intent ->
         intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
     }
-    device.requireObject(By.res(ENTRY_GET_STARTED)).click()
+    device.wait(Until.findObject(By.res(ENTRY_GET_STARTED)), OPTIONAL_ENTRY_TIMEOUT_MS)?.click()
     device.requireObject(By.res(BOTTOM_NAV_HOME))
 }
 
@@ -186,6 +187,7 @@ private fun UiDevice.awaitSeedReady() {
 }
 
 private const val FIELD_UPDATE_TIMEOUT_MS = 5_000L
+private const val OPTIONAL_ENTRY_TIMEOUT_MS = 5_000L
 private const val MAX_FIELD_UPDATE_ATTEMPTS = 3
 private const val STABLE_OBJECT_TIMEOUT_MS = 5_000L
 private const val STABLE_SAMPLE_INTERVAL_MS = 100L

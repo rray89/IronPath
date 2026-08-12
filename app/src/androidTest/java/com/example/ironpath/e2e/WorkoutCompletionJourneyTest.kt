@@ -61,7 +61,7 @@ class WorkoutCompletionJourneyTest {
         val sessionStartedAt = timeProvider.epochMillis()
         seedAcceptedPlan(sessionStartedAt)
 
-        composeRule.onNodeWithText("GET STARTED").performClick()
+        composeRule.onNodeWithText("CONTINUE ON THIS DEVICE").performClick()
         waitForText("2 WORKOUTS PLANNED  •  0 COMPLETED")
 
         waitForTag(TestTags.workout(TODAY_WORKOUT_ID))

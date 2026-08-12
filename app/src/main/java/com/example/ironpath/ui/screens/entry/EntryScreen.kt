@@ -6,9 +6,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
@@ -24,11 +22,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.semantics.disabled
-import androidx.compose.ui.semantics.role
-import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.example.ironpath.ui.components.GreenGradientButton
 import com.example.ironpath.ui.testing.TestTags
@@ -39,6 +32,7 @@ import com.example.ironpath.ui.theme.SurfaceContainerHigh
 fun EntryScreen(
     onGetStarted: () -> Unit,
     modifier: Modifier = Modifier,
+    continuing: Boolean = false,
 ) {
     Box(
         modifier =
@@ -103,59 +97,25 @@ fun EntryScreen(
 
             Spacer(Modifier.height(12.dp))
 
-            // Privacy note
             Text(
-                text = "Your data stays on this device.",
+                text =
+                    "Your training data is already saved on this device. " +
+                        "IronPath cloud backup is not available in this version. " +
+                        "Android device-to-device transfer may copy it to a new phone during setup.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
 
             Spacer(Modifier.height(48.dp))
 
-            // Get Started button
             GreenGradientButton(
-                text = "Get Started",
+                text = if (continuing) "Continuing…" else "Continue on this device",
                 onClick = onGetStarted,
+                enabled = !continuing,
                 modifier = Modifier.testTag(TestTags.ENTRY_GET_STARTED),
             )
 
-            Spacer(Modifier.height(16.dp))
-
-            // Non-functional Google sign-in button
-            Box(
-                modifier =
-                    Modifier.fillMaxWidth()
-                        .heightIn(min = 48.dp)
-                        .border(
-                            width = 1.dp,
-                            color = MaterialTheme.colorScheme.primary,
-                            shape = RoundedCornerShape(4.dp),
-                        )
-                        .semantics(mergeDescendants = true) {
-                            disabled()
-                            role = Role.Button
-                        }
-                        .padding(vertical = 14.dp),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(
-                    text = "Sign in with Google",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurface,
-                )
-            }
-
             Spacer(Modifier.height(32.dp))
-
-            // Terms text
-            Text(
-                text = "By continuing, you agree to our Terms of Service",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                textAlign = TextAlign.Center,
-            )
-
-            Spacer(Modifier.height(8.dp))
 
             // Version
             Text(

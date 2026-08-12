@@ -10,6 +10,7 @@ import com.example.ironpath.data.local.entity.PlannedWorkout
 import com.example.ironpath.data.local.entity.RecordSource
 import com.example.ironpath.data.local.entity.WeeklyPlan
 import com.example.ironpath.data.local.entity.WorkoutLog
+import com.example.ironpath.data.onboarding.OnboardingRepository
 import com.example.ironpath.data.repository.PlanRepository
 import com.example.ironpath.data.repository.RecordRepository
 import com.example.ironpath.domain.identity.IdProvider
@@ -27,6 +28,7 @@ class DevToolsSeeder
 @Inject
 constructor(
     private val database: IronPathDatabase,
+    private val onboardingRepository: OnboardingRepository,
     private val planRepository: PlanRepository,
     private val recordRepository: RecordRepository,
     private val timeProvider: TimeProvider,
@@ -135,6 +137,7 @@ constructor(
 
     /** Wipe all local data. */
     suspend fun clearAllData() {
+        check(onboardingRepository.reset()) { "Failed to reset onboarding" }
         withContext(Dispatchers.IO) { database.clearAllTables() }
     }
 

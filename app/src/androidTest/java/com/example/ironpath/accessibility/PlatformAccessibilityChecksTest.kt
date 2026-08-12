@@ -52,14 +52,14 @@ class PlatformAccessibilityChecksTest {
         // guarantees
         // validation is active before this test performs its first UI action.
         composeRule.enableAccessibilityChecks()
-        waitForText("GET STARTED")
+        waitForText("CONTINUE ON THIS DEVICE")
     }
 
     @Test
     fun emptyAndGeneratedStates_passPlatformChecksAcrossEveryTopLevelRoute() {
         checkCurrentSurface()
 
-        composeRule.onNodeWithText("GET STARTED").performClick()
+        composeRule.onNodeWithText("CONTINUE ON THIS DEVICE").performClick()
         waitForTagToDisappear(TestTags.HOME_LOADING)
         waitForText("No workout plan yet")
         checkCurrentSurface()
@@ -95,11 +95,22 @@ class PlatformAccessibilityChecksTest {
     }
 
     @Test
+    fun openDrawer_passesPlatformChecksWithBackgroundContentHidden() {
+        composeRule.onNodeWithText("CONTINUE ON THIS DEVICE").performClick()
+        waitForTagToDisappear(TestTags.HOME_LOADING)
+
+        composeRule.onNodeWithContentDescription("Menu").performClick()
+        waitForText("LOCAL PROFILE")
+
+        checkCurrentSurface()
+    }
+
+    @Test
     fun persistedStates_passPlatformChecksAcrossHomePlanActiveAndDetailRoutes() {
         seedPersistedGraph()
 
         checkCurrentSurface()
-        composeRule.onNodeWithText("GET STARTED").performClick()
+        composeRule.onNodeWithText("CONTINUE ON THIS DEVICE").performClick()
         waitForTagToDisappear(TestTags.HOME_LOADING)
         waitForTag(TestTags.workout(WORKOUT_ID))
         checkCurrentSurface()

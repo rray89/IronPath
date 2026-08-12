@@ -28,7 +28,10 @@ class StartupBenchmark {
             compilationMode = CompilationMode.Partial(BaselineProfileMode.Require),
             startupMode = startupMode,
             iterations = 10,
-            setupBlock = { pressHome() },
+            setupBlock = {
+                clearTargetAppData()
+                pressHome()
+            },
         ) {
             startActivityAndWait()
             device.requireObject(By.res(ENTRY_GET_STARTED))
