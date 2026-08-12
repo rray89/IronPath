@@ -1,5 +1,8 @@
 package com.example.ironpath.data.repository
 
+import androidx.room.withTransaction
+import com.example.ironpath.data.backup.BackupChangeTracker
+import com.example.ironpath.data.local.IronPathDatabase
 import com.example.ironpath.data.local.dao.PlanDao
 import com.example.ironpath.data.local.entity.PlannedExercise
 import com.example.ironpath.data.local.entity.PlannedWorkout
@@ -9,7 +12,13 @@ import javax.inject.Singleton
 import kotlinx.coroutines.flow.Flow
 
 @Singleton
-class PlanRepository @Inject constructor(private val planDao: PlanDao) {
+class PlanRepository
+@Inject
+constructor(
+    private val planDao: PlanDao,
+    private val database: IronPathDatabase,
+    private val backupChangeTracker: BackupChangeTracker,
+) {
 
     fun observeActivePlan(): Flow<WeeklyPlan?> = planDao.observeActivePlan()
 
@@ -39,9 +48,21 @@ class PlanRepository @Inject constructor(private val planDao: PlanDao) {
         plan: WeeklyPlan,
         workouts: List<PlannedWorkout>,
         exercises: List<PlannedExercise>,
-    ) = planDao.createPlanWithWorkouts(plan, workouts, exercises)
+    ) =
+        database.withTransaction {
+            planDao.createPlanWithWorkouts(plan, workouts, exercises)
+            backupChangeTracker.markIncludedDataChanged()
+        }
 
-    suspend fun updateWorkout(workout: PlannedWorkout) = planDao.updateWorkout(workout)
+    suspend fun updateWorkout(workout: PlannedWorkout) =
+        database.withTransaction {
+            planDao.updateWorkout(workout)
+            backupChangeTracker.markIncludedDataChanged()
+        }
 
-    suspend fun deleteWorkout(id: String) = planDao.deleteWorkout(id)
+    suspend fun deleteWorkout(id: String) =
+        database.withTransaction {
+            planDao.deleteWorkout(id)
+            backupChangeTracker.markIncludedDataChanged()
+        }
 }

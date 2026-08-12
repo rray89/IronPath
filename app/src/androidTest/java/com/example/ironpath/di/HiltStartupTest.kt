@@ -9,6 +9,9 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.example.ironpath.MainActivity
+import com.example.ironpath.data.backup.InstallationGuard
+import com.example.ironpath.domain.account.AccountGateway
+import com.example.ironpath.domain.backup.BackupCoordinator
 import com.example.ironpath.domain.identity.IdProvider
 import com.example.ironpath.domain.planner.ExerciseCatalog
 import com.example.ironpath.domain.planner.OnDeviceModelClient
@@ -56,6 +59,12 @@ class HiltStartupTest {
 
     @Inject lateinit var remotePlanningExperiment: RemotePlanningExperiment
 
+    @Inject lateinit var accountGateway: AccountGateway
+
+    @Inject lateinit var backupCoordinator: BackupCoordinator
+
+    @Inject lateinit var installationGuard: InstallationGuard
+
     @Before
     fun inject() {
         hiltRule.inject()
@@ -95,6 +104,9 @@ class HiltStartupTest {
         assertTrue(::validatedPlanDraftMapper.isInitialized)
         assertTrue(::remotePlanningExperiment.isInitialized)
         assertTrue(remotePlanningExperiment.state.value.available)
+        assertTrue(::accountGateway.isInitialized)
+        assertTrue(::backupCoordinator.isInitialized)
+        assertTrue(::installationGuard.isInitialized)
     }
 
     @Test

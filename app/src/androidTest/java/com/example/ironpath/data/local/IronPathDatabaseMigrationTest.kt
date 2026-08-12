@@ -262,6 +262,62 @@ class IronPathDatabaseMigrationTest {
 
     @Test
     @Throws(IOException::class)
+    fun migrate2To3_preservesWorkoutDataAndInitializesUnclaimedBackupMetadata() {
+        helper.createDatabase(BACKUP_METADATA_DATABASE, 2).apply {
+            seedVersionOneData()
+            close()
+        }
+
+        helper
+            .runMigrationsAndValidate(
+                BACKUP_METADATA_DATABASE,
+                3,
+                true,
+                IronPathDatabase.MIGRATION_2_3,
+            )
+            .use { database ->
+                database.assertSingleRow("SELECT * FROM weekly_plans WHERE id = '$PLAN_ID'") {
+                    assertEquals("Active", string("status"))
+                }
+                database.assertSingleRow("SELECT * FROM workout_logs WHERE id = '$LOG_ID'") {
+                    assertEquals("Strength A", string("title"))
+                }
+                database.assertSingleRow("SELECT * FROM account_backup_metadata WHERE id = 1") {
+                    assertNull(nullableString("ownerUid"))
+                    assertTrue(string("installationId").isNotBlank())
+                    assertEquals(1L, long("localChangeRevision"))
+                    assertEquals(0L, long("lastCompleteLocalRevision"))
+                    assertNull(nullableString("lastObservedRemoteBackupId"))
+                    assertEquals(0L, long("lastObservedRemoteGeneration"))
+                    assertNull(nullableString("lastObservedRemoteDigest"))
+                    assertNull(nullableString("lastObservedSourceInstallationId"))
+                    assertNull(nullableLong("lastObservedRemoteCompletedAt"))
+                }
+            }
+    }
+
+    @Test
+    @Throws(IOException::class)
+    fun migrate2To3_keepsAnEmptyDatabaseAtRevisionZero() {
+        helper.createDatabase(EMPTY_BACKUP_METADATA_DATABASE, 2).close()
+
+        helper
+            .runMigrationsAndValidate(
+                EMPTY_BACKUP_METADATA_DATABASE,
+                3,
+                true,
+                IronPathDatabase.MIGRATION_2_3,
+            )
+            .use { database ->
+                database.assertSingleRow("SELECT * FROM account_backup_metadata WHERE id = 1") {
+                    assertEquals(0L, long("localChangeRevision"))
+                    assertEquals(0L, long("lastCompleteLocalRevision"))
+                }
+            }
+    }
+
+    @Test
+    @Throws(IOException::class)
     fun allMigrations_openLatestSchemaAndAllDaosRemainUsable() {
         helper.createDatabase(ALL_MIGRATIONS_DATABASE, 1).apply {
             seedVersionOneData()
@@ -270,16 +326,17 @@ class IronPathDatabaseMigrationTest {
         helper
             .runMigrationsAndValidate(
                 ALL_MIGRATIONS_DATABASE,
-                2,
+                3,
                 true,
                 IronPathDatabase.MIGRATION_1_2,
+                IronPathDatabase.MIGRATION_2_3,
             )
             .close()
 
         val context = ApplicationProvider.getApplicationContext<Context>()
         val database =
             Room.databaseBuilder(context, IronPathDatabase::class.java, ALL_MIGRATIONS_DATABASE)
-                .addMigrations(IronPathDatabase.MIGRATION_1_2)
+                .addMigrations(IronPathDatabase.MIGRATION_1_2, IronPathDatabase.MIGRATION_2_3)
                 .build()
         try {
             database.openHelper.writableDatabase
@@ -493,12 +550,17 @@ class IronPathDatabaseMigrationTest {
 
     private fun Cursor.long(column: String): Long = getLong(getColumnIndexOrThrow(column))
 
+    private fun Cursor.nullableLong(column: String): Long? =
+        getColumnIndexOrThrow(column).let { index -> if (isNull(index)) null else getLong(index) }
+
     private fun Cursor.double(column: String): Double = getDouble(getColumnIndexOrThrow(column))
 
     private companion object {
         const val PRESERVATION_DATABASE = "migration-preservation.db"
         const val CONSTRAINT_DATABASE = "migration-constraints.db"
         const val ALL_MIGRATIONS_DATABASE = "migration-all.db"
+        const val BACKUP_METADATA_DATABASE = "migration-backup-metadata.db"
+        const val EMPTY_BACKUP_METADATA_DATABASE = "migration-empty-backup-metadata.db"
 
         const val PLAN_ID = "plan-v1"
         const val WORKOUT_ID = "workout-v1"

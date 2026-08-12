@@ -1,13 +1,19 @@
 package com.example.ironpath.data.repository
 
+import androidx.room.withTransaction
+import com.example.ironpath.data.backup.BackupChangeTracker
+import com.example.ironpath.data.local.IronPathDatabase
 import com.example.ironpath.data.local.dao.RecordDao
 import com.example.ironpath.data.local.entity.PersonalRecord
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
+import io.mockk.mockkStatic
+import io.mockk.unmockkStatic
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
+import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertSame
 import org.junit.Before
@@ -16,6 +22,8 @@ import org.junit.Test
 class RecordRepositoryTest {
 
     private lateinit var recordDao: RecordDao
+    private lateinit var database: IronPathDatabase
+    private lateinit var backupChangeTracker: BackupChangeTracker
     private lateinit var repository: RecordRepository
 
     private val record =
@@ -31,8 +39,21 @@ class RecordRepositoryTest {
     @Before
     fun setUp() {
         recordDao = mockk()
+        database = mockk()
+        backupChangeTracker = mockk()
         coEvery { recordDao.insertRecord(any()) } returns Unit
-        repository = RecordRepository(recordDao)
+        coEvery { backupChangeTracker.markIncludedDataChanged() } returns Unit
+        mockkStatic("androidx.room.RoomDatabaseKt")
+        coEvery { database.withTransaction(any<suspend () -> Unit>()) } coAnswers
+            {
+                secondArg<suspend () -> Unit>().invoke()
+            }
+        repository = RecordRepository(recordDao, database, backupChangeTracker)
+    }
+
+    @After
+    fun tearDown() {
+        unmockkStatic("androidx.room.RoomDatabaseKt")
     }
 
     @Test

@@ -50,6 +50,7 @@ import androidx.compose.ui.semantics.testTagsAsResourceId
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import com.example.ironpath.data.backup.InstallationGuard
 import com.example.ironpath.data.onboarding.OnboardingRepository
 import com.example.ironpath.domain.time.TimeProvider
 import com.example.ironpath.ui.navigation.BottomNavItem
@@ -71,6 +72,8 @@ class MainActivity : ComponentActivity() {
 
     @Inject lateinit var onboardingRepository: OnboardingRepository
 
+    @Inject lateinit var installationGuard: InstallationGuard
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
@@ -80,7 +83,9 @@ class MainActivity : ComponentActivity() {
                     produceState<Boolean?>(
                         initialValue = null,
                         key1 = onboardingRepository,
+                        key2 = installationGuard,
                     ) {
+                        runCatching { installationGuard.validate() }
                         value =
                             runCatching { onboardingRepository.isCompleted() }.getOrDefault(false)
                     }

@@ -1,0 +1,406 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isOwner(uid) {
+      return request.auth != null && request.auth.uid == uid;
+    }
+
+    function validUserMetadata(data) {
+      return data.keys().hasAll([
+          'generation',
+          'backupIds'
+        ]) &&
+        data.keys().hasOnly([
+          'latestCompleteBackupId',
+          'generation',
+          'backupIds',
+          'activeUploadBackupId',
+          'latestCompletedAt',
+          'latestSourceInstallationId'
+        ]) &&
+        data.generation is int &&
+        data.generation >= 0 &&
+        data.backupIds is list &&
+        validBackupRegistry(data.backupIds) &&
+        (data.get('latestCompleteBackupId', null) == null ||
+          data.latestCompleteBackupId is string) &&
+        (data.get('activeUploadBackupId', null) == null ||
+          data.activeUploadBackupId is string) &&
+        (data.get('latestCompletedAt', null) == null ||
+          data.latestCompletedAt is timestamp) &&
+        (data.get('latestSourceInstallationId', null) == null ||
+          data.latestSourceInstallationId is string);
+    }
+
+    function validBackupRegistry(ids) {
+      return ids is list &&
+        ids.size() <= 4 &&
+        (ids.size() < 1 || ids[0] is string) &&
+        (ids.size() < 2 || ids[1] is string) &&
+        (ids.size() < 3 || ids[2] is string) &&
+        (ids.size() < 4 || ids[3] is string) &&
+        (ids.size() < 2 || ids[1] != ids[0]) &&
+        (ids.size() < 3 || (ids[2] != ids[0] && ids[2] != ids[1])) &&
+        (ids.size() < 4 ||
+          (ids[3] != ids[0] && ids[3] != ids[1] && ids[3] != ids[2]));
+    }
+
+    function sameCompletionPointer(before, after) {
+      return after.latestCompleteBackupId == before.latestCompleteBackupId &&
+        after.latestCompletedAt == before.latestCompletedAt &&
+        after.latestSourceInstallationId == before.latestSourceInstallationId;
+    }
+
+    function preservesRegistryPrefix(before, after) {
+      return (before.size() < 1 || after[0] == before[0]) &&
+        (before.size() < 2 || after[1] == before[1]) &&
+        (before.size() < 3 || after[2] == before[2]) &&
+        (before.size() < 4 || after[3] == before[3]);
+    }
+
+    function removesExactlyOneInOrder(before, after) {
+      return after.size() == before.size() - 1 &&
+        (after.size() == 0 ||
+          (before.size() == 2 &&
+            (after == [before[0]] || after == [before[1]])) ||
+          (before.size() == 3 &&
+            (after == [before[0], before[1]] ||
+              after == [before[0], before[2]] ||
+              after == [before[1], before[2]])) ||
+          (before.size() == 4 &&
+            (after == [before[0], before[1], before[2]] ||
+              after == [before[0], before[1], before[3]] ||
+              after == [before[0], before[2], before[3]] ||
+              after == [before[1], before[2], before[3]])));
+    }
+
+    function removedRegistryId(before, after) {
+      return !(before[0] in after) ? before[0] :
+        (before.size() > 1 && !(before[1] in after)) ? before[1] :
+        (before.size() > 2 && !(before[2] in after)) ? before[2] : before[3];
+    }
+
+    function validClaimTransition(uid) {
+      let before = resource.data;
+      let after = request.resource.data;
+      let claimedId = after.activeUploadBackupId;
+      return before.activeUploadBackupId == null &&
+        claimedId is string &&
+        after.generation == before.generation &&
+        sameCompletionPointer(before, after) &&
+        after.backupIds.size() == before.backupIds.size() + 1 &&
+        preservesRegistryPrefix(before.backupIds, after.backupIds) &&
+        after.backupIds[after.backupIds.size() - 1] == claimedId &&
+        getAfter(/databases/$(database)/documents/users/$(uid)/backups/$(claimedId))
+          .data.state == 'UPLOADING';
+    }
+
+    function validCompletionTransition(uid) {
+      let before = resource.data;
+      let after = request.resource.data;
+      let completedId = before.activeUploadBackupId;
+      let completed = getAfter(
+        /databases/$(database)/documents/users/$(uid)/backups/$(completedId)
+      ).data;
+      return completedId is string &&
+        after.activeUploadBackupId == null &&
+        after.generation == before.generation + 1 &&
+        after.backupIds == before.backupIds &&
+        after.latestCompleteBackupId == completedId &&
+        after.latestCompletedAt == request.time &&
+        completed.state == 'COMPLETE' &&
+        completed.completedAt == request.time &&
+        after.latestSourceInstallationId == completed.sourceInstallationId;
+    }
+
+    function validCleanupTransition(uid) {
+      let before = resource.data;
+      let after = request.resource.data;
+      let removedId = removedRegistryId(before.backupIds, after.backupIds);
+      return before.activeUploadBackupId == null &&
+        after.activeUploadBackupId == null &&
+        after.generation == before.generation &&
+        after.backupIds.size() == before.backupIds.size() - 1 &&
+        removesExactlyOneInOrder(before.backupIds, after.backupIds) &&
+        ((before.latestCompleteBackupId in after.backupIds &&
+            sameCompletionPointer(before, after)) ||
+          (!(before.latestCompleteBackupId in after.backupIds) &&
+            after.backupIds.size() == 0 &&
+            after.latestCompleteBackupId == null &&
+            after.latestCompletedAt == null &&
+            after.latestSourceInstallationId == null)) &&
+        !existsAfter(
+          /databases/$(database)/documents/users/$(uid)/backups/$(removedId)
+        );
+    }
+
+    function validCancellationTransition(uid) {
+      let before = resource.data;
+      let after = request.resource.data;
+      let abandonedId = before.activeUploadBackupId;
+      return abandonedId is string &&
+        !existsAfter(
+          /databases/$(database)/documents/users/$(uid)/backups/$(abandonedId)
+        ) &&
+        after.activeUploadBackupId == null &&
+        after.generation == before.generation &&
+        sameCompletionPointer(before, after) &&
+        after.backupIds.size() == before.backupIds.size() - 1 &&
+        removesExactlyOneInOrder(before.backupIds, after.backupIds) &&
+        !(abandonedId in after.backupIds);
+    }
+
+    function validManifest(data, backupId) {
+      return data.keys().hasAll([
+          'backupId',
+          'formatVersion',
+          'appVersion',
+          'sourceInstallationId',
+          'state',
+          'createdAt',
+          'completedAt',
+          'chunkCount',
+          'encodedByteCount',
+          'entityCounts',
+          'contentDigest',
+          'capturedLocalRevision',
+          'observedRemoteGeneration'
+        ]) &&
+        data.keys().hasOnly([
+          'backupId',
+          'formatVersion',
+          'appVersion',
+          'sourceInstallationId',
+          'state',
+          'createdAt',
+          'completedAt',
+          'chunkCount',
+          'encodedByteCount',
+          'entityCounts',
+          'contentDigest',
+          'capturedLocalRevision',
+          'observedRemoteGeneration'
+        ]) &&
+        data.backupId == backupId &&
+        backupId.size() > 0 && backupId.size() <= 128 &&
+        data.formatVersion == 1 &&
+        data.appVersion is string &&
+        data.appVersion.size() > 0 && data.appVersion.size() <= 64 &&
+        data.sourceInstallationId is string &&
+        data.sourceInstallationId.size() > 0 && data.sourceInstallationId.size() <= 128 &&
+        data.state in ['UPLOADING', 'COMPLETE'] &&
+        data.createdAt is timestamp &&
+        (data.completedAt == null || data.completedAt is timestamp) &&
+        data.chunkCount is int &&
+        data.chunkCount >= 1 &&
+        data.chunkCount <= 6 &&
+        data.encodedByteCount is int &&
+        data.encodedByteCount >= 0 &&
+        data.encodedByteCount <= 4608000 &&
+        validEntityCounts(data.entityCounts) &&
+        data.contentDigest is string &&
+        data.contentDigest.matches('^[a-f0-9]{64}$') &&
+        data.capturedLocalRevision is int &&
+        data.capturedLocalRevision >= 0 &&
+        data.observedRemoteGeneration is int &&
+        data.observedRemoteGeneration >= 0 &&
+        ((data.state == 'UPLOADING' && data.completedAt == null) ||
+          (data.state == 'COMPLETE' && data.completedAt is timestamp));
+    }
+
+    function validEntityCounts(counts) {
+      return counts is map &&
+        counts.keys().hasAll([
+          'WeeklyPlan',
+          'PlannedWorkout',
+          'PlannedExercise',
+          'WorkoutLog',
+          'LoggedExercise',
+          'LoggedSet',
+          'PersonalRecord'
+        ]) &&
+        counts.keys().hasOnly([
+          'WeeklyPlan',
+          'PlannedWorkout',
+          'PlannedExercise',
+          'WorkoutLog',
+          'LoggedExercise',
+          'LoggedSet',
+          'PersonalRecord'
+        ]) &&
+        counts.WeeklyPlan is int && counts.WeeklyPlan >= 0 &&
+        counts.PlannedWorkout is int && counts.PlannedWorkout >= 0 &&
+        counts.PlannedExercise is int && counts.PlannedExercise >= 0 &&
+        counts.WorkoutLog is int && counts.WorkoutLog >= 0 &&
+        counts.LoggedExercise is int && counts.LoggedExercise >= 0 &&
+        counts.LoggedSet is int && counts.LoggedSet >= 0 &&
+        counts.PersonalRecord is int && counts.PersonalRecord >= 0;
+    }
+
+    function validChunk(data, chunkId, backupId) {
+      return data.keys().hasAll([
+          'formatVersion',
+          'chunkIndex',
+          'encodedByteCount',
+          'chunkDigest',
+          'payload'
+        ]) &&
+        data.keys().hasOnly([
+          'formatVersion',
+          'chunkIndex',
+          'encodedByteCount',
+          'chunkDigest',
+          'payload'
+        ]) &&
+        data.formatVersion == 1 &&
+        data.chunkIndex is int &&
+        data.chunkIndex >= 0 &&
+        data.chunkIndex < 6 &&
+        data.chunkIndex < get(
+          /databases/$(database)/documents/users/$(request.auth.uid)/backups/$(backupId)
+        ).data.chunkCount &&
+        ((chunkId == '000' && data.chunkIndex == 0) ||
+          (chunkId == '001' && data.chunkIndex == 1) ||
+          (chunkId == '002' && data.chunkIndex == 2) ||
+          (chunkId == '003' && data.chunkIndex == 3) ||
+          (chunkId == '004' && data.chunkIndex == 4) ||
+          (chunkId == '005' && data.chunkIndex == 5)) &&
+        data.encodedByteCount is int &&
+        data.encodedByteCount >= 0 &&
+        data.encodedByteCount <= 768000 &&
+        data.chunkDigest is string &&
+        data.chunkDigest.matches('^[a-f0-9]{64}$') &&
+        data.payload is string &&
+        data.payload.size() <= 768000;
+    }
+
+    function completeChunkSetExists(backupId, count) {
+      return existsAfter(
+          /databases/$(database)/documents/users/$(request.auth.uid)/backups/$(backupId)/chunks/000
+        ) &&
+        (count < 2 || existsAfter(
+          /databases/$(database)/documents/users/$(request.auth.uid)/backups/$(backupId)/chunks/001
+        )) &&
+        (count < 3 || existsAfter(
+          /databases/$(database)/documents/users/$(request.auth.uid)/backups/$(backupId)/chunks/002
+        )) &&
+        (count < 4 || existsAfter(
+          /databases/$(database)/documents/users/$(request.auth.uid)/backups/$(backupId)/chunks/003
+        )) &&
+        (count < 5 || existsAfter(
+          /databases/$(database)/documents/users/$(request.auth.uid)/backups/$(backupId)/chunks/004
+        )) &&
+        (count < 6 || existsAfter(
+          /databases/$(database)/documents/users/$(request.auth.uid)/backups/$(backupId)/chunks/005
+        ));
+    }
+
+    function noChunksRemain(uid, backupId) {
+      return !existsAfter(
+          /databases/$(database)/documents/users/$(uid)/backups/$(backupId)/chunks/000
+        ) && !existsAfter(
+          /databases/$(database)/documents/users/$(uid)/backups/$(backupId)/chunks/001
+        ) && !existsAfter(
+          /databases/$(database)/documents/users/$(uid)/backups/$(backupId)/chunks/002
+        ) && !existsAfter(
+          /databases/$(database)/documents/users/$(uid)/backups/$(backupId)/chunks/003
+        ) && !existsAfter(
+          /databases/$(database)/documents/users/$(uid)/backups/$(backupId)/chunks/004
+        ) && !existsAfter(
+          /databases/$(database)/documents/users/$(uid)/backups/$(backupId)/chunks/005
+        );
+    }
+
+    function completeManifestIsDeletable(uid, backupId) {
+      let user = get(/databases/$(database)/documents/users/$(uid)).data;
+      return backupId != user.latestCompleteBackupId || user.backupIds.size() == 1;
+    }
+
+    function backupContentsAreDeletable(uid, backupId) {
+      let manifest = get(
+        /databases/$(database)/documents/users/$(uid)/backups/$(backupId)
+      ).data;
+      return (manifest.state == 'COMPLETE' && completeManifestIsDeletable(uid, backupId)) ||
+        (manifest.state == 'UPLOADING' &&
+          request.time >= manifest.createdAt + duration.value(24, 'h'));
+    }
+
+    function registeredOrphanChunkIsDeletable(uid, backupId) {
+      return !exists(
+          /databases/$(database)/documents/users/$(uid)/backups/$(backupId)
+        ) && backupId in get(
+          /databases/$(database)/documents/users/$(uid)
+        ).data.backupIds;
+    }
+
+    match /users/{uid} {
+      allow get: if isOwner(uid);
+      allow list: if false;
+      allow create: if isOwner(uid) &&
+        validUserMetadata(request.resource.data) &&
+        request.resource.data.generation == 0 &&
+        request.resource.data.backupIds.size() == 0 &&
+        request.resource.data.activeUploadBackupId == null &&
+        request.resource.data.latestCompleteBackupId == null;
+      allow update: if isOwner(uid) &&
+        validUserMetadata(request.resource.data) &&
+        (validClaimTransition(uid) ||
+          validCompletionTransition(uid) ||
+          validCleanupTransition(uid) ||
+          validCancellationTransition(uid));
+      allow delete: if isOwner(uid) &&
+        resource.data.activeUploadBackupId == null &&
+        resource.data.backupIds.size() == 0;
+
+      match /backups/{backupId} {
+        allow read: if isOwner(uid);
+        allow create: if isOwner(uid) &&
+          validManifest(request.resource.data, backupId) &&
+          request.resource.data.state == 'UPLOADING' &&
+          request.resource.data.createdAt == request.time &&
+          request.resource.data.observedRemoteGeneration ==
+            getAfter(/databases/$(database)/documents/users/$(uid)).data.generation &&
+          getAfter(/databases/$(database)/documents/users/$(uid))
+            .data.activeUploadBackupId == backupId &&
+          backupId in getAfter(/databases/$(database)/documents/users/$(uid)).data.backupIds;
+        allow update: if isOwner(uid) &&
+          validManifest(request.resource.data, backupId) &&
+          resource.data.state == 'UPLOADING' &&
+          request.resource.data.state == 'COMPLETE' &&
+          request.resource.data.completedAt == request.time &&
+          request.resource.data.diff(resource.data).affectedKeys()
+            .hasOnly(['state', 'completedAt']) &&
+          completeChunkSetExists(backupId, request.resource.data.chunkCount) &&
+          getAfter(/databases/$(database)/documents/users/$(uid))
+            .data.latestCompleteBackupId == backupId &&
+          getAfter(/databases/$(database)/documents/users/$(uid))
+            .data.activeUploadBackupId == null;
+        allow delete: if isOwner(uid) &&
+          resource.data.state == 'COMPLETE' &&
+          completeManifestIsDeletable(uid, backupId) &&
+          noChunksRemain(uid, backupId);
+        allow delete: if isOwner(uid) &&
+          resource.data.state == 'UPLOADING' &&
+          request.time >= resource.data.createdAt + duration.value(24, 'h') &&
+          noChunksRemain(uid, backupId);
+
+        match /chunks/{chunkId} {
+          allow read: if isOwner(uid);
+          allow create: if isOwner(uid) &&
+            validChunk(request.resource.data, chunkId, backupId) &&
+            get(/databases/$(database)/documents/users/$(uid)/backups/$(backupId))
+              .data.state == 'UPLOADING';
+          allow update: if false;
+          allow delete: if isOwner(uid) &&
+            (registeredOrphanChunkIsDeletable(uid, backupId) ||
+              backupContentsAreDeletable(uid, backupId));
+        }
+      }
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

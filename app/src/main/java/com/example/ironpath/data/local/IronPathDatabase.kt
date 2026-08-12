@@ -4,10 +4,12 @@ import androidx.room.Database
 import androidx.room.RoomDatabase
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
+import com.example.ironpath.data.local.dao.BackupDao
 import com.example.ironpath.data.local.dao.HistoryDao
 import com.example.ironpath.data.local.dao.PlanDao
 import com.example.ironpath.data.local.dao.RecordDao
 import com.example.ironpath.data.local.dao.SessionDao
+import com.example.ironpath.data.local.entity.AccountBackupMetadata
 import com.example.ironpath.data.local.entity.ActiveSession
 import com.example.ironpath.data.local.entity.LoggedExercise
 import com.example.ironpath.data.local.entity.LoggedSet
@@ -32,8 +34,9 @@ import com.example.ironpath.data.local.entity.WorkoutLog
             LoggedExercise::class,
             LoggedSet::class,
             PersonalRecord::class,
+            AccountBackupMetadata::class,
         ],
-    version = 2,
+    version = 3,
     exportSchema = true,
 )
 abstract class IronPathDatabase : RoomDatabase() {
@@ -44,6 +47,8 @@ abstract class IronPathDatabase : RoomDatabase() {
     abstract fun historyDao(): HistoryDao
 
     abstract fun recordDao(): RecordDao
+
+    abstract fun backupDao(): BackupDao
 
     companion object {
         val MIGRATION_1_2 =
@@ -94,6 +99,62 @@ abstract class IronPathDatabase : RoomDatabase() {
                         """
                         CREATE INDEX IF NOT EXISTS `index_logged_sets_loggedExerciseId`
                         ON `logged_sets` (`loggedExerciseId`)
+                        """
+                            .trimIndent(),
+                    )
+                }
+            }
+
+        val MIGRATION_2_3 =
+            object : Migration(2, 3) {
+                override fun migrate(db: SupportSQLiteDatabase) {
+                    db.execSQL(
+                        """
+                        CREATE TABLE IF NOT EXISTS `account_backup_metadata` (
+                            `id` INTEGER NOT NULL,
+                            `ownerUid` TEXT,
+                            `installationId` TEXT NOT NULL,
+                            `localChangeRevision` INTEGER NOT NULL,
+                            `lastCompleteLocalRevision` INTEGER NOT NULL,
+                            `lastObservedRemoteBackupId` TEXT,
+                            `lastObservedRemoteGeneration` INTEGER NOT NULL,
+                            `lastObservedRemoteDigest` TEXT,
+                            `lastObservedSourceInstallationId` TEXT,
+                            `lastObservedRemoteCompletedAt` INTEGER,
+                            PRIMARY KEY(`id`)
+                        )
+                        """
+                            .trimIndent(),
+                    )
+                    db.execSQL(
+                        """
+                        INSERT OR IGNORE INTO `account_backup_metadata` (
+                            `id`,
+                            `ownerUid`,
+                            `installationId`,
+                            `localChangeRevision`,
+                            `lastCompleteLocalRevision`,
+                            `lastObservedRemoteBackupId`,
+                            `lastObservedRemoteGeneration`,
+                            `lastObservedRemoteDigest`,
+                            `lastObservedSourceInstallationId`,
+                            `lastObservedRemoteCompletedAt`
+                        ) VALUES (
+                            1,
+                            NULL,
+                            lower(hex(randomblob(16))),
+                            CASE WHEN
+                                EXISTS(SELECT 1 FROM `weekly_plans`) OR
+                                EXISTS(SELECT 1 FROM `workout_logs`) OR
+                                EXISTS(SELECT 1 FROM `personal_records`)
+                            THEN 1 ELSE 0 END,
+                            0,
+                            NULL,
+                            0,
+                            NULL,
+                            NULL,
+                            NULL
+                        )
                         """
                             .trimIndent(),
                     )

@@ -1,6 +1,7 @@
 package com.example.ironpath.data.repository
 
 import androidx.room.withTransaction
+import com.example.ironpath.data.backup.BackupChangeTracker
 import com.example.ironpath.data.local.IronPathDatabase
 import com.example.ironpath.data.local.dao.HistoryDao
 import com.example.ironpath.data.local.dao.PlanDao
@@ -25,6 +26,7 @@ constructor(
     private val planDao: PlanDao,
     private val database: IronPathDatabase,
     private val performanceTracer: PerformanceTracer,
+    private val backupChangeTracker: BackupChangeTracker,
 ) {
 
     fun observeActiveSession(): Flow<ActiveSession?> = sessionDao.observeActiveSession()
@@ -92,6 +94,7 @@ constructor(
                     historyDao.insertLoggedSets(loggedSets)
                 }
                 sessionDao.deleteSession(sessionId)
+                backupChangeTracker.markIncludedDataChanged()
             }
         } finally {
             performanceTracer.endAsyncSection(COMPLETE_SESSION_TRACE, traceCookie)

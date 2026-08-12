@@ -1,6 +1,7 @@
 package com.example.ironpath.data.repository
 
 import androidx.room.withTransaction
+import com.example.ironpath.data.backup.BackupChangeTracker
 import com.example.ironpath.data.local.IronPathDatabase
 import com.example.ironpath.data.local.dao.HistoryDao
 import com.example.ironpath.data.local.dao.PlanDao
@@ -33,6 +34,7 @@ class SessionRepositoryTest {
     private lateinit var planDao: PlanDao
     private lateinit var database: IronPathDatabase
     private lateinit var performanceTracer: PerformanceTracer
+    private lateinit var backupChangeTracker: BackupChangeTracker
     private lateinit var repository: SessionRepository
 
     private val session =
@@ -83,6 +85,7 @@ class SessionRepositoryTest {
         planDao = mockk()
         database = mockk()
         performanceTracer = mockk(relaxed = true)
+        backupChangeTracker = mockk()
         every { performanceTracer.beginAsyncSection(any()) } returns 1
 
         coEvery { sessionDao.startNewSession(any(), any()) } returns Unit
@@ -95,6 +98,7 @@ class SessionRepositoryTest {
         coEvery { historyDao.insertLoggedSets(any()) } returns Unit
         coEvery { sessionDao.deleteSession(any()) } returns Unit
         coEvery { planDao.markWorkoutCompleted(any()) } returns Unit
+        coEvery { backupChangeTracker.markIncludedDataChanged() } returns Unit
 
         mockkStatic("androidx.room.RoomDatabaseKt")
         // withTransaction is compiled as a static extension:
@@ -105,7 +109,15 @@ class SessionRepositoryTest {
                 secondArg<suspend () -> Unit>().invoke()
             }
 
-        repository = SessionRepository(sessionDao, historyDao, planDao, database, performanceTracer)
+        repository =
+            SessionRepository(
+                sessionDao,
+                historyDao,
+                planDao,
+                database,
+                performanceTracer,
+                backupChangeTracker,
+            )
     }
 
     @Test

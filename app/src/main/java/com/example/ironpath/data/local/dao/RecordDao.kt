@@ -16,4 +16,7 @@ interface RecordDao {
 
     @Query("SELECT DISTINCT exerciseName FROM personal_records")
     suspend fun getAllRecordExerciseNames(): List<String>
+
+    @Query("SELECT * FROM personal_records WHERE id = :id")
+    suspend fun getRecordById(id: String): PersonalRecord?
 }
