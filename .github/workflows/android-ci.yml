@@ -270,7 +270,7 @@ jobs:
           cache-dependency-path: firebase/package-lock.json
 
       - name: Install pinned Firebase emulator tools
-        run: npm ci --prefix firebase
+        run: npm ci --ignore-scripts --prefix firebase
 
       - name: Run Firestore Security Rules tests
         run: ./gradlew firebaseRulesTest

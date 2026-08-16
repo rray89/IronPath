@@ -30,25 +30,26 @@ class NoBackupInstallationSentinel @Inject constructor(@ApplicationContext conte
         withContext(Dispatchers.IO) {
             if (installationId.isBlank()) return@withContext false
             var temporary: File? = null
-            try {
-                check(directory.isDirectory || directory.mkdirs())
-                temporary = File.createTempFile("$SENTINEL_FILE_NAME-", ".tmp", directory)
-                FileOutputStream(temporary).use { output ->
-                    output.write(installationId.toByteArray(Charsets.UTF_8))
-                    output.fd.sync()
+            val writeSucceeded =
+                try {
+                    check(directory.isDirectory || directory.mkdirs())
+                    temporary = File.createTempFile("$SENTINEL_FILE_NAME-", ".tmp", directory)
+                    FileOutputStream(temporary).use { output ->
+                        output.write(installationId.toByteArray(Charsets.UTF_8))
+                        output.fd.sync()
+                    }
+                    Files.move(
+                        temporary.toPath(),
+                        sentinel.toPath(),
+                        StandardCopyOption.ATOMIC_MOVE,
+                        StandardCopyOption.REPLACE_EXISTING,
+                    )
+                    sentinel.readText() == installationId
+                } catch (_: Exception) {
+                    false
                 }
-                Files.move(
-                    temporary.toPath(),
-                    sentinel.toPath(),
-                    StandardCopyOption.ATOMIC_MOVE,
-                    StandardCopyOption.REPLACE_EXISTING,
-                )
-                sentinel.readText() == installationId
-            } catch (_: Exception) {
-                false
-            } finally {
-                temporary?.delete()
-            }
+            val cleanupSucceeded = temporary?.let { !it.exists() || it.delete() } ?: true
+            writeSucceeded && cleanupSucceeded
         }
 
     private companion object {
