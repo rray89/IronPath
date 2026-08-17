@@ -161,7 +161,7 @@ dependencies {
     implementation(libs.androidx.room.ktx)
     // Room 2.8.4 migration bundles use the kotlinx.serialization 1.8.1 GeneratedSerializer ABI.
     implementation(platform(libs.kotlinx.serialization.bom))
-    debugImplementation(libs.kotlinx.serialization.json)
+    implementation(libs.kotlinx.serialization.json)
     ksp(libs.androidx.room.compiler)
     implementation(libs.hilt.android)
     implementation(libs.androidx.hilt.lifecycle.viewmodel.compose)

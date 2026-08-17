@@ -11,6 +11,13 @@ plugins {
     alias(libs.plugins.spotless)
 }
 
+tasks.register<Exec>("firebaseRulesTest") {
+    group = "verification"
+    description = "Runs Firestore Security Rules tests against the local emulator."
+    workingDir(layout.projectDirectory.dir("firebase"))
+    commandLine("npm", "test")
+}
+
 sonar {
     properties {
         property("sonar.projectName", "IronPath")

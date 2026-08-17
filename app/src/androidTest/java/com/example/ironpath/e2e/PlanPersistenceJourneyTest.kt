@@ -54,7 +54,12 @@ class PlanPersistenceJourneyTest {
 
     @Test
     fun generatedPlan_survivesAcceptanceAndActivityRecreation() {
-        composeRule.onNodeWithText("CONTINUE ON THIS DEVICE").performClick()
+        waitForTag(TestTags.ENTRY_GET_STARTED)
+        composeRule
+            .onNodeWithTag(TestTags.ENTRY_GET_STARTED)
+            .performScrollTo()
+            .assertIsDisplayed()
+            .performClick()
         waitForText("No workout plan yet")
 
         clickNavigationDestination(Route.PLAN)

@@ -55,7 +55,12 @@ class AiPlanReviewJourneyTest {
 
     @Test
     fun aiDraft_editValidateAcceptAndRecreate_persistsOneCanonicalWeek() {
-        composeRule.onNodeWithText("CONTINUE ON THIS DEVICE").performClick()
+        waitForTag(TestTags.ENTRY_GET_STARTED)
+        composeRule
+            .onNodeWithTag(TestTags.ENTRY_GET_STARTED)
+            .performScrollTo()
+            .assertIsDisplayed()
+            .performClick()
         waitForText("No workout plan yet")
         clickNavigationDestination(Route.PLAN)
         waitForText("Primary Goal")

@@ -1,6 +1,7 @@
 package com.example.ironpath.dev
 
 import androidx.room.withTransaction
+import com.example.ironpath.data.backup.RoomBackupStore
 import com.example.ironpath.data.local.IronPathDatabase
 import com.example.ironpath.data.local.entity.LoggedExercise
 import com.example.ironpath.data.local.entity.LoggedSet
@@ -20,8 +21,6 @@ import java.time.LocalDate
 import java.time.temporal.TemporalAdjusters
 import javax.inject.Inject
 import javax.inject.Singleton
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 
 @Singleton
 class DevToolsSeeder
@@ -29,6 +28,7 @@ class DevToolsSeeder
 constructor(
     private val database: IronPathDatabase,
     private val onboardingRepository: OnboardingRepository,
+    private val backupStore: RoomBackupStore,
     private val planRepository: PlanRepository,
     private val recordRepository: RecordRepository,
     private val timeProvider: TimeProvider,
@@ -99,6 +99,7 @@ constructor(
                 historyDao.insertLoggedExercises(exercises)
                 historyDao.insertLoggedSets(sets)
             }
+            backupStore.markIncludedDataChanged()
         }
     }
 
@@ -138,7 +139,7 @@ constructor(
     /** Wipe all local data. */
     suspend fun clearAllData() {
         check(onboardingRepository.reset()) { "Failed to reset onboarding" }
-        withContext(Dispatchers.IO) { database.clearAllTables() }
+        backupStore.resetLocalProfile()
     }
 
     // -- Helpers --

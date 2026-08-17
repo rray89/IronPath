@@ -1,5 +1,8 @@
 package com.example.ironpath.data.repository
 
+import androidx.room.withTransaction
+import com.example.ironpath.data.backup.BackupChangeTracker
+import com.example.ironpath.data.local.IronPathDatabase
 import com.example.ironpath.data.local.dao.HistoryDao
 import com.example.ironpath.data.local.entity.LoggedExercise
 import com.example.ironpath.data.local.entity.LoggedSet
@@ -8,8 +11,11 @@ import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
+import io.mockk.mockkStatic
+import io.mockk.unmockkStatic
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
+import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertSame
@@ -19,6 +25,8 @@ import org.junit.Test
 class HistoryRepositoryTest {
 
     private lateinit var historyDao: HistoryDao
+    private lateinit var database: IronPathDatabase
+    private lateinit var backupChangeTracker: BackupChangeTracker
     private lateinit var repository: HistoryRepository
 
     private val log =
@@ -53,9 +61,22 @@ class HistoryRepositoryTest {
     @Before
     fun setUp() {
         historyDao = mockk()
+        database = mockk()
+        backupChangeTracker = mockk()
         coEvery { historyDao.getLogById(any()) } returns null
         coEvery { historyDao.insertLog(any()) } returns Unit
-        repository = HistoryRepository(historyDao)
+        coEvery { backupChangeTracker.markIncludedDataChanged() } returns Unit
+        mockkStatic("androidx.room.RoomDatabaseKt")
+        coEvery { database.withTransaction(any<suspend () -> Unit>()) } coAnswers
+            {
+                secondArg<suspend () -> Unit>().invoke()
+            }
+        repository = HistoryRepository(historyDao, database, backupChangeTracker)
+    }
+
+    @After
+    fun tearDown() {
+        unmockkStatic("androidx.room.RoomDatabaseKt")
     }
 
     @Test
@@ -75,9 +96,10 @@ class HistoryRepositoryTest {
     }
 
     @Test
-    fun `insertLog delegates to historyDao`() = runTest {
+    fun `insertLog delegates to historyDao and increments the backup revision`() = runTest {
         repository.insertLog(log)
         coVerify(exactly = 1) { historyDao.insertLog(log) }
+        coVerify(exactly = 1) { backupChangeTracker.markIncludedDataChanged() }
     }
 
     @Test

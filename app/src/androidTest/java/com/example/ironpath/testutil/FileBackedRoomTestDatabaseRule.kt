@@ -14,7 +14,7 @@ class FileBackedRoomTestDatabaseRule : TestWatcher() {
 
     fun open(): IronPathDatabase =
         Room.databaseBuilder(context, IronPathDatabase::class.java, databaseName)
-            .addMigrations(IronPathDatabase.MIGRATION_1_2)
+            .addMigrations(IronPathDatabase.MIGRATION_1_2, IronPathDatabase.MIGRATION_2_3)
             .build()
             .also(opened::add)
 

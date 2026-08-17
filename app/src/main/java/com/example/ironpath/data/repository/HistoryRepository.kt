@@ -1,5 +1,8 @@
 package com.example.ironpath.data.repository
 
+import androidx.room.withTransaction
+import com.example.ironpath.data.backup.BackupChangeTracker
+import com.example.ironpath.data.local.IronPathDatabase
 import com.example.ironpath.data.local.dao.HistoryDao
 import com.example.ironpath.data.local.entity.LoggedExercise
 import com.example.ironpath.data.local.entity.LoggedSet
@@ -9,13 +12,23 @@ import javax.inject.Singleton
 import kotlinx.coroutines.flow.Flow
 
 @Singleton
-class HistoryRepository @Inject constructor(private val historyDao: HistoryDao) {
+class HistoryRepository
+@Inject
+constructor(
+    private val historyDao: HistoryDao,
+    private val database: IronPathDatabase,
+    private val backupChangeTracker: BackupChangeTracker,
+) {
 
     fun observeAllLogs(): Flow<List<WorkoutLog>> = historyDao.observeAllLogs()
 
     suspend fun getLogById(id: String): WorkoutLog? = historyDao.getLogById(id)
 
-    suspend fun insertLog(log: WorkoutLog) = historyDao.insertLog(log)
+    suspend fun insertLog(log: WorkoutLog) =
+        database.withTransaction {
+            historyDao.insertLog(log)
+            backupChangeTracker.markIncludedDataChanged()
+        }
 
     suspend fun getLogDetail(id: String): WorkoutLogDetail? {
         val log = historyDao.getLogById(id) ?: return null

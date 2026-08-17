@@ -2,6 +2,7 @@ package com.example.ironpath.data.repository
 
 import android.database.sqlite.SQLiteException
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import com.example.ironpath.data.backup.RoomBackupStore
 import com.example.ironpath.data.local.IronPathDatabase
 import com.example.ironpath.data.local.entity.PlanStatus
 import com.example.ironpath.data.local.entity.SessionSet
@@ -9,6 +10,7 @@ import com.example.ironpath.data.local.entity.WorkoutStatus
 import com.example.ironpath.data.performance.PerformanceTracer
 import com.example.ironpath.testutil.FileBackedRoomTestDatabaseRule
 import com.example.ironpath.testutil.RoomTestDatabaseRule
+import com.example.ironpath.testutil.SequenceIdProvider
 import com.example.ironpath.testutil.TestData
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
@@ -295,6 +297,7 @@ class SessionRepositoryIntegrationTest {
             database.planDao(),
             database,
             PerformanceTracer(),
+            RoomBackupStore(database, SequenceIdProvider("session-repository")),
         )
 
     private suspend fun seedPlan(database: IronPathDatabase) {

@@ -1,6 +1,7 @@
 package com.example.ironpath.dev
 
 import androidx.room.withTransaction
+import com.example.ironpath.data.backup.RoomBackupStore
 import com.example.ironpath.data.local.IronPathDatabase
 import com.example.ironpath.data.local.dao.HistoryDao
 import com.example.ironpath.data.local.entity.LoggedExercise
@@ -34,6 +35,7 @@ class DevToolsSeederTest {
     private lateinit var database: IronPathDatabase
     private lateinit var historyDao: HistoryDao
     private lateinit var onboardingRepository: OnboardingRepository
+    private lateinit var backupStore: RoomBackupStore
     private lateinit var planRepository: PlanRepository
     private lateinit var recordRepository: RecordRepository
 
@@ -42,6 +44,7 @@ class DevToolsSeederTest {
         database = mockk(relaxed = true)
         historyDao = mockk(relaxed = true)
         onboardingRepository = mockk()
+        backupStore = mockk(relaxed = true)
         planRepository = mockk(relaxed = true)
         recordRepository = mockk(relaxed = true)
 
@@ -213,7 +216,7 @@ class DevToolsSeederTest {
                 operations += "onboarding"
                 true
             }
-        coEvery { database.clearAllTables() } coAnswers
+        coEvery { backupStore.resetLocalProfile() } coAnswers
             {
                 operations += "room"
                 Unit
@@ -236,12 +239,13 @@ class DevToolsSeederTest {
         }
 
         assertEquals("Failed to reset onboarding", thrown?.message)
-        coVerify(exactly = 0) { database.clearAllTables() }
+        coVerify(exactly = 0) { backupStore.resetLocalProfile() }
     }
 
     @Test
     fun `clearAllData surfaces Room failure after onboarding reset succeeds`() = runTest {
-        coEvery { database.clearAllTables() } throws IllegalStateException("Room clear failed")
+        coEvery { backupStore.resetLocalProfile() } throws
+            IllegalStateException("Room clear failed")
 
         var thrown: IllegalStateException? = null
         try {
@@ -252,7 +256,7 @@ class DevToolsSeederTest {
 
         assertEquals("Room clear failed", thrown?.message)
         coVerify(exactly = 1) { onboardingRepository.reset() }
-        coVerify(exactly = 1) { database.clearAllTables() }
+        coVerify(exactly = 1) { backupStore.resetLocalProfile() }
     }
 
     private fun seeder(
@@ -262,6 +266,7 @@ class DevToolsSeederTest {
         DevToolsSeeder(
             database = database,
             onboardingRepository = onboardingRepository,
+            backupStore = backupStore,
             planRepository = planRepository,
             recordRepository = recordRepository,
             timeProvider = timeProvider,

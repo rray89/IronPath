@@ -19,6 +19,9 @@ out/
 .kotlin/
 build/
 **/build/
+firebase/node_modules/
+firebase/firestore-debug.log
+firebase/ui-debug.log
 
 # Local configuration file (sdk path, etc)
 local.properties
@@ -42,8 +45,11 @@ Thumbs.db
 .externalNativeBuild/
 .cxx/
 
-# Google Services (Uncomment if using)
-# google-services.json
+# Private Firebase client configuration is local-only. The checked-in emulator project ID is
+# deliberately non-live and requires no credentials.
+google-services.json
+**/google-services.json
+.firebaserc
 
 # Claude Code local settings
 .claude/settings.local.json

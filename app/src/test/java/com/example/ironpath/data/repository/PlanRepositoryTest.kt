@@ -1,5 +1,8 @@
 package com.example.ironpath.data.repository
 
+import androidx.room.withTransaction
+import com.example.ironpath.data.backup.BackupChangeTracker
+import com.example.ironpath.data.local.IronPathDatabase
 import com.example.ironpath.data.local.dao.PlanDao
 import com.example.ironpath.data.local.entity.PlannedExercise
 import com.example.ironpath.data.local.entity.PlannedWorkout
@@ -8,8 +11,11 @@ import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
+import io.mockk.mockkStatic
+import io.mockk.unmockkStatic
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
+import org.junit.After
 import org.junit.Assert.assertSame
 import org.junit.Before
 import org.junit.Test
@@ -17,6 +23,8 @@ import org.junit.Test
 class PlanRepositoryTest {
 
     private lateinit var planDao: PlanDao
+    private lateinit var database: IronPathDatabase
+    private lateinit var backupChangeTracker: BackupChangeTracker
     private lateinit var repository: PlanRepository
 
     private val plan =
@@ -50,11 +58,24 @@ class PlanRepositoryTest {
     @Before
     fun setUp() {
         planDao = mockk()
+        database = mockk()
+        backupChangeTracker = mockk()
         coEvery { planDao.createPlanWithWorkouts(any(), any(), any()) } returns Unit
         coEvery { planDao.updateWorkout(any()) } returns Unit
         coEvery { planDao.deleteWorkout(any()) } returns Unit
         coEvery { planDao.getAllExerciseNames() } returns emptyList()
-        repository = PlanRepository(planDao)
+        coEvery { backupChangeTracker.markIncludedDataChanged() } returns Unit
+        mockkStatic("androidx.room.RoomDatabaseKt")
+        coEvery { database.withTransaction(any<suspend () -> Unit>()) } coAnswers
+            {
+                secondArg<suspend () -> Unit>().invoke()
+            }
+        repository = PlanRepository(planDao, database, backupChangeTracker)
+    }
+
+    @After
+    fun tearDown() {
+        unmockkStatic("androidx.room.RoomDatabaseKt")
     }
 
     @Test
