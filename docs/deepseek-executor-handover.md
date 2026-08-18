@@ -27,7 +27,8 @@ Do not send any of the following to Pi, even as a small portion of a larger task
 - database migrations, restore/reset/data-deletion behavior, or other data-loss risk;
 - concurrency, synchronization, race-condition handling, or background-work
   coordination;
-- deployment, release, CI/CD policy, secrets, infrastructure, or live-service setup;
+- remote deployment/release, secrets, infrastructure, live-service setup, or CI/CD
+  policy decisions;
 - architecture, module/interface boundary decisions, or dependency selection;
 - unresolved debugging, flaky-test diagnosis, or any task whose root cause is not
   already established.
@@ -36,19 +37,25 @@ For IronPath, the current V5 account, Google sign-in, Firestore backup/restore,
 ownership, sentinel, deletion, and Firebase Rules work falls in these exclusions.
 Codex/Sol retains it even when an individual edit appears mechanical.
 
+An already-specified, no-secret local CI maintenance edit may qualify when it is
+otherwise clear, reversible, and bounded. Pi may execute the exact approved edit and
+fixed local verification, but does not decide CI policy, alter secrets, dispatch a
+workflow, or investigate an unresolved CI failure.
+
 ## Context and data boundary
 
-Pi has no Agent Shared access. Do not give it Agent Shared paths, history, user
-profile information, credentials, API keys, tokens, `google-services.json`, live
-Firebase identifiers, OAuth configuration, emulator secrets, logs containing user
-data, or broad project/workspace access.
+Pi may read and search the entire dedicated IronPath worktree by default. That
+worktree is the minimum task-local context: Codex must inspect it first and must not
+use it if it carries untracked secrets. Pi has no Agent Shared access and must never
+receive Agent Shared paths or history, user profile information, credentials, API
+keys, tokens, private `google-services.json`, live Firebase identifiers, OAuth
+configuration, emulator secrets, logs containing user data, or sensitive local
+configuration.
 
-Codex provides the smallest task-local context needed to execute the capsule:
-the approved files, relevant excerpts or paths, exact acceptance criteria, and
-fixed commands. A task may expose only its dedicated worktree and the explicitly
-listed writable files or roots. Pi must not discover or inspect parent workspaces,
-other worktrees, home directories, Agent Shared, keychains, or unrelated project
-files.
+Every file inside the dedicated worktree is readable and searchable; only writes are
+scoped. Pi must not discover or inspect parent paths, home directories, other
+worktrees or projects, Agent Shared, keychains, or any path outside that dedicated
+worktree. Codex still supplies the approved acceptance criteria and fixed commands.
 
 ## Required TASK.md instructions
 
@@ -75,12 +82,12 @@ Codex writes a complete, single-purpose capsule before launch. It contains:
 | --- | --- |
 | Worktree | A dedicated worktree created from a named base commit and branch. |
 | Deliverable | One concrete user-visible or maintenance outcome with acceptance criteria. |
-| Writable scope | Exact files or roots. All other paths are read-only; unlisted paths are forbidden. |
-| Context | Only the approved repository documents and task-local source/test files. |
+| Writable scope | Exact files or explicit non-root source/test `writableRoots`. The repository root, `.git`, `.env` files, and unlisted paths are forbidden. |
+| Context | The entire dedicated worktree is readable/searchable; Codex supplies the approved acceptance criteria and fixed commands. |
 | Commands | An ordered, fixed command vector with expected success criteria. Pi may not substitute, extend, or invent commands. |
-| Network and tools | `network: prohibited`; no GitHub actions, Git commands or mutations, package installs, dependency updates, or external tools. |
+| Network and tools | `network: prohibited`; no GitHub actions, Git commands or mutations, arbitrary shell commands/scripts, package installs, dependency updates, or external tools. |
 | Execution limit | One launch, no retry. A timeout, stall, invalid output, or failing fixed command is a handback blocker, not a reason to relaunch. |
-| Cost | A declared conservative maximum cost in the manifest; reject admission if the task cannot fit it. |
+| Cost | CNY 5 is the short-task default. A long task or any estimated cap above CNY 5 requires BOSS's explicit one-time higher cap before launch. |
 | Review | One independent, read-only Codex Sol/high review after Codex inspects the diff. |
 
 The manifest must also set a bounded tool-call count, wall-clock limit, and
@@ -131,15 +138,19 @@ judgment call when it encounters an unlisted file, missing tool, unclear
 requirement, failing command, unexpected diff, conflict, credential request, or
 potentially sensitive data.
 
-Every handback to Codex must contain:
+Pi's execution handback to Codex must contain:
 
-1. the exact diff and list of changed files;
+1. the task type, exact diff, and list of changed files;
 2. every fixed command and its result, including commands not run and why;
 3. any scope deviation, unexpected read, or attempted-but-blocked operation;
-4. blockers, assumptions, and decisions deferred to Codex;
-5. the Pi result record, route/model, timing, token/cost evidence, and whether the
-   one-launch/no-retry limits were respected; and
-6. PR evidence available at handback (base/head, commit, review state, or CI state).
+4. blockers, assumptions, decisions deferred to Codex, and first-pass versus rework
+   outcome;
+5. the Pi result record, route/model, DeepSeek timing and cost evidence, and whether
+   the one-launch/no-retry limits were respected;
+6. PR evidence available at handback (base/head, commit, CI state, or review state);
+   and
+7. any visible Codex quota snapshot, labeled as an observation only. Do not claim to
+   infer backend quota causes from it or from a provider result.
 
 Codex independently inspects the final diff, reruns the relevant verification,
 obtains the Sol/high review, and alone decides whether to commit, open a PR, request
@@ -148,16 +159,24 @@ changes, or discard the result.
 The exact diff is produced by the PI harness or by Codex from the dedicated worktree;
 Pi does not use Git to collect it.
 
+After Codex inspects the handback, the Codex-owned pilot record appends the independent
+Sol review result. That completed record contains the task type, DeepSeek cost/timing,
+fixed-command result, first-pass/rework outcome, Sol review result, CI/PR state, and
+any visible Codex quota snapshot. These are observed evidence, not a basis for
+inferring backend quota causes.
+
 ## Admission checklist for Codex
 
 Before a Pi launch, confirm all answers are yes:
 
 - Is the task clear, reversible, non-sensitive, and outside every exclusion above?
-- Are exact writable files/roots and a dedicated worktree defined?
+- Has Codex inspected the dedicated worktree for untracked secrets, and are exact
+  files or non-root source/test `writableRoots` defined?
 - Does `TASK.md` explicitly require the four prerequisite documents and explain the
   disabled automatic `AGENTS.md` loading?
-- Are the context, fixed commands, no-network/no-install/no-git rules, one-launch
-  policy, tool/wall/stall bounds, and cost cap present in the manifest?
+- Are the context, fixed commands, no-network/no-Git/no-arbitrary-shell/no-install
+  rules, one-launch policy, tool/wall/stall bounds, and CNY 5-or-explicit-higher
+  cost cap present in the manifest?
 - Can the result be accepted or rejected from the stated diff and verification
   evidence without asking Pi for an architecture or security judgment?
 - Is an independent Codex Sol/high reviewer reserved for the completed diff?
