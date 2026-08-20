@@ -2,6 +2,7 @@ package com.example.ironpath.ui.navigation
 
 import androidx.compose.material3.Surface
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.DeviceConfigurationOverride
 import androidx.compose.ui.test.FontScale
@@ -40,9 +41,8 @@ class IronPathDrawerTest {
         val orderedLabels =
             listOf(
                 "LOCAL PROFILE",
-                "Your training data is already saved on this device.",
-                "IronPath cloud backup is not available in this version. " +
-                    "Android device-to-device transfer may copy it to a new phone during setup.",
+                "Stored on this device",
+                "Back up your training data",
                 "Manual",
                 "AI & Privacy",
                 "About IronPath",
@@ -52,8 +52,8 @@ class IronPathDrawerTest {
         val verticalPositions =
             listOf(
                     composeRule.onNodeWithContentDescription(
-                        "Local profile. Training data already saved on this device. " +
-                            "IronPath cloud backup unavailable. Android device transfer available."
+                        "Local profile. Training data stays on this device until you manually " +
+                            "back it up. Open the Account and Backup experience preview."
                     ),
                     composeRule.onNodeWithText("Manual"),
                     composeRule.onNodeWithText("AI & Privacy"),
@@ -91,8 +91,37 @@ class IronPathDrawerTest {
     }
 
     @Test
-    fun drawer_exposesNonInteractiveAccountStateAndSelectedDestinationSemantics() {
-        setDrawer(selectedRoute = Route.AI_PRIVACY)
+    fun drawer_accountPreviewEntryEmitsItsRouteAndExposesLocalState() {
+        val selectedRoutes = mutableListOf<String>()
+        setDrawer(
+            selectedRoute = Route.AI_PRIVACY,
+            onDestinationSelected = selectedRoutes::add,
+        )
+
+        composeRule
+            .onNodeWithContentDescription(
+                "Local profile. Training data stays on this device until you manually back it up. " +
+                    "Open the Account and Backup experience preview."
+            )
+            .assertIsDisplayed()
+            .assertHasClickAction()
+            .assert(
+                SemanticsMatcher.expectValue(
+                    SemanticsProperties.StateDescription,
+                    "Local only. No account connected. Manual backup available in preview.",
+                )
+            )
+            .assert(SemanticsMatcher.expectValue(SemanticsProperties.Role, Role.Button))
+            .performClick()
+        assertEquals(listOf("account_backup"), selectedRoutes)
+        composeRule.onNodeWithText("Manual").assertHasClickAction().assertIsNotSelected()
+        composeRule.onNodeWithText("AI & Privacy").assertHasClickAction().assertIsSelected()
+        composeRule.onNodeWithText("About IronPath").assertHasClickAction().assertIsNotSelected()
+    }
+
+    @Test
+    fun drawer_whenExperiencePreviewIsDisabled_keepsAccountStateNonInteractive() {
+        setDrawer(accountExperiencePreviewEnabled = false)
 
         composeRule
             .onNodeWithContentDescription(
@@ -101,15 +130,7 @@ class IronPathDrawerTest {
             )
             .assertIsDisplayed()
             .assertHasNoClickAction()
-            .assert(
-                SemanticsMatcher.expectValue(
-                    SemanticsProperties.StateDescription,
-                    "Saved locally. Cloud backup unavailable. Device transfer available.",
-                )
-            )
-        composeRule.onNodeWithText("Manual").assertHasClickAction().assertIsNotSelected()
-        composeRule.onNodeWithText("AI & Privacy").assertHasClickAction().assertIsSelected()
-        composeRule.onNodeWithText("About IronPath").assertHasClickAction().assertIsNotSelected()
+        composeRule.onNodeWithText("Back up your training data").assertDoesNotExist()
     }
 
     @Test
@@ -166,6 +187,7 @@ class IronPathDrawerTest {
     private fun setDrawer(
         selectedRoute: String? = null,
         onDestinationSelected: (String) -> Unit = {},
+        accountExperiencePreviewEnabled: Boolean = true,
     ) {
         composeRule.setContent {
             IronPathTheme {
@@ -173,6 +195,7 @@ class IronPathDrawerTest {
                     IronPathDrawer(
                         selectedRoute = selectedRoute,
                         onDestinationSelected = onDestinationSelected,
+                        accountExperiencePreviewEnabled = accountExperiencePreviewEnabled,
                     )
                 }
             }
