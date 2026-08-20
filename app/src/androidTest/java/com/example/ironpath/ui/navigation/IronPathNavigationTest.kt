@@ -110,6 +110,29 @@ class IronPathNavigationTest {
     }
 
     @Test
+    fun accountPreview_opensFromEntryWithoutCompletingOnboarding() {
+        composeRule.onNodeWithText("SIGN IN WITH GOOGLE").performClick()
+
+        waitForRoute("account_backup")
+        composeRule.onNodeWithText("ACCOUNT & BACKUP").assertIsDisplayed()
+        composeRule.onNodeWithText("EXPERIENCE PREVIEW").assertIsDisplayed()
+        assertFalse(onboardingRepository.completed)
+    }
+
+    @Test
+    fun accountPreview_opensFromDrawerAndBackReturnsHome() {
+        enterApp()
+        composeRule.onNodeWithContentDescription("Menu").performClick()
+        composeRule.onNodeWithText("Back up your training data").performClick()
+
+        waitForRoute("account_backup")
+        composeRule.onNodeWithText("EXPERIENCE PREVIEW").assertIsDisplayed()
+        assertBottomBarDoesNotExist()
+        composeRule.onNodeWithContentDescription("Back").performClick()
+        waitForRoute(Route.HOME)
+    }
+
+    @Test
     fun rememberedOnboarding_coldActivityRecreationStartsAtHomeWithoutEntry() {
         enterApp()
 
@@ -200,15 +223,8 @@ class IronPathNavigationTest {
         assertTrue(headerY < manualY)
         assertTrue(manualY < privacyY)
         assertTrue(privacyY < aboutY)
-        composeRule
-            .onNodeWithText("Your training data is already saved on this device.")
-            .assertIsDisplayed()
-        composeRule
-            .onNodeWithText(
-                "IronPath cloud backup is not available in this version. " +
-                    "Android device-to-device transfer may copy it to a new phone during setup."
-            )
-            .assertIsDisplayed()
+        composeRule.onNodeWithText("Stored on this device").assertIsDisplayed()
+        composeRule.onNodeWithText("Back up your training data").assertIsDisplayed()
         composeRule.onNodeWithText("Settings").assertDoesNotExist()
 
         composeRule.onNodeWithText("Manual").performClick()

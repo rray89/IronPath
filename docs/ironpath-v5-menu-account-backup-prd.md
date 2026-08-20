@@ -1,7 +1,8 @@
 # IronPath v5 Menu, Account, and Backup PRD
 
 Date: 2026-07-26
-Status: Draft for review
+Last updated: 2026-08-19
+Status: Feat11.3 Experience Direction approved; review checkpoint ready
 
 ## Purpose
 
@@ -14,8 +15,10 @@ V5 remains deliberately portfolio-scoped:
 - the app is not planned for public release in this phase
 - the Firebase project must remain on the no-cost Spark plan with no billing account
 - Room remains the source of truth and every workout flow remains useful offline
-- sign-in is optional and exists to enable backup and restore, not to gate the app
-- V5 provides single-account cloud backup and restore, not realtime multi-device sync
+- sign-in is optional and exists to identify the account for explicit manual backup,
+  sync, and restore, not to gate the app or imply upload consent
+- V5 starts with manual single-account backup, revision-aware manual sync, and
+  whole-backup restore rather than realtime or background synchronization
 
 Older PRDs remain authoritative for their established areas:
 
@@ -43,7 +46,8 @@ The portfolio story should be:
 - guest-first and fully useful without an account
 - local-first, with Room remaining authoritative
 - an optional Google account backed by a small authentication interface
-- versioned, failure-safe Firestore snapshots rather than ambiguous "magic sync"
+- versioned, failure-safe snapshots and explicit manual sync rather than ambiguous
+  background behavior
 - explicit guest-to-account and restore decisions with no silent overwrite
 - no paid infrastructure and no dependency on a live backend in CI
 
@@ -111,7 +115,8 @@ V5 does not fragment into an unbounded number of documents or enable billing.
 - expose accurate privacy and data-location information
 - preserve guest-first access and remember completed onboarding
 - provide optional Google sign-in through Android Credential Manager
-- connect sign-in to an explicit free cloud-backup benefit
+- connect sign-in to explicit manual backup, sync, and restore benefits without
+  treating identity as upload consent
 - back up durable Room data as versioned Firestore snapshots
 - restore a validated snapshot without leaving partial or corrupt local data
 - define safe guest-to-account, same-account return, account-switch, sign-out, and
@@ -123,7 +128,8 @@ V5 does not fragment into an unbounded number of documents or enable billing.
 V5 does not include:
 
 - realtime or background two-way multi-device synchronization
-- concurrent editing or automatic conflict merging between devices
+- automatically scheduled backup or sync in the first release
+- silent conflict resolution or a granular per-record conflict editor
 - resuming an in-progress workout on another device
 - web, iOS, Wear OS, or desktop clients
 - email/password, passkey, phone, anonymous Firebase, or social providers other than
@@ -146,21 +152,49 @@ V5 does not include:
 - A local profile is not a Firebase anonymous account.
 - Users can complete every workout flow without signing in.
 - `Continue on this device` is the primary first-run action.
-- `Sign in with Google to enable backup` is secondary and can also be started later
-  from the menu.
+- `Sign in with Google` is secondary and can also be started later from the menu.
 - Cancelling or failing sign-in returns to the fully functional local app.
 - The app must not upload existing local data merely because a credential was selected.
   The user first sees and confirms the applicable backup or restore decision.
 
-### Backup, not sync
+### Manual backup, revision-aware sync, and restore
 
-- V5 uses the words `backup` and `restore`, not `sync`, in user-facing copy.
-- Only one device is treated as the active backup source at a time.
-- A second device may restore an account backup, but V5 never merges concurrent edits.
-- If both the device and account contain data that cannot be proven to share the same
-  local ownership history, the user chooses which complete data set to keep.
-- The unchosen data set is never overwritten until the replacement has been validated
-  and the user has confirmed the destructive action.
+- `Backup` creates a complete cloud snapshot, `restore` applies one complete snapshot,
+  and `manual sync` is the only first-release operation that merges local and cloud
+  changes. The terms are not interchangeable in user-facing copy.
+- Sign-in establishes account identity only. It never starts an upload, download, or
+  merge.
+- A manual sync compares persisted lineage, entity revisions, and remote generation.
+  Device wall-clock timestamps may be shown for context but never decide which record
+  wins.
+- Changes made on only one side since the shared revision merge automatically after
+  the user confirms the manual-sync preview.
+- If the same record changed on both sides, the preview recommends `Merge and keep
+  local conflict versions` to preserve newer offline work. The user must explicitly
+  choose that merge outcome or `Overwrite this device from cloud`.
+- A conflict is never resolved silently. The first release summarizes conflicting
+  records by category and count; it does not provide granular per-record editing.
+- Whole-backup restore never merges. It previews the complete local impact and replaces
+  local durable data only after validation and a final long-press confirmation.
+
+### Feat11.3 approved Experience Direction
+
+The approved checkpoint is intentionally fixture-backed and debug-only. It makes no
+Google, Firebase, Room-mutation, upload, download, merge, or restore call. It exists to
+review the following first-release journey before durable implementation:
+
+1. Entry offers both `Continue on this device` and optional Google sign-in.
+2. Entry copy states that sign-in identifies the account but does not upload data.
+3. The hamburger drawer owns `Account & Backup`, manual sync, backup, and restore.
+4. Manual sync previews non-conflicting and conflicting changes before confirmation.
+5. Whole-backup restore shows backup source/time and categorized `Added`, `Updated`,
+   and `Replaced` counts, then requires a long-press confirmation.
+6. A successful restore atomically retains exactly one pre-restore local snapshot for
+   one undo; the next successful restore replaces that snapshot.
+
+Automatic/background backup, automatic/background sync, per-item conflict editing,
+sign-out and account-deletion lifecycle hardening, and production Firebase activation
+are deferred beyond the V5 manual account/backup release.
 
 ### Free-tier enforcement
 
@@ -211,14 +245,15 @@ Local-only:
 
 - label: `LOCAL PROFILE`
 - supporting text: `Stored on this device`
-- action: `Back up your training data`
+- action: `Back up your training data`, which opens `Account & Backup` rather than
+  starting authentication or upload directly
 
 Signed in and ready:
 
 - Google avatar when available, otherwise deterministic initials
 - display name and email
-- latest complete backup time
-- status: `Up to date`, `Backup pending`, `Offline`, or `Needs attention`
+- latest complete manual-backup or manual-sync time
+- status: `Local changes`, `Up to date`, `Offline`, or `Needs attention`
 - action opens `Account & Backup`
 
 The header must remain usable without a network connection. A missing or stale avatar
@@ -294,11 +329,15 @@ V5 persists whether onboarding has completed:
 
 ### Entry behavior
 
-The end-state Entry in `feat11.3` presents:
+The V5 end-state Entry, implemented beginning in `feat11.3.1`, presents:
 
 - primary: `Continue on this device`
-- secondary: `Sign in with Google to enable backup`
-- privacy copy: `Stored locally by default. Sign in only if you want cloud backup.`
+- secondary: `Sign in with Google`
+- privacy copy: `Signing in identifies your account. Your training data stays local
+  until you choose a manual backup or restore.`
+
+In the Experience Direction checkpoint, the secondary action opens only a deterministic
+signed-in fixture. It does not complete onboarding, authenticate, or move data.
 
 The current inert terms sentence is removed unless real Terms and Privacy destinations
 exist and are actionable. Entry never claims that Android or IronPath performs no
@@ -307,9 +346,9 @@ backup while a cloud backup path is active.
 The interim `feat11.1` Entry removes the inaccurate `Your data stays on this device`
 and inert Terms copy, but keeps Google sign-in absent or visibly unavailable. It does
 not promise IronPath cloud backup before the backup, restore, and ownership contract
-ships in `feat11.3`. The Android-backup exclusions introduced in `feat11.1` create an
-accepted private-portfolio window in which neither Android cloud backup nor IronPath
-cloud backup protects workout data.
+ships across `feat11.3.1`–`feat11.3.3`. The Android-backup exclusions introduced in
+`feat11.1` create an accepted private-portfolio window in which neither Android cloud
+backup nor IronPath cloud backup protects workout data.
 
 ### Authentication interface
 
@@ -376,6 +415,7 @@ The backup coordinator exposes a small interface:
 - observe backup status
 - create a backup now
 - inspect the latest complete remote backup summary
+- preview and execute a user-confirmed revision-aware manual sync
 - restore a selected complete backup
 - delete all remote backup data for the authenticated account
 
@@ -464,9 +504,9 @@ version supported by V5.
    including at most one `WeeklyPlan` with `status = Active`.
 3. If the content digest equals the latest complete manifest, skip the upload, record
    that the observed backup is current locally, and spend no payload writes.
-4. Refuse an automatic backup when a previously non-empty lineage becomes empty or its
-   total included-entity count drops by more than 50 percent. Enter `Needs attention`;
-   only an explicit `Back Up Now` with counts and destructive confirmation may proceed.
+4. Refuse a manual backup when a previously non-empty lineage becomes empty or its total
+   included-entity count drops by more than 50 percent unless the `Back Up Now` preview
+   shows counts and receives an explicit destructive confirmation.
 5. In a Firestore transaction conditioned on the step-0 generation and an empty upload
    slot, create one `UPLOADING` manifest and add its ID to the registry/upload slot.
    A concurrent claimant fails and backs off. An existing upload is reclaimed only
@@ -475,8 +515,8 @@ version supported by V5.
 6. Upload the complete deterministic chunk set and verify chunk/entity counts, byte
    counts, and digests.
 7. Re-read the local change revision. If it advanced after step 1, completion may
-   continue for the captured snapshot, but another unique backup is scheduled
-   immediately so the last mutation cannot be lost by coalescing.
+   continue for the captured snapshot, but the UI remains `Local changes` and requires
+   another manual operation. The first release does not enqueue background work.
 8. In one Firestore transaction, conditioned on the remote `generation` still matching
    step 0 and the upload slot still naming this backup, mark the manifest `COMPLETE`,
    update the latest-complete pointer, clear the slot, and increment `generation`.
@@ -493,33 +533,35 @@ Interrupted upload or cleanup is retried without blocking local use.
 V5 does not use Firestore's paid managed backup/PITR feature. IronPath backup snapshots
 are ordinary authenticated Firestore documents within the Spark quota.
 
-### Backup triggers
+### First-release manual operations
 
-- successful first account setup after the data decision
-- successful plan acceptance
-- successful workout completion
-- successful personal-record creation
-- explicit `Back Up Now`
-- a coalesced retry after a prior offline or transient failure
+The V5 manual account/backup release, implemented across `feat11.3.1`–`feat11.3.3`,
+performs remote work only after one of these explicit user actions and its applicable
+preview/confirmation:
 
-Every included-data mutation increments a local change revision and marks backup
-pending in the same Room transaction as the mutation. A trigger is discarded unless
-the account state is `SignedIn`, ownership is `Account(currentUid)`, and no data choice
-is pending, and the installation sentinel has been validated for the current process
-launch. Rapid triggers coalesce into one unique background request with a short
-debounce; the persisted revision, not an in-memory enqueue flag, is the durable source
-of pending work. A backup reads the latest committed Room state when it executes. V5
-does not increment the backup revision or upload every active-session set edit.
+- `Back Up Now`
+- `Review manual sync` followed by `Confirm manual sync`
+- `Preview whole-backup restore` followed by the long-press Restore confirmation
+
+Successful account setup, plan acceptance, workout completion, personal-record
+creation, app launch/resume, and network recovery never start a remote operation.
+Every included-data mutation still increments a durable local revision in the same
+Room transaction so the screen can show `Local changes` and later compute a manual
+sync safely. The first release creates no unique background work, debounce, or
+automatic retry. A failed manual operation remains available for explicit retry.
 
 ### Backup status
 
 The user-visible status distinguishes:
 
 - `Local only`
-- `Preparing backup`
-- `Backing up`
+- `Signed in — no backup yet`
+- `Local changes`
+- `Preparing manual backup`
+- `Backing up now`
+- `Review required`
 - `Up to date` with completion time
-- `Offline — backup pending`
+- `Offline — try again when connected`
 - `Backup paused — service quota or rate limit`
 - `Needs sign-in`
 - `Needs attention` with a retry action
@@ -584,47 +626,51 @@ Before local replacement, the app:
 - rejects unknown future schema versions and instructs the user to update the app
 - maps older supported backup formats through explicit migrations
 - constructs the complete restore bundle before modifying Room
+- previews the complete backup date, source installation, and categorized counts of
+  local records that will be `Added`, `Updated`, or `Replaced`
+- states that restore applies the whole backup and offers no per-record editor
 
 Restore cannot proceed silently while an `ActiveSession` exists. The user may return
 to the workout or choose `Discard active workout and restore`; that confirmation names
-the loss. The confirmed path deletes the active session and cascaded children, replaces
-the included local tables, updates ownership and lineage metadata, and records the
-restored revision in one Room transaction. Any download, parse, validation,
-confirmation cancellation, or transaction failure leaves the pre-restore local
-database and active session unchanged.
+the loss. The final Restore action requires a long press after the impact preview.
+Immediately before a confirmed successful restore, the same Room transaction captures
+the complete pre-restore local durable-data bundle, replaces the prior undo snapshot,
+deletes the active session and cascaded children when applicable, replaces the included
+local tables, updates ownership and lineage metadata, and records the restored
+revision. Exactly one pre-restore snapshot is retained and supports one atomic undo;
+the next successful restore replaces it. Any download, parse, validation, confirmation
+cancellation, or transaction failure leaves the pre-restore local database, active
+session, and prior undo snapshot unchanged.
 
-### Data-choice matrix
+### Sign-in and manual data-choice matrix
 
-The decision is the ordered product of ownership
-(`Unclaimed`, `Account(currentUid)`, `Account(otherUid)`), local emptiness, and remote
-complete-snapshot presence:
+Sign-in establishes identity and reads only the metadata needed to describe available
+manual actions. It does not attach, upload, merge, or replace workout data.
 
-1. `Account(otherUid)` always blocks upload or restore, even if the workout tables are
-   empty. The only actions are cancel sign-in or atomically remove the retained local
-   profile and metadata.
+1. `Account(otherUid)` local ownership blocks backup, sync, and restore even when the
+   workout tables are empty. Account-switch and retained-data cleanup remain lifecycle
+   hardening in `feat11.4`, after the V5 manual account/backup release.
 2. With no complete remote snapshot:
-   - empty `Unclaimed` data may attach to the current account, but no empty automatic
-     snapshot is created; the first included mutation creates it
-   - non-empty `Unclaimed` data requires confirmation before attachment and backup
-   - same-UID non-empty data resumes its lineage and backs up
-   - same-UID empty data enters `Needs attention` and cannot automatically publish an
-     empty replacement
-3. With a complete remote snapshot:
-   - empty `Unclaimed` data defaults to restore; `Keep this empty device` is available
-     only behind the destructive-backup confirmation
-   - non-empty `Unclaimed` data requires `Keep this device`, `Restore cloud backup`,
-     or cancel sign-in
-   - same-UID empty data defaults to restore and cannot automatically replace remote
-     data
-   - same-UID non-empty data resumes only when the persisted lineage proves no remote
-     generation conflict; otherwise it uses the same full-data-set choice
+   - empty `Unclaimed` data may associate with the account after explicit manual-backup
+     confirmation, but no empty snapshot is created
+   - non-empty `Unclaimed` data stays local until the user previews and confirms
+     `Back Up Now`
+   - same-UID local data resumes its lineage without starting remote work
+3. With a complete remote snapshot, the Account & Backup screen offers two distinct
+   operations:
+   - `Review manual sync` compares the shared revision lineage. One-sided changes merge
+     after confirmation; same-record conflicts require the user to choose `Merge and
+     keep local conflict versions` or `Overwrite this device from cloud`.
+   - `Preview whole-backup restore` never merges. It validates the complete snapshot,
+     shows backup date/source and categorized impact counts, and proceeds only after
+     the final long-press confirmation.
+4. Canceling any preview leaves local data, remote data, ownership, lineage, and the
+   existing pre-restore undo snapshot unchanged.
 
-`Keep this device` is explicitly destructive to the remote lineage. Its confirmation
-shows local and remote plan, workout-log, and record counts plus timestamps and explains
-that retention will eventually remove the unchosen remote data. It creates a new
-complete backup before any prior complete snapshot is removed. `Restore cloud backup`
-validates and commits locally before a new backup is scheduled. Copy never relies on
-vague `newer` wording alone.
+Copy never calls one side `newer` from wall-clock time alone. Persisted entity revision,
+shared-sync revision, remote generation, and source installation establish the
+comparison. The local-conflict recommendation protects offline work but is still only
+a recommendation; no conflict choice is pre-executed.
 
 ### Local ownership metadata
 
@@ -661,27 +707,24 @@ creation is fail-closed and idempotent: a crash that leaves it mismatched can on
 repeat the `Unclaimed` transition, never authorize an upload.
 
 The sentinel is validated once per cold process start after Room opens and before
-signed-in backup scheduling is enabled. It is validated again immediately before any
-backup trigger is honored. Until validation succeeds for the current process launch,
-all automatic and manual backup triggers remain discarded. This ordering prevents a
-transferred Room ownership row from authorizing even the first post-transfer upload.
+signed-in manual operations are enabled. It is validated again immediately before any
+manual backup, sync, or restore request is honored. Until validation succeeds for the
+current process launch, every remote mutation remains blocked. This ordering prevents
+a transferred Room ownership row from authorizing even the first post-transfer upload.
 
 ### Another-device detection
 
-The latest complete manifest records its source installation ID. IronPath checks the
-remote pointer before every upload, when Account & Backup opens or refreshes, and on
-signed-in app resume when network is available. When a device sees a generation newer
-than its persisted last observation from a different installation:
+The latest complete manifest records its source installation ID. In the first release,
+IronPath checks the remote pointer only when Account & Backup opens or refreshes and at
+the start of an explicit manual backup, sync, or restore. Signed-in app resume never
+starts an operation.
 
-- if the local data is empty, restore is offered
-- if local data has not changed since the last known complete backup, restore is
-  offered without merge
-- if local data has changed, automatic backup pauses and the user chooses which full
-  data set to keep
-
-The Firestore compare-and-set in the snapshot completion contract is the final race
-guard even if two devices check simultaneously. There is no field-level or
-entity-level merge in V5.
+When another installation advanced the remote generation, the next manual-sync preview
+uses shared revisions to classify one-sided and same-record changes. Non-conflicting
+changes are eligible for the confirmed merge; conflicts require the explicit local or
+cloud outcome. A manual backup never force-writes across an unobserved remote
+generation. The Firestore compare-and-set remains the final race guard if two devices
+act concurrently.
 
 ---
 
@@ -692,21 +735,26 @@ entity-level merge in V5.
 Signed out:
 
 - explain local-only behavior
-- `Sign in with Google to enable backup`
+- `Sign in with Google`
 - show the last local mutation state without implying a cloud copy exists
 
 Signed in:
 
 - name, email, and avatar/initials
-- latest complete backup time and included-data summary
+- latest complete manual-backup/manual-sync time and included-data summary
 - `Back Up Now`
+- `Review manual sync`
 - restore availability and last remote snapshot summary
-- `Sign out`
-- `Delete cloud account and backup`
+
+`Sign out` and `Delete cloud account and backup` are not exposed in the
+`feat11.3.1`–`feat11.3.3` implementation sequence. They remain specified below for the
+later lifecycle-hardening slice.
 
 No UI claims `Up to date` based only on authentication state.
 
 ### Sign-out behavior
+
+Deferred to `feat11.4`, beyond the V5 manual account/backup release.
 
 Sign out offers:
 
@@ -719,6 +767,8 @@ Sign-out never deletes the remote backup. Pending remote writes are cancelled be
 the Firebase session is cleared.
 
 ### Delete-account behavior
+
+Deferred to `feat11.4`, beyond the V5 manual account/backup release.
 
 Because V5 forbids Cloud Functions, deletion is an authenticated client-owned flow:
 
@@ -777,7 +827,8 @@ The Entry, Manual, AI & Privacy, and Account & Backup copy must match this polic
 - Authentication or backup failure never logs a user out unless the credential is
   definitively invalid.
 - Offline sign-in presents a retryable state and leaves the local app available.
-- Offline local mutations schedule backup work without blocking their transaction.
+- Offline local mutations stay local, advance their revision, and never schedule
+  background work. A later manual operation can be retried when connected.
 - Quota/rate-limit, permission, malformed-remote-data, version, and reauthentication
   failures have distinct typed states and sanitized user copy. Because Firestore may
   use `RESOURCE_EXHAUSTED` for more than daily free-quota exhaustion, the adapter does
@@ -823,14 +874,25 @@ The Entry, Manual, AI & Privacy, and Account & Backup copy must match this polic
 3. `feat11.2: add account and backup contracts, the Room v2→v3 metadata migration,
    revisioned/chunked export and restore, Firestore emulator, and tested Security Rules
    behind a disabled account surface`
-4. `feat11.3: add Google sign-in, versioned Firestore backup, restore, ownership, and
-   guest-to-account decisions; enable the account surface`
-5. `feat11.4: add sign-out, account deletion, quota/offline/recreation hardening, live
-   Seeker evidence, and portfolio documentation`
+4. `feat11.3: approve and review the fixture-backed Account & Backup Experience
+   Direction`; this first PR updates the decision source of truth and adds only a
+   debug-gated preview with no authentication, remote data, or Room mutation
+5. `feat11.3.1: implement the Account & Backup shell and persisted account/data-choice
+   state with deterministic credential fixtures`; keep live Google/Firebase activation
+   absent
+6. `feat11.3.2: implement revision-aware manual backup/sync preview and explicit
+   conflict outcomes against deterministic and emulator adapters`; add no background
+   scheduling
+7. `feat11.3.3: implement whole-backup restore preview, long-press confirmation, atomic
+   replacement, exactly one pre-restore undo snapshot, and the fixture/emulator
+   end-to-end journey`
+8. `feat11.4: add sign-out, account deletion, quota/offline/recreation hardening,
+   production Firebase activation, live Seeker evidence, and portfolio documentation`
 
-The account affordance stays disabled or absent until its backup, restore, ownership,
-and deletion contract is complete enough that sign-in provides real value without
-risking local data.
+The fixture-backed feat11.3 preview is debug-only. The real authenticated surface stays
+disabled or absent until feat11.3.1–feat11.3.3 complete account state, revision-aware
+manual sync, whole-backup restore, and undo safely. Sign-out and deletion controls stay
+absent until their feat11.4 lifecycle contract ships.
 
 ## Testing strategy
 
@@ -843,7 +905,10 @@ that fails for the intended reason before production code changes.
 | --- | --- |
 | `feat11.1` drawer and Manual | JVM navigation-state tests where applicable; isolated Compose and real NavHost tests for open, close, selection, per-destination navigation icon, back, recreation, active-session safety, semantics, TalkBack order, 200% font scale, portrait, and landscape; XML assertions that both Android rule files exclude `domain="database" path="."` from cloud/full backup and a manifest assertion for `android:allowBackup` |
 | `feat11.2` account/backup contracts | JVM state-machine and serialization tests; real Room export/restore and migration tests; Firebase Emulator Security Rules tests; Hilt debug/release graph resolution; proof that no live credentials or backend are required |
-| `feat11.3` sign-in, backup, and restore | Credential adapter contract tests with fakes; ViewModel and Compose tests for every account/data-choice state; emulator integration for upload/restore/denial/quota-shaped failures; real Room atomic replacement; real NavHost and critical journey coverage |
+| `feat11.3` Experience Direction checkpoint | Debug-only fixture preview; Entry and drawer route proof; Compose interaction/semantics for manual sync choices and whole-restore impact; long-press confirmation; 200% font-scale reachability; proof that the preview entry, route, and fixture copy are absent from the minified release artifact; no auth, Firebase, Room mutation, or remote test dependency |
+| `feat11.3.1` account shell and state | Credential-boundary tests with deterministic fakes; ViewModel and Compose coverage for local-only, signed-in, and data-choice state; process recreation; no live Google/Firebase configuration |
+| `feat11.3.2` revision-aware manual backup/sync | JVM merge classification and revision-lineage tests; Compose preview and explicit conflict outcomes; emulator integration for manual upload/merge/denial; no background work |
+| `feat11.3.3` whole-backup restore and undo | Categorized impact preview; long-press semantics; real Room atomic restore and one-snapshot undo tests; emulator and real NavHost journey proof |
 | `feat11.4` lifecycle hardening | delete/sign-out/re-auth JVM and emulator tests; cancellation, interruption, duplicate action, another-account, another-device, corrupt snapshot, unsupported version, cleanup retry, and process recreation; Seeker Google sign-in and backup/restore smoke |
 
 ### Account and state-machine tests
@@ -879,7 +944,8 @@ Cover:
 - a mutation committed between export and `COMPLETE` schedules a follow-up revision
 - previous complete snapshot preservation
 - retention cleanup failure and retry
-- automatic backup refused after an empty or greater-than-50-percent local drop
+- manual backup requires extra confirmation after an empty or greater-than-50-percent
+  local drop
 - entity count or integrity mismatch
 - missing parent, duplicate ID, invalid enum/date/number, unknown entity type, and
   unsupported format
@@ -890,12 +956,16 @@ Cover:
 - restore attempted with an active session: cancel preserves it; confirmed discard and
   replacement share one transaction
 - completion after a restore can never retain a removed source planned-workout ID
-- `Keep this device`, `Restore cloud backup`, and cancel paths
+- revision-aware one-sided merge, same-record conflict classification, explicit
+  local-conflict or cloud-overwrite choice, and cancel paths
 - local ownership for unclaimed, same UID, and different UID
 - local reset atomically clears workout data, ownership, lineage, and installation ID
 - a simulated API 31+ device transfer with copied `Account(uid)` metadata and an absent
-  sentinel rotates to `Unclaimed` before the first automatic or manual trigger can run
-- another-device remote update with and without local changes
+  sentinel rotates to `Unclaimed` before the first manual operation can run
+- another-device remote update with one-sided changes and same-record conflicts
+- categorized whole-backup impact preview plus long-press confirmation
+- exactly one atomic pre-restore undo snapshot, replaced only by the next successful
+  restore and preserved across failed or cancelled restore attempts
 - free-quota-shaped failure that leaves the local app usable
 
 ### Firebase emulator and rules tests
@@ -941,9 +1011,11 @@ Cover:
 - Room stays authoritative before, during, and after backup
 - the Room v2→v3 migration preserves workout data and initializes account-backup
   metadata safely
-- backup scheduling never changes the result of a local product transaction
+- manual remote operations never change the result of an unrelated local product
+  transaction
 - a real-app journey covers local onboarding, representative local data, fake sign-in,
-  backup, process recreation, local reset, restore, and restored Home/History state
+  manual sync, process recreation, whole-backup restore, one undo, and restored
+  Home/History state
 - a second journey covers retained owned data followed by a different-account attempt
 - a destructive journey covers authenticated remote deletion and both local-retention
   choices using emulators and deterministic credentials
@@ -968,14 +1040,16 @@ A strong V5 demo shows:
 
 1. Open the new drawer and Manual from an existing local workout state.
 2. Show the AI & Privacy explanation and local-only account status.
-3. Sign in with Google and explicitly attach the seeded local data.
-4. Complete a Firestore backup and show the completion time and included counts.
-5. Use the debug-only reset path, which atomically clears workout and account-lineage
-   metadata without touching the remote backup.
-6. Sign back into the same account and restore the latest complete backup.
-7. Show the restored plan, workout log detail, logged sets, and personal record.
-8. Explain that the app remains Room-first and offline, uses free Spark infrastructure,
-   and intentionally defers realtime multi-device merge.
+3. Sign in with Google and show that identity alone performs no upload.
+4. Open the manual-sync preview. Show the non-conflicting changes and the explicit
+   choice for same-record conflicts, with local offline work recommended.
+5. Confirm the manual operation and show the completion time and included counts.
+6. Preview a whole-backup restore with backup source/time and categorized `Added`,
+   `Updated`, and `Replaced` counts.
+7. Long-press Restore, show the restored Home/History state, then show that exactly one
+   pre-restore snapshot is available for one undo.
+8. Explain that the app remains Room-first and offline, uses revision lineage rather
+   than wall-clock time for manual sync, and intentionally defers background behavior.
 
 The story is not "Firebase made the app online." It is that IronPath introduced a
 small remote adapter and a failure-safe data contract without allowing authentication,
@@ -1000,11 +1074,16 @@ Before Google Play distribution, a separate release-readiness decision must cove
 
 ## Deferred decisions
 
-V5 resolves the implementation-blocking choices: high-value mutations increment a
-durable revision and coalesce into unique background work, `Back Up Now` is immediate,
-transferred data becomes `Unclaimed` through the no-backup sentinel check, and two
-complete snapshots are retained. Cadence tuning, larger history support, and any
-multi-device merge remain post-V5 decisions and may not weaken the locked safety or
+Feat11.3 resolves the implementation-blocking first-release choices: Google sign-in is
+identity rather than upload consent; every remote operation is manual; one-sided
+revision changes may merge after preview; same-record conflicts require an explicit
+local or cloud outcome; restore applies a whole validated backup after long press; and
+exactly one pre-restore local snapshot supports one undo.
+
+Automatic/background backup and sync, cadence and scheduling, granular per-record
+conflict editing, sign-out/account-deletion lifecycle hardening, production Firebase
+activation, larger-history support, and richer multi-device behavior remain deferred.
+They may not weaken the no-silent-overwrite, atomic-restore, ownership, privacy, or
 Spark-budget limits in this PRD.
 
 ## External references
