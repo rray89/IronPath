@@ -2,7 +2,7 @@
 
 Date: 2026-07-26
 Last updated: 2026-08-19
-Status: Feat11.3 Experience Direction approved; review checkpoint ready
+Status: Feat11.3 Experience Direction checkpoint in review — PR #53 (`feat/feat11.3-experience-direction`)
 
 ## Purpose
 
