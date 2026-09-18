@@ -27,17 +27,23 @@ import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
+import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewmodel.initializer
+import androidx.lifecycle.viewmodel.viewModelFactory
 import androidx.navigation.compose.ComposeNavigator
 import androidx.navigation.testing.TestNavHostController
 import androidx.test.espresso.Espresso
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.example.ironpath.IronPathApp
 import com.example.ironpath.MainActivity
+import com.example.ironpath.data.account.PersistedAccountGateway
+import com.example.ironpath.data.backup.InstallationGuard
 import com.example.ironpath.data.local.dao.HistoryDao
 import com.example.ironpath.data.local.dao.PlanDao
 import com.example.ironpath.data.local.dao.SessionDao
 import com.example.ironpath.data.local.entity.WorkoutStatus
+import com.example.ironpath.domain.account.AccountContextReader
 import com.example.ironpath.domain.time.TimeProvider
 import com.example.ironpath.testutil.FakeAccountSessionAdapter
 import com.example.ironpath.testutil.FakeOnboardingRepository
@@ -79,6 +85,8 @@ class IronPathNavigationTest {
 
     @Inject lateinit var historyDao: HistoryDao
     @Inject lateinit var accountSession: FakeAccountSessionAdapter
+    @Inject lateinit var accountContext: AccountContextReader
+    @Inject lateinit var installationGuard: InstallationGuard
 
     private lateinit var navController: TestNavHostController
 
@@ -88,9 +96,17 @@ class IronPathNavigationTest {
         navController = TestNavHostController(composeRule.activity)
         composeRule.runOnUiThread {
             navController.navigatorProvider.addNavigator(ComposeNavigator())
+        }
+        setAccountContent()
+        waitForRoute(Route.ENTRY)
+    }
+
+    private fun setAccountContent(viewModelOverride: AccountBackupViewModel? = null) {
+        composeRule.runOnUiThread {
             composeRule.activity.setContent {
                 IronPathTheme {
-                    val accountViewModel = hiltViewModel<AccountBackupViewModel>()
+                    val accountViewModel =
+                        viewModelOverride ?: hiltViewModel<AccountBackupViewModel>()
                     val accountState by accountViewModel.state.collectAsStateWithLifecycle()
                     IronPathApp(
                         timeProvider = timeProvider,
@@ -104,7 +120,6 @@ class IronPathNavigationTest {
                 }
             }
         }
-        waitForRoute(Route.ENTRY)
     }
 
     @Test
@@ -123,7 +138,8 @@ class IronPathNavigationTest {
 
     @Test
     fun accountShell_signsInFromEntryWithoutCompletingOnboardingAndBackCancels() {
-        composeRule.onNodeWithText("SIGN IN WITH GOOGLE").performClick()
+        waitForEnabledText("SIGN IN WITH GOOGLE")
+        composeRule.onNodeWithText("SIGN IN WITH GOOGLE").assertIsEnabled().performClick()
 
         waitForRoute("account_backup")
         composeRule.onNodeWithText("ACCOUNT & BACKUP").assertIsDisplayed()
@@ -133,6 +149,54 @@ class IronPathNavigationTest {
         composeRule.onNodeWithContentDescription("Back").performClick()
         waitForRoute(Route.ENTRY)
         assertNull(accountSession.session)
+    }
+
+    @Test
+    fun accountShell_delayedStartup_keepsSignInDisabledUntilLocalContextIsReady() {
+        // Room startup is not tracked by Compose idling. Hold its result until the loading
+        // button has been observed, independently of the host machine's speed.
+        val releaseContext = CompletableDeferred<Unit>()
+        val gatedContext =
+            object : AccountContextReader by accountContext {
+                override suspend fun read() = accountContext.read().also { releaseContext.await() }
+            }
+        val viewModel =
+            composeRule.runOnIdle {
+                ViewModelProvider(
+                    composeRule.activity,
+                    viewModelFactory {
+                        initializer {
+                            AccountBackupViewModel(
+                                PersistedAccountGateway(
+                                    accountSession,
+                                    gatedContext,
+                                    installationGuard
+                                ),
+                                gatedContext,
+                            )
+                        }
+                    },
+                )["delayed-account-startup", AccountBackupViewModel::class.java]
+            }
+        try {
+            setAccountContent(viewModel)
+            composeRule.onNodeWithText("SIGN IN WITH GOOGLE").assertIsNotEnabled().performClick()
+            assertEquals(Route.ENTRY, currentRoute())
+            assertNull(accountSession.session)
+            composeRule.onNodeWithText("CONTINUE ON THIS DEVICE").assertIsEnabled()
+
+            releaseContext.complete(Unit)
+            waitForEnabledText("SIGN IN WITH GOOGLE")
+            composeRule.onNodeWithText("SIGN IN WITH GOOGLE").assertIsEnabled().performClick()
+            waitForRoute("account_backup")
+            waitForPendingAccountChoice()
+            assertFalse(onboardingRepository.completed)
+            composeRule.onNodeWithContentDescription("Back").performClick()
+            waitForRoute(Route.ENTRY)
+            assertNull(accountSession.session)
+        } finally {
+            releaseContext.complete(Unit)
+        }
     }
 
     @Test
@@ -160,7 +224,12 @@ class IronPathNavigationTest {
         composeRule.onNodeWithContentDescription("Menu").performClick()
         composeRule.onNodeWithText("Back up your training data").performClick()
         waitForRoute("account_backup")
-        composeRule.onNodeWithText("SIGN IN WITH GOOGLE").performScrollTo().performClick()
+        waitForEnabledText("SIGN IN WITH GOOGLE")
+        composeRule
+            .onNodeWithText("SIGN IN WITH GOOGLE")
+            .assertIsEnabled()
+            .performScrollTo()
+            .performClick()
         waitForPendingAccountChoice()
         Espresso.pressBack()
         waitForRoute(Route.HOME)
@@ -694,6 +763,14 @@ class IronPathNavigationTest {
     private fun waitForText(text: String) {
         composeRule.waitUntil(timeoutMillis = 5_000) {
             composeRule.onAllNodesWithText(text).fetchSemanticsNodes().isNotEmpty()
+        }
+    }
+
+    private fun waitForEnabledText(text: String) {
+        composeRule.waitUntil(timeoutMillis = 5_000) {
+            composeRule.onAllNodesWithText(text).fetchSemanticsNodes().singleOrNull()?.let {
+                !it.config.contains(SemanticsProperties.Disabled)
+            } == true
         }
     }
 
