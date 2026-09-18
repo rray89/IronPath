@@ -1,8 +1,8 @@
 # IronPath v5 Menu, Account, and Backup PRD
 
 Date: 2026-07-26
-Last updated: 2026-08-19
-Status: Feat11.3 Experience Direction checkpoint in review — PR #53 (`feat/feat11.3-experience-direction`)
+Last updated: 2026-09-17
+Status: Feat11.3 Experience Direction accepted by BOSS; PR #53 in review (`feat/feat11.3-experience-direction`)
 
 ## Purpose
 
@@ -178,6 +178,15 @@ V5 does not include:
   local durable data only after validation and a final long-press confirmation.
 
 ### Feat11.3 approved Experience Direction
+
+BOSS accepted the interactive checkpoint on Seeker on September 17, 2026, after
+reviewing the fixture journey, confirming the restore-feedback fix, and checking
+exclusive conflict selection and return navigation. Restore feedback shows only the
+latest result: a short-press hint and a completed-preview notice never appear together.
+This is product acceptance of the debug-only Experience Direction, not delivery of
+real authentication, backup, sync, restore, or undo. The next bounded slice remains
+`feat11.3.1`: the account shell and persisted account/data-choice state with deterministic
+credentials. Implementation of that slice has not started.
 
 The approved checkpoint is intentionally fixture-backed and debug-only. It makes no
 Google, Firebase, Room-mutation, upload, download, merge, or restore call. It exists to
