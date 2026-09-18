@@ -1,8 +1,8 @@
 # IronPath v5 Menu, Account, and Backup PRD
 
 Date: 2026-07-26
-Last updated: 2026-09-17
-Status: Feat11.3 Experience Direction accepted by BOSS and merged in PR #53; feat11.3.1 First Usable Slice ready for product review (RRA-59)
+Last updated: 2026-09-18
+Status: Feat11.3 Experience Direction merged in PR #53; feat11.3.1 First Usable Slice accepted by BOSS on September 18, 2026 (RRA-59, PR #55)
 
 ## Purpose
 
@@ -184,9 +184,10 @@ reviewing the fixture journey, confirming the restore-feedback fix, and checking
 exclusive conflict selection and return navigation. Restore feedback shows only the
 latest result: a short-press hint and a completed-preview notice never appear together.
 This is product acceptance of the debug-only Experience Direction, not delivery of
-real authentication, backup, sync, restore, or undo. The next bounded slice remains
-`feat11.3.1`: the account shell and persisted account/data-choice state with deterministic
-credentials. That First Usable Slice is ready for review under RRA-59; product acceptance is still pending.
+real authentication, backup, sync, restore, or undo. The subsequent bounded slice,
+`feat11.3.1`, adds the account shell and persisted account/data-choice state with
+deterministic credentials. BOSS accepted that First Usable Slice on September 18,
+2026, under RRA-59.
 
 The approved checkpoint is intentionally fixture-backed and debug-only. It makes no
 Google, Firebase, Room-mutation, upload, download, merge, or restore call. It exists to
@@ -232,7 +233,10 @@ are deferred beyond the V5 manual account/backup release.
 
 #### First Usable Slice review packet
 
-The debug build is ready on Seeker; product acceptance remains pending.
+BOSS accepted the debug build on Seeker on September 18, 2026, after the
+following review path and separate checks of toolbar and Android system Back.
+Acceptance covers the persisted demo account, cancellation, restart recovery and
+return navigation. It does not claim live authentication or manual data transfer.
 
 1. From Home, open the menu and `Account & Backup`; confirm `Local only`.
 2. Choose `Sign in with Google`; confirm the clearly labelled demo identity and
@@ -246,8 +250,8 @@ The debug build is ready on Seeker; product acceptance remains pending.
 
 The synthetic identity and unavailable manual actions are intentional boundaries,
 not live authentication or backup. No additional product assumption is introduced
-beyond the accepted deterministic first slice. The next product slice after
-acceptance is explicit manual backup and revision-aware sync (feat11.3.2), followed
+beyond the accepted deterministic first slice. The next product slice is
+explicit manual backup and revision-aware sync (feat11.3.2), followed
 by whole-backup restore and undo (feat11.3.3).
 
 ### Free-tier enforcement
