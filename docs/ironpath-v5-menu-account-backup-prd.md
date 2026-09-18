@@ -950,7 +950,8 @@ Cover:
 - abandoned `UPLOADING` reclamation with exactly one in-progress registry entry
 - two installations completing concurrently; the losing generation precondition enters
   data choice and neither complete snapshot is silently lost
-- a mutation committed between export and `COMPLETE` schedules a follow-up revision
+- a mutation committed between export and `COMPLETE` leaves `Local changes`, schedules
+  no automatic work, and requires another explicit manual operation
 - previous complete snapshot preservation
 - retention cleanup failure and retry
 - manual backup requires extra confirmation after an empty or greater-than-50-percent
