@@ -51,10 +51,7 @@ class IronPathDrawerTest {
         orderedLabels.forEach { label -> composeRule.onNodeWithText(label).assertIsDisplayed() }
         val verticalPositions =
             listOf(
-                    composeRule.onNodeWithContentDescription(
-                        "Local profile. Training data stays on this device until you manually " +
-                            "back it up. Open the Account and Backup experience preview."
-                    ),
+                    composeRule.onNodeWithContentDescription("Account and Backup. Local only"),
                     composeRule.onNodeWithText("Manual"),
                     composeRule.onNodeWithText("AI & Privacy"),
                     composeRule.onNodeWithText("About IronPath"),
@@ -91,7 +88,7 @@ class IronPathDrawerTest {
     }
 
     @Test
-    fun drawer_accountPreviewEntryEmitsItsRouteAndExposesLocalState() {
+    fun drawer_accountShellEntryEmitsItsRouteAndExposesLocalState() {
         val selectedRoutes = mutableListOf<String>()
         setDrawer(
             selectedRoute = Route.AI_PRIVACY,
@@ -99,16 +96,13 @@ class IronPathDrawerTest {
         )
 
         composeRule
-            .onNodeWithContentDescription(
-                "Local profile. Training data stays on this device until you manually back it up. " +
-                    "Open the Account and Backup experience preview."
-            )
+            .onNodeWithContentDescription("Account and Backup. Local only")
             .assertIsDisplayed()
             .assertHasClickAction()
             .assert(
                 SemanticsMatcher.expectValue(
                     SemanticsProperties.StateDescription,
-                    "Local only. No account connected. Manual backup available in preview.",
+                    "Local only",
                 )
             )
             .assert(SemanticsMatcher.expectValue(SemanticsProperties.Role, Role.Button))

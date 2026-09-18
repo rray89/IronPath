@@ -30,8 +30,10 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.unit.dp
+import com.example.ironpath.domain.account.AccountState
 import com.example.ironpath.ui.screens.accountbackup.ACCOUNT_EXPERIENCE_PREVIEW_ENABLED
 import com.example.ironpath.ui.screens.accountbackup.accountExperienceDrawerContent
+import com.example.ironpath.ui.screens.accountbackup.accountStatusLabel
 import com.example.ironpath.ui.screens.accountbackup.openAccountExperiencePreview
 import com.example.ironpath.ui.theme.SurfaceContainerHigh
 import com.example.ironpath.ui.theme.SurfaceContainerLow
@@ -42,6 +44,7 @@ fun IronPathDrawer(
     modifier: Modifier = Modifier,
     selectedRoute: String? = null,
     accountExperiencePreviewEnabled: Boolean = ACCOUNT_EXPERIENCE_PREVIEW_ENABLED,
+    accountState: AccountState = AccountState.LocalOnly,
 ) {
     ModalDrawerSheet(
         modifier = modifier,
@@ -58,6 +61,7 @@ fun IronPathDrawer(
         ) {
             LocalProfileHeader(
                 experiencePreviewEnabled = accountExperiencePreviewEnabled,
+                accountState = accountState,
                 onOpenExperiencePreview = { openAccountExperiencePreview(onDestinationSelected) },
             )
             Spacer(Modifier.height(12.dp))
@@ -91,9 +95,16 @@ fun IronPathDrawer(
 private fun LocalProfileHeader(
     experiencePreviewEnabled: Boolean,
     onOpenExperiencePreview: () -> Unit,
+    accountState: AccountState,
     modifier: Modifier = Modifier,
 ) {
     val previewContent = accountExperienceDrawerContent.takeIf { experiencePreviewEnabled }
+    val profile =
+        when (accountState) {
+            is AccountState.SignedIn -> accountState.profile
+            is AccountState.AwaitingDataChoice -> accountState.profile
+            else -> null
+        }
     val interactionModifier =
         if (previewContent != null) {
             Modifier.clickable(role = Role.Button, onClick = onOpenExperiencePreview)
@@ -106,8 +117,9 @@ private fun LocalProfileHeader(
                 .then(interactionModifier)
                 .semantics(mergeDescendants = true) {
                     if (previewContent != null) {
-                        contentDescription = previewContent.contentDescription
-                        stateDescription = previewContent.stateDescription
+                        contentDescription =
+                            "Account and Backup. ${accountStatusLabel(accountState)}"
+                        stateDescription = accountStatusLabel(accountState)
                     } else {
                         contentDescription =
                             "Local profile. Training data already saved on this device. " +
@@ -120,12 +132,15 @@ private fun LocalProfileHeader(
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         Text(
-            text = "LOCAL PROFILE",
+            text = profile?.displayName ?: "LOCAL PROFILE",
             style = MaterialTheme.typography.labelLarge,
             color = MaterialTheme.colorScheme.primary,
         )
         Text(
-            text = previewContent?.title ?: "Your training data is already saved on this device.",
+            text =
+                if (previewContent != null && accountState != AccountState.LocalOnly)
+                    accountStatusLabel(accountState)
+                else previewContent?.title ?: "Your training data is already saved on this device.",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurface,
         )

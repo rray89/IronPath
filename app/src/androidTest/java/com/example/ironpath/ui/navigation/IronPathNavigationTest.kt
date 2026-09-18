@@ -1,6 +1,7 @@
 package com.example.ironpath.ui.navigation
 
 import androidx.activity.compose.setContent
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.semantics.getOrNull
@@ -25,6 +26,8 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.unit.dp
+import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.compose.ComposeNavigator
 import androidx.navigation.testing.TestNavHostController
 import androidx.test.espresso.Espresso
@@ -36,9 +39,11 @@ import com.example.ironpath.data.local.dao.PlanDao
 import com.example.ironpath.data.local.dao.SessionDao
 import com.example.ironpath.data.local.entity.WorkoutStatus
 import com.example.ironpath.domain.time.TimeProvider
+import com.example.ironpath.testutil.FakeAccountSessionAdapter
 import com.example.ironpath.testutil.FakeOnboardingRepository
 import com.example.ironpath.testutil.HiltTestDatabaseRule
 import com.example.ironpath.testutil.TestData
+import com.example.ironpath.ui.screens.accountbackup.AccountBackupViewModel
 import com.example.ironpath.ui.testing.TestTags
 import com.example.ironpath.ui.theme.IronPathTheme
 import dagger.hilt.android.testing.HiltAndroidRule
@@ -73,6 +78,7 @@ class IronPathNavigationTest {
     @Inject lateinit var sessionDao: SessionDao
 
     @Inject lateinit var historyDao: HistoryDao
+    @Inject lateinit var accountSession: FakeAccountSessionAdapter
 
     private lateinit var navController: TestNavHostController
 
@@ -84,10 +90,16 @@ class IronPathNavigationTest {
             navController.navigatorProvider.addNavigator(ComposeNavigator())
             composeRule.activity.setContent {
                 IronPathTheme {
+                    val accountViewModel = hiltViewModel<AccountBackupViewModel>()
+                    val accountState by accountViewModel.state.collectAsStateWithLifecycle()
                     IronPathApp(
                         timeProvider = timeProvider,
                         navController = navController,
                         onCompleteOnboarding = onboardingRepository::complete,
+                        accountState = accountState,
+                        onAccountSignIn = accountViewModel::signIn,
+                        onAccountRetry = accountViewModel::refresh,
+                        onAccountLeave = accountViewModel::leave,
                     )
                 }
             }
@@ -110,26 +122,55 @@ class IronPathNavigationTest {
     }
 
     @Test
-    fun accountPreview_opensFromEntryWithoutCompletingOnboarding() {
+    fun accountShell_signsInFromEntryWithoutCompletingOnboardingAndBackCancels() {
         composeRule.onNodeWithText("SIGN IN WITH GOOGLE").performClick()
 
         waitForRoute("account_backup")
         composeRule.onNodeWithText("ACCOUNT & BACKUP").assertIsDisplayed()
-        composeRule.onNodeWithText("EXPERIENCE PREVIEW").assertIsDisplayed()
+        waitForPendingAccountChoice()
+        composeRule.onNodeWithText("DEMO ACCOUNT").assertIsDisplayed()
         assertFalse(onboardingRepository.completed)
+        composeRule.onNodeWithContentDescription("Back").performClick()
+        waitForRoute(Route.ENTRY)
+        assertNull(accountSession.session)
     }
 
     @Test
-    fun accountPreview_opensFromDrawerAndBackReturnsHome() {
+    fun accountShell_opensFromDrawerAndPreservesTheSeparateExperiencePreview() {
         enterApp()
         composeRule.onNodeWithContentDescription("Menu").performClick()
         composeRule.onNodeWithText("Back up your training data").performClick()
 
         waitForRoute("account_backup")
-        composeRule.onNodeWithText("EXPERIENCE PREVIEW").assertIsDisplayed()
+        composeRule.onNodeWithText("DEMO ACCOUNT").assertIsDisplayed()
         assertBottomBarDoesNotExist()
+        composeRule.onNodeWithText("EXPLORE BACKUP PREVIEW").performScrollTo().performClick()
+        waitForRoute("account_experience_preview")
+        composeRule.onNodeWithText("No account or cloud connection").assertIsDisplayed()
+        composeRule.onNodeWithContentDescription("Back").performClick()
+        waitForRoute("account_backup")
         composeRule.onNodeWithContentDescription("Back").performClick()
         waitForRoute(Route.HOME)
+    }
+
+    @Test
+    fun systemBackFromPendingChoice_clearsSessionAndPreservesLocalWorkoutData() {
+        seedActivePlan("account-back-workout", "Account Back Safety")
+        enterApp()
+        composeRule.onNodeWithContentDescription("Menu").performClick()
+        composeRule.onNodeWithText("Back up your training data").performClick()
+        waitForRoute("account_backup")
+        composeRule.onNodeWithText("SIGN IN WITH GOOGLE").performScrollTo().performClick()
+        waitForPendingAccountChoice()
+        Espresso.pressBack()
+        waitForRoute(Route.HOME)
+        assertNull(accountSession.session)
+        runBlocking {
+            assertEquals(
+                "Account Back Safety",
+                planDao.getWorkoutById("account-back-workout")?.title
+            )
+        }
     }
 
     @Test
@@ -636,6 +677,18 @@ class IronPathNavigationTest {
         composeRule.waitUntil(timeoutMillis = 5_000) {
             composeRule.onAllNodesWithTag(tag).fetchSemanticsNodes().isNotEmpty()
         }
+    }
+
+    private fun waitForPendingAccountChoice() {
+        composeRule.waitUntil(timeoutMillis = 5_000) {
+            composeRule
+                .onAllNodesWithTag(TestTags.ACCOUNT_STATUS)
+                .fetchSemanticsNodes()
+                .singleOrNull()
+                ?.config
+                ?.getOrNull(SemanticsProperties.StateDescription) == "Data choice required"
+        }
+        composeRule.onNodeWithTag(TestTags.ACCOUNT_STATUS).assertIsDisplayed()
     }
 
     private fun waitForText(text: String) {

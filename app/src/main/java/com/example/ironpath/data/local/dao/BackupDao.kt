@@ -13,6 +13,7 @@ import com.example.ironpath.data.local.entity.PlannedExercise
 import com.example.ironpath.data.local.entity.PlannedWorkout
 import com.example.ironpath.data.local.entity.WeeklyPlan
 import com.example.ironpath.data.local.entity.WorkoutLog
+import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface BackupDao {
@@ -21,6 +22,14 @@ interface BackupDao {
 
     @Query("SELECT * FROM account_backup_metadata WHERE id = 1")
     suspend fun getMetadata(): AccountBackupMetadata?
+
+    @Query("SELECT * FROM account_backup_metadata WHERE id = 1")
+    fun observeMetadata(): Flow<AccountBackupMetadata?>
+
+    @Query(
+        "SELECT EXISTS(SELECT 1 FROM weekly_plans) OR EXISTS(SELECT 1 FROM workout_logs) OR EXISTS(SELECT 1 FROM personal_records)"
+    )
+    suspend fun hasIncludedData(): Boolean
 
     @Update suspend fun updateMetadata(metadata: AccountBackupMetadata)
 
