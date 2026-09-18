@@ -2,7 +2,7 @@
   "name": "ironpath-firebase-rules",
   "private": true,
   "engines": {
-    "node": ">=20"
+    "node": ">=22"
   },
   "scripts": {
     "test": "firebase emulators:exec --only firestore --project demo-ironpath --config firebase.json \"node --test test/*.test.mjs\""
