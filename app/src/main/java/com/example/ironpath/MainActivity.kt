@@ -47,11 +47,14 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.hideFromAccessibility
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.testTagsAsResourceId
+import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.example.ironpath.data.backup.InstallationGuard
 import com.example.ironpath.data.onboarding.OnboardingRepository
+import com.example.ironpath.domain.account.AccountState
 import com.example.ironpath.domain.time.TimeProvider
 import com.example.ironpath.ui.navigation.BottomNavItem
 import com.example.ironpath.ui.navigation.IronPathDrawer
@@ -60,7 +63,10 @@ import com.example.ironpath.ui.navigation.Route
 import com.example.ironpath.ui.navigation.TopNavigationIcon
 import com.example.ironpath.ui.navigation.navigationChrome
 import com.example.ironpath.ui.navigation.startupRoute
+import com.example.ironpath.ui.screens.accountbackup.ACCOUNT_EXPERIENCE_PREVIEW_ENABLED
+import com.example.ironpath.ui.screens.accountbackup.AccountBackupViewModel
 import com.example.ironpath.ui.screens.accountbackup.accountExperiencePreviewTopBarTitle
+import com.example.ironpath.ui.screens.accountbackup.isAccountBackupRoute
 import com.example.ironpath.ui.testing.TestTags
 import com.example.ironpath.ui.theme.IronPathTheme
 import dagger.hilt.android.AndroidEntryPoint
@@ -79,6 +85,12 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         setContent {
+            val accountViewModel =
+                if (ACCOUNT_EXPERIENCE_PREVIEW_ENABLED) hiltViewModel<AccountBackupViewModel>()
+                else null
+            val accountState =
+                accountViewModel?.state?.collectAsStateWithLifecycle()?.value
+                    ?: AccountState.LocalOnly
             IronPathTheme {
                 val onboardingCompleted by
                     produceState<Boolean?>(
@@ -95,6 +107,12 @@ class MainActivity : ComponentActivity() {
                         timeProvider = timeProvider,
                         onboardingCompleted = completed,
                         onCompleteOnboarding = onboardingRepository::complete,
+                        accountState = accountState,
+                        onAccountSignIn = { accountViewModel?.signIn() },
+                        onAccountRetry = { accountViewModel?.refresh() },
+                        onAccountLeave = { onLeave ->
+                            accountViewModel?.leave(onLeave) ?: onLeave()
+                        },
                     )
                 }
             }
@@ -109,7 +127,17 @@ fun IronPathApp(
     navController: NavHostController = rememberNavController(),
     onboardingCompleted: Boolean = false,
     onCompleteOnboarding: suspend () -> Boolean = { true },
+    accountState: AccountState = AccountState.LocalOnly,
+    onAccountSignIn: () -> Unit = {},
+    onAccountRetry: () -> Unit = {},
+    onAccountLeave: (() -> Unit) -> Unit = { it() },
 ) {
+    val onAccountBack: () -> Unit = {
+        onAccountLeave {
+            if (isAccountBackupRoute(navController.currentDestination?.route))
+                navController.popBackStack()
+        }
+    }
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = navBackStackEntry?.destination?.route
     val chrome = navigationChrome(currentRoute)
@@ -142,6 +170,7 @@ fun IronPathApp(
         gesturesEnabled = chrome.drawerEnabled,
         drawerContent = {
             IronPathDrawer(
+                accountState = accountState,
                 selectedRoute = currentRoute,
                 onDestinationSelected = { route ->
                     drawerBackInterceptEnabled = false
@@ -218,7 +247,13 @@ fun IronPathApp(
                                         }
                                     }
                                     TopNavigationIcon.Back -> {
-                                        IconButton(onClick = { navController.popBackStack() }) {
+                                        IconButton(
+                                            onClick = {
+                                                if (isAccountBackupRoute(currentRoute))
+                                                    onAccountBack()
+                                                else navController.popBackStack()
+                                            }
+                                        ) {
                                             Icon(
                                                 imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                                                 contentDescription = "Back",
@@ -293,6 +328,10 @@ fun IronPathApp(
                     innerPadding = innerPadding,
                     startDestination = startupRoute(onboardingCompleted),
                     onCompleteOnboarding = onCompleteOnboarding,
+                    accountState = accountState,
+                    onAccountSignIn = onAccountSignIn,
+                    onAccountRetry = onAccountRetry,
+                    onAccountBack = onAccountBack,
                     drawerOpen = drawerBackInterceptEnabled,
                     onCloseDrawer = {
                         drawerBackInterceptEnabled = false

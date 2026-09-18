@@ -15,6 +15,7 @@ import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.navArgument
+import com.example.ironpath.domain.account.AccountState
 import com.example.ironpath.ui.screens.about.AboutScreen
 import com.example.ironpath.ui.screens.accountbackup.ACCOUNT_EXPERIENCE_PREVIEW_ENABLED
 import com.example.ironpath.ui.screens.accountbackup.accountExperiencePreviewDestination
@@ -41,6 +42,10 @@ fun IronPathNavHost(
     accountExperiencePreviewEnabled: Boolean = ACCOUNT_EXPERIENCE_PREVIEW_ENABLED,
     drawerOpen: Boolean = false,
     onCloseDrawer: () -> Unit = {},
+    accountState: AccountState = AccountState.LocalOnly,
+    onAccountSignIn: () -> Unit = {},
+    onAccountRetry: () -> Unit = {},
+    onAccountBack: () -> Unit = { navController.popBackStack() },
 ) {
     val coroutineScope = rememberCoroutineScope()
     var onboardingCompletionInProgress by remember { mutableStateOf(false) }
@@ -68,7 +73,14 @@ fun IronPathNavHost(
                 },
                 continuing = onboardingCompletionInProgress,
                 accountExperiencePreviewEnabled = accountExperiencePreviewEnabled,
-                onSignIn = { navController.openAccountExperiencePreview() },
+                accountBusy =
+                    accountState == AccountState.Loading ||
+                        accountState == AccountState.SigningIn ||
+                        accountState == AccountState.CancellingDataChoice,
+                onSignIn = {
+                    navController.openAccountExperiencePreview()
+                    onAccountSignIn()
+                },
             )
         }
         composable(Route.HOME) {
@@ -152,7 +164,14 @@ fun IronPathNavHost(
             }
         }
         composable(Route.MANUAL) { ManualScreen(modifier = Modifier.padding(innerPadding)) }
-        accountExperiencePreviewDestination(innerPadding)
+        accountExperiencePreviewDestination(
+            innerPadding,
+            navController,
+            accountState,
+            onAccountSignIn,
+            onAccountRetry,
+            onAccountBack
+        )
         composable(Route.AI_PRIVACY) { AiPrivacyScreen(modifier = Modifier.padding(innerPadding)) }
         composable(Route.ABOUT) { AboutScreen(modifier = Modifier.padding(innerPadding)) }
         composable(

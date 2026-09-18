@@ -12,6 +12,10 @@ import kotlinx.coroutines.flow.StateFlow
 class LocalOnlyAccountGateway @Inject constructor() : AccountGateway {
     override val state: StateFlow<AccountState> = MutableStateFlow(AccountState.LocalOnly)
 
+    override suspend fun refresh(): AccountActionResult = AccountActionResult.Completed
+
+    override suspend fun cancelDataChoice(): AccountActionResult = AccountActionResult.Unavailable
+
     override suspend fun startGoogleSignIn(): AccountActionResult = AccountActionResult.Unavailable
 
     override suspend fun reauthenticate(): AccountActionResult = AccountActionResult.Unavailable

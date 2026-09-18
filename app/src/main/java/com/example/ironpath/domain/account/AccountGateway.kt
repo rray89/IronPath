@@ -5,6 +5,10 @@ import kotlinx.coroutines.flow.StateFlow
 interface AccountGateway {
     val state: StateFlow<AccountState>
 
+    suspend fun refresh(): AccountActionResult
+
+    suspend fun cancelDataChoice(): AccountActionResult
+
     suspend fun startGoogleSignIn(): AccountActionResult
 
     suspend fun reauthenticate(): AccountActionResult
@@ -15,16 +19,22 @@ interface AccountGateway {
 }
 
 sealed interface AccountState {
+    data object Loading : AccountState
+
     data object LocalOnly : AccountState
 
     data object SigningIn : AccountState
 
+    data object CancellingDataChoice : AccountState
+
     data class AwaitingDataChoice(
         val accountId: AccountId,
         val context: DataChoiceContext,
+        val profile: AccountProfile? = null,
     ) : AccountState
 
-    data class SignedIn(val accountId: AccountId) : AccountState
+    data class SignedIn(val accountId: AccountId, val profile: AccountProfile? = null) :
+        AccountState
 
     data object NeedsReauthentication : AccountState
 
@@ -32,8 +42,13 @@ sealed interface AccountState {
 
     data object DeletingAccount : AccountState
 
-    data class RecoverableError(val reason: AccountFailureReason) : AccountState
+    data class RecoverableError(
+        val reason: AccountFailureReason,
+        val canCancelDataChoice: Boolean = false,
+    ) : AccountState
 }
+
+data class AccountProfile(val id: AccountId, val displayName: String, val email: String)
 
 @JvmInline
 value class AccountId(val opaqueValue: String) {
@@ -76,6 +91,7 @@ data class PersistedConflictContext(
 )
 
 enum class AccountFailureReason {
+    LocalStateUnavailable,
     Offline,
     ServiceUnavailable,
     ReauthenticationRequired,

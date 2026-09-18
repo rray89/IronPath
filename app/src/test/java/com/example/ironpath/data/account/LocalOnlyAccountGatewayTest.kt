@@ -12,6 +12,8 @@ class LocalOnlyAccountGatewayTest {
         val gateway = LocalOnlyAccountGateway()
 
         assertEquals(AccountState.LocalOnly, gateway.state.value)
+        assertEquals(AccountActionResult.Completed, gateway.refresh())
+        assertEquals(AccountActionResult.Unavailable, gateway.cancelDataChoice())
         assertEquals(AccountActionResult.Unavailable, gateway.startGoogleSignIn())
         assertEquals(AccountActionResult.Unavailable, gateway.reauthenticate())
         assertEquals(AccountActionResult.Unavailable, gateway.signOut())

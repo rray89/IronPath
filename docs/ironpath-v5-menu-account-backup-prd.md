@@ -1,8 +1,8 @@
 # IronPath v5 Menu, Account, and Backup PRD
 
 Date: 2026-07-26
-Last updated: 2026-09-17
-Status: Feat11.3 Experience Direction accepted by BOSS; PR #53 in review (`feat/feat11.3-experience-direction`)
+Last updated: 2026-09-18
+Status: Feat11.3 Experience Direction merged in PR #53; feat11.3.1 First Usable Slice accepted by BOSS on September 18, 2026 (RRA-59, PR #55)
 
 ## Purpose
 
@@ -184,9 +184,10 @@ reviewing the fixture journey, confirming the restore-feedback fix, and checking
 exclusive conflict selection and return navigation. Restore feedback shows only the
 latest result: a short-press hint and a completed-preview notice never appear together.
 This is product acceptance of the debug-only Experience Direction, not delivery of
-real authentication, backup, sync, restore, or undo. The next bounded slice remains
-`feat11.3.1`: the account shell and persisted account/data-choice state with deterministic
-credentials. Implementation of that slice has not started.
+real authentication, backup, sync, restore, or undo. The subsequent bounded slice,
+`feat11.3.1`, adds the account shell and persisted account/data-choice state with
+deterministic credentials. BOSS accepted that First Usable Slice on September 18,
+2026, under RRA-59.
 
 The approved checkpoint is intentionally fixture-backed and debug-only. It makes no
 Google, Firebase, Room-mutation, upload, download, merge, or restore call. It exists to
@@ -204,6 +205,54 @@ review the following first-release journey before durable implementation:
 Automatic/background backup, automatic/background sync, per-item conflict editing,
 sign-out and account-deletion lifecycle hardening, and production Firebase activation
 are deferred beyond the V5 manual account/backup release.
+
+### Feat11.3.1 First Usable Slice
+
+- The debug Entry and drawer open the Account & Backup shell. The sign-in action uses
+  a clearly labelled demo account; it does not contact Google or Firebase.
+- Only the synthetic session identifier is persisted in a debug-only, non-transferred
+  atomic file in `noBackupFilesDir`. Account/data-choice state is reconstructed from
+  that session and the existing Room ownership and revision metadata, without a new
+  Room schema.
+- An unclaimed local profile remains unclaimed after sign-in. Same-owner data resumes
+  its existing lineage; differently owned data remains blocked even when empty.
+- Installation validation gates account readiness. A failed account-state check leaves
+  local workout flows available and presents an account retry action.
+- Cancelling setup, system Back, and toolbar Back from a pending account choice clear
+  the pending demo session before returning to the previous destination. A failed
+  durable cancellation stays on the shell with retry/cancel actions. Restarting before
+  cancellation reconstructs the pending choice; restarting after cancellation is local-only.
+- Credential selection never completes onboarding. `Continue on this device` retains
+  the existing explicit onboarding action.
+- Backup, sync, and restore remain unavailable in the shell. `Explore backup preview`
+  opens the separately labelled, unchanged Experience Direction fixture journey; its
+  completion messages do not change the shell's account or backup state.
+- Release retains the inert account binding and exposes no demo sign-in or preview
+  route. No live configuration, ownership/training-data mutation, sign-out/delete UI,
+  background work, manual operation, or undo is added by this slice.
+
+#### First Usable Slice review packet
+
+BOSS accepted the debug build on Seeker on September 18, 2026, after the
+following review path and separate checks of toolbar and Android system Back.
+Acceptance covers the persisted demo account, cancellation, restart recovery and
+return navigation. It does not claim live authentication or manual data transfer.
+
+1. From Home, open the menu and `Account & Backup`; confirm `Local only`.
+2. Choose `Sign in with Google`; confirm the clearly labelled demo identity and
+   `Data choice required`, with manual operations still unavailable.
+3. Close and reopen the app without clearing storage. Reopen the account page and
+   confirm the pending choice survives.
+4. Use toolbar/system Back or `Cancel account setup`. Reopen the app and account
+   page; confirm `Local only` survives too.
+5. Open `Explore backup preview` to revisit the accepted fixture journey and return
+   to the account shell without changing its state.
+
+The synthetic identity and unavailable manual actions are intentional boundaries,
+not live authentication or backup. No additional product assumption is introduced
+beyond the accepted deterministic first slice. The next product slice is
+explicit manual backup and revision-aware sync (feat11.3.2), followed
+by whole-backup restore and undo (feat11.3.3).
 
 ### Free-tier enforcement
 
