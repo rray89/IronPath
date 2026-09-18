@@ -49,12 +49,13 @@ class PlanPersistenceJourneyTest {
     fun injectAndResetDeterministicProviders() {
         hiltRule.inject()
         timeProvider.reset()
-        idProvider.reset()
     }
 
     @Test
     fun generatedPlan_survivesAcceptanceAndActivityRecreation() {
         waitForTag(TestTags.ENTRY_GET_STARTED)
+        // Startup installation validation also consumes IDs; reset only after it has finished.
+        idProvider.reset()
         composeRule
             .onNodeWithTag(TestTags.ENTRY_GET_STARTED)
             .performScrollTo()

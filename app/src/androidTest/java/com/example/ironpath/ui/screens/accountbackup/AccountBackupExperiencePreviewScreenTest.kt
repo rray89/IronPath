@@ -57,10 +57,11 @@ class AccountBackupExperiencePreviewScreenTest {
     fun manualBackup_isAnExplicitFixtureOnlyAction() {
         setPreview()
 
-        composeRule.onNodeWithText("BACK UP NOW").performClick()
+        composeRule.onNodeWithText("BACK UP NOW").performScrollTo().performClick()
 
         composeRule
             .onNodeWithText("Preview complete — no backup ran and no data changed")
+            .performScrollTo()
             .assertIsDisplayed()
     }
 
@@ -68,13 +69,19 @@ class AccountBackupExperiencePreviewScreenTest {
     fun manualSync_previewsSafeChangesAndRequiresOneConflictOutcome() {
         setPreview()
 
-        composeRule.onNodeWithText("REVIEW MANUAL SYNC").performClick()
+        composeRule.onNodeWithText("REVIEW MANUAL SYNC").performScrollTo().performClick()
 
-        composeRule.onNodeWithText("4 changes can merge safely").assertIsDisplayed()
-        composeRule.onNodeWithText("2 records need your choice").assertIsDisplayed()
+        composeRule
+            .onNodeWithText("4 changes can merge safely")
+            .performScrollTo()
+            .assertIsDisplayed()
+        composeRule
+            .onNodeWithText("2 records need your choice")
+            .performScrollTo()
+            .assertIsDisplayed()
         composeRule
             .onNode(SemanticsMatcher.keyIsDefined(SemanticsProperties.SelectableGroup))
-            .assertIsDisplayed()
+            .assertExists()
         composeRule
             .onNodeWithText("Merge and keep local conflict versions")
             .performScrollTo()
@@ -130,6 +137,31 @@ class AccountBackupExperiencePreviewScreenTest {
             .onNodeWithText("Preview complete — no data changed")
             .performScrollTo()
             .assertIsDisplayed()
+    }
+
+    @Test
+    fun restorePreview_repeatedPressesShowOnlyLatestFeedback() {
+        setPreview()
+
+        composeRule.onNodeWithText("PREVIEW WHOLE-BACKUP RESTORE").performScrollTo().performClick()
+        val restore = composeRule.onNodeWithTag(TestTags.ACCOUNT_PREVIEW_LONG_PRESS_RESTORE)
+        val completed = composeRule.onNodeWithText("Preview complete — no data changed")
+        val holdHint =
+            composeRule.onNodeWithText(
+                "Keep holding Restore to confirm the whole-backup replacement"
+            )
+
+        restore.performScrollTo().performTouchInput { longClick() }
+        completed.performScrollTo().assertIsDisplayed()
+        holdHint.assertDoesNotExist()
+
+        restore.performScrollTo().performClick()
+        holdHint.performScrollTo().assertIsDisplayed()
+        completed.assertDoesNotExist()
+
+        restore.performScrollTo().performTouchInput { longClick() }
+        completed.performScrollTo().assertIsDisplayed()
+        holdHint.assertDoesNotExist()
     }
 
     @Test

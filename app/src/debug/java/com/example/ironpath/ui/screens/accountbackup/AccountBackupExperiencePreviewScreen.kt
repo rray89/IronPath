@@ -53,6 +53,12 @@ private enum class ConflictOutcome {
     OverwriteFromCloud,
 }
 
+private enum class RestoreFeedback {
+    None,
+    HoldHint,
+    Completed,
+}
+
 private data class AccountBackupPreviewFixture(
     val accountLabel: String,
     val localRevision: Long,
@@ -85,8 +91,7 @@ fun AccountBackupExperiencePreviewScreen(modifier: Modifier = Modifier) {
     var manualBackupPreviewCompleted by rememberSaveable { mutableStateOf(false) }
     var conflictOutcome by rememberSaveable { mutableStateOf<ConflictOutcome?>(null) }
     var syncPreviewCompleted by rememberSaveable { mutableStateOf(false) }
-    var restorePreviewCompleted by rememberSaveable { mutableStateOf(false) }
-    var showHoldHint by rememberSaveable { mutableStateOf(false) }
+    var restoreFeedback by rememberSaveable { mutableStateOf(RestoreFeedback.None) }
 
     key(page) {
         Column(
@@ -117,13 +122,9 @@ fun AccountBackupExperiencePreviewScreen(modifier: Modifier = Modifier) {
                 PreviewPage.Restore ->
                     RestoreContent(
                         fixture = previewFixture,
-                        restorePreviewCompleted = restorePreviewCompleted,
-                        showHoldHint = showHoldHint,
-                        onShortPress = { showHoldHint = true },
-                        onLongPress = {
-                            restorePreviewCompleted = true
-                            showHoldHint = false
-                        },
+                        feedback = restoreFeedback,
+                        onShortPress = { restoreFeedback = RestoreFeedback.HoldHint },
+                        onLongPress = { restoreFeedback = RestoreFeedback.Completed },
                         onBack = { page = PreviewPage.Overview },
                     )
             }
@@ -269,8 +270,7 @@ private fun ConflictOption(
 @Composable
 private fun RestoreContent(
     fixture: AccountBackupPreviewFixture,
-    restorePreviewCompleted: Boolean,
-    showHoldHint: Boolean,
+    feedback: RestoreFeedback,
     onShortPress: () -> Unit,
     onLongPress: () -> Unit,
     onBack: () -> Unit,
@@ -303,11 +303,11 @@ private fun RestoreContent(
                 "restore replaces it.",
     )
     LongPressRestoreButton(onClick = onShortPress, onLongClick = onLongPress)
-    if (showHoldHint) {
-        OutcomeNotice("Keep holding Restore to confirm the whole-backup replacement")
-    }
-    if (restorePreviewCompleted) {
-        OutcomeNotice("Preview complete — no data changed")
+    when (feedback) {
+        RestoreFeedback.None -> Unit
+        RestoreFeedback.HoldHint ->
+            OutcomeNotice("Keep holding Restore to confirm the whole-backup replacement")
+        RestoreFeedback.Completed -> OutcomeNotice("Preview complete — no data changed")
     }
     BackToAccountButton(onBack)
 }
