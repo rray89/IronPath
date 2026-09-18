@@ -1,0 +1,94 @@
+{
+  "base": {
+    "formatVersion": 1,
+    "localChangeRevision": 5,
+    "chunks": [
+      {
+        "index": 0,
+        "payload": "{\"formatVersion\":1,\"localChangeRevision\":5,\"chunkIndex\":0,\"entities\":[{\"type\":\"PersonalRecord\",\"entityVersion\":1,\"id\":\"record-bench\",\"parentId\":null,\"payload\":{\"exerciseName\":\"Bench Press\",\"normalizedExerciseName\":\"bench press\",\"weightKg\":60.5,\"achievedOn\":\"2026-09-18\",\"note\":null,\"sourceType\":\"Manual\",\"sourceWorkoutLogId\":null,\"createdAt\":1800000000000}},{\"type\":\"PersonalRecord\",\"entityVersion\":1,\"id\":\"record-squat\",\"parentId\":null,\"payload\":{\"exerciseName\":\"Squat\",\"normalizedExerciseName\":\"squat\",\"weightKg\":100.5,\"achievedOn\":\"2026-09-18\",\"note\":null,\"sourceType\":\"Manual\",\"sourceWorkoutLogId\":null,\"createdAt\":1800000000000}}]}",
+        "encodedByteCount": 636,
+        "digest": "487967a1f07ef641a9418b5f2c6509f40ef6cb75712d895ea61e1274bead4817"
+      }
+    ],
+    "entityCounts": {
+      "WeeklyPlan": 0,
+      "PlannedWorkout": 0,
+      "PlannedExercise": 0,
+      "WorkoutLog": 0,
+      "LoggedExercise": 0,
+      "LoggedSet": 0,
+      "PersonalRecord": 2
+    },
+    "encodedByteCount": 636,
+    "contentDigest": "4131ba70ab9ea2e95de50f05cc22c14ab958ab088bcabb23bfe9306564cb927a"
+  },
+  "local": {
+    "formatVersion": 1,
+    "localChangeRevision": 6,
+    "chunks": [
+      {
+        "index": 0,
+        "payload": "{\"formatVersion\":1,\"localChangeRevision\":6,\"chunkIndex\":0,\"entities\":[{\"type\":\"PersonalRecord\",\"entityVersion\":1,\"id\":\"record-bench\",\"parentId\":null,\"payload\":{\"exerciseName\":\"Bench Press\",\"normalizedExerciseName\":\"bench press\",\"weightKg\":60.5,\"achievedOn\":\"2026-09-18\",\"note\":null,\"sourceType\":\"Manual\",\"sourceWorkoutLogId\":null,\"createdAt\":1800000000000}},{\"type\":\"PersonalRecord\",\"entityVersion\":1,\"id\":\"record-squat\",\"parentId\":null,\"payload\":{\"exerciseName\":\"Squat\",\"normalizedExerciseName\":\"squat\",\"weightKg\":110.5,\"achievedOn\":\"2026-09-18\",\"note\":null,\"sourceType\":\"Manual\",\"sourceWorkoutLogId\":null,\"createdAt\":1800000000000}}]}",
+        "encodedByteCount": 636,
+        "digest": "2caa5b9cdd22d3da95d633588330e0236637fca05b5a6af376abc83d1ab97feb"
+      }
+    ],
+    "entityCounts": {
+      "WeeklyPlan": 0,
+      "PlannedWorkout": 0,
+      "PlannedExercise": 0,
+      "WorkoutLog": 0,
+      "LoggedExercise": 0,
+      "LoggedSet": 0,
+      "PersonalRecord": 2
+    },
+    "encodedByteCount": 636,
+    "contentDigest": "53c134208a2a0361043e42820d60fe082a752d08e542c5bbcff774274ccfa380"
+  },
+  "remote": {
+    "formatVersion": 1,
+    "localChangeRevision": 6,
+    "chunks": [
+      {
+        "index": 0,
+        "payload": "{\"formatVersion\":1,\"localChangeRevision\":6,\"chunkIndex\":0,\"entities\":[{\"type\":\"PersonalRecord\",\"entityVersion\":1,\"id\":\"record-bench\",\"parentId\":null,\"payload\":{\"exerciseName\":\"Bench Press\",\"normalizedExerciseName\":\"bench press\",\"weightKg\":65.5,\"achievedOn\":\"2026-09-18\",\"note\":null,\"sourceType\":\"Manual\",\"sourceWorkoutLogId\":null,\"createdAt\":1800000000000}},{\"type\":\"PersonalRecord\",\"entityVersion\":1,\"id\":\"record-squat\",\"parentId\":null,\"payload\":{\"exerciseName\":\"Squat\",\"normalizedExerciseName\":\"squat\",\"weightKg\":100.5,\"achievedOn\":\"2026-09-18\",\"note\":null,\"sourceType\":\"Manual\",\"sourceWorkoutLogId\":null,\"createdAt\":1800000000000}}]}",
+        "encodedByteCount": 636,
+        "digest": "ab91121ec3ba05a4c7a6d7658e73ed51c615ccd6f1471b383e3c046a49f3a4e4"
+      }
+    ],
+    "entityCounts": {
+      "WeeklyPlan": 0,
+      "PlannedWorkout": 0,
+      "PlannedExercise": 0,
+      "WorkoutLog": 0,
+      "LoggedExercise": 0,
+      "LoggedSet": 0,
+      "PersonalRecord": 2
+    },
+    "encodedByteCount": 636,
+    "contentDigest": "63832575c17b998767ea4cec71082fd14ece1ad0b7eaa36561194e4ed3e6ed4f"
+  },
+  "merged": {
+    "formatVersion": 1,
+    "localChangeRevision": 7,
+    "chunks": [
+      {
+        "index": 0,
+        "payload": "{\"formatVersion\":1,\"localChangeRevision\":7,\"chunkIndex\":0,\"entities\":[{\"type\":\"PersonalRecord\",\"entityVersion\":1,\"id\":\"record-bench\",\"parentId\":null,\"payload\":{\"exerciseName\":\"Bench Press\",\"normalizedExerciseName\":\"bench press\",\"weightKg\":65.5,\"achievedOn\":\"2026-09-18\",\"note\":null,\"sourceType\":\"Manual\",\"sourceWorkoutLogId\":null,\"createdAt\":1800000000000}},{\"type\":\"PersonalRecord\",\"entityVersion\":1,\"id\":\"record-squat\",\"parentId\":null,\"payload\":{\"exerciseName\":\"Squat\",\"normalizedExerciseName\":\"squat\",\"weightKg\":110.5,\"achievedOn\":\"2026-09-18\",\"note\":null,\"sourceType\":\"Manual\",\"sourceWorkoutLogId\":null,\"createdAt\":1800000000000}}]}",
+        "encodedByteCount": 636,
+        "digest": "cb2a80f15e8a46e85ffe6df77743db69fb828a010141400886eb0d7f62306a49"
+      }
+    ],
+    "entityCounts": {
+      "WeeklyPlan": 0,
+      "PlannedWorkout": 0,
+      "PlannedExercise": 0,
+      "WorkoutLog": 0,
+      "LoggedExercise": 0,
+      "LoggedSet": 0,
+      "PersonalRecord": 2
+    },
+    "encodedByteCount": 636,
+    "contentDigest": "4494843ec9f4aaa62dab6b46b2fbded5a596638e88a77d98ef670c4a03fca8a2"
+  }
+}

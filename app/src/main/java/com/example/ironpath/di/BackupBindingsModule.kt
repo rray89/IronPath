@@ -3,11 +3,9 @@ package com.example.ironpath.di
 import com.example.ironpath.data.account.RoomAccountContextReader
 import com.example.ironpath.data.backup.BackupChangeTracker
 import com.example.ironpath.data.backup.InstallationGuard
-import com.example.ironpath.data.backup.LocalOnlyBackupCoordinator
 import com.example.ironpath.data.backup.RoomBackupStore
 import com.example.ironpath.data.backup.RoomInstallationGuard
 import com.example.ironpath.domain.account.AccountContextReader
-import com.example.ironpath.domain.backup.BackupCoordinator
 import dagger.Binds
 import dagger.Module
 import dagger.hilt.InstallIn
@@ -22,12 +20,6 @@ abstract class BackupBindingsModule {
     abstract fun bindAccountContextReader(
         implementation: RoomAccountContextReader
     ): AccountContextReader
-
-    @Binds
-    @Singleton
-    abstract fun bindBackupCoordinator(
-        implementation: LocalOnlyBackupCoordinator
-    ): BackupCoordinator
 
     @Binds
     @Singleton

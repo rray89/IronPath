@@ -29,8 +29,13 @@ constructor(
     private val mutex = Mutex()
     private var generation = 0L
     private var canCancel = false
+    private var observedRemote: Pair<AccountId, RemoteSnapshotPresence>? = null
 
-    override suspend fun refresh(): AccountActionResult =
+    override suspend fun refresh(): AccountActionResult = refreshContext(inspectRemote = true)
+
+    override suspend fun refreshLocal(): AccountActionResult = refreshContext(inspectRemote = false)
+
+    private suspend fun refreshContext(inspectRemote: Boolean): AccountActionResult =
         mutex.withLock {
             if (
                 mutableState.value == AccountState.SigningIn ||
@@ -40,7 +45,7 @@ constructor(
             }
             safely {
                 validateInstallation()
-                publishSession(readSession())
+                publishSession(readSession(), inspectRemote)
                 AccountActionResult.Completed
             }
         }
@@ -121,6 +126,7 @@ constructor(
                 mutableState.value = AccountState.CancellingDataChoice
                 safely {
                     check(sessions.clearSession())
+                    observedRemote = null
                     canCancel = false
                     mutableState.value = AccountState.LocalOnly
                     AccountActionResult.Completed
@@ -132,18 +138,43 @@ constructor(
         check(installationGuard.validate() != InstallationValidationResult.Failed)
     }
 
-    private suspend fun publishSession(profile: AccountProfile?) {
+    private suspend fun publishSession(profile: AccountProfile?, inspectRemote: Boolean = true) {
         // Until local ownership has been verified, a persisted identity is a pending setup.
         canCancel = profile != null
         val local = localContext.read()
+        val persistedPresence =
+            local.conflict
+                ?.takeIf { local.ownerUid == profile?.id?.opaqueValue }
+                ?.let { lineage ->
+                    val id = lineage.lastObservedRemoteBackupId
+                    val source = lineage.lastObservedSourceInstallationId
+                    if (id != null && source != null)
+                        RemoteSnapshotPresence.Complete(
+                            id,
+                            lineage.lastObservedRemoteGeneration,
+                            source
+                        )
+                    else null
+                }
+        val cachedPresence = observedRemote?.takeIf { it.first == profile?.id }?.second
+        val remotePresence =
+            when {
+                profile == null -> RemoteSnapshotPresence.Absent.also { observedRemote = null }
+                inspectRemote ->
+                    sessions.remoteSnapshot(profile.id).also { observedRemote = profile.id to it }
+                persistedPresence != null &&
+                    persistedPresence.generation >
+                        ((cachedPresence as? RemoteSnapshotPresence.Complete)?.generation ?: -1) ->
+                    persistedPresence
+                cachedPresence != null -> cachedPresence
+                else -> persistedPresence ?: RemoteSnapshotPresence.Absent
+            }
         val resolved =
             AccountStateResolver.resolve(
                 authenticatedUid = profile?.id?.opaqueValue,
                 localOwnerUid = local.ownerUid,
                 localDataIsEmpty = local.localDataIsEmpty,
-                remoteSnapshot =
-                    profile?.let { sessions.remoteSnapshot(it.id) }
-                        ?: RemoteSnapshotPresence.Absent,
+                remoteSnapshot = remotePresence,
                 conflict = local.conflict,
             )
         canCancel = resolved is AccountState.AwaitingDataChoice

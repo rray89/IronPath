@@ -18,6 +18,8 @@ import androidx.navigation.navArgument
 import com.example.ironpath.domain.account.AccountState
 import com.example.ironpath.ui.screens.about.AboutScreen
 import com.example.ironpath.ui.screens.accountbackup.ACCOUNT_EXPERIENCE_PREVIEW_ENABLED
+import com.example.ironpath.ui.screens.accountbackup.ManualBackupActions
+import com.example.ironpath.ui.screens.accountbackup.ManualBackupUiState
 import com.example.ironpath.ui.screens.accountbackup.accountExperiencePreviewDestination
 import com.example.ironpath.ui.screens.accountbackup.openAccountExperiencePreview
 import com.example.ironpath.ui.screens.active.ActiveScreen
@@ -43,6 +45,8 @@ fun IronPathNavHost(
     drawerOpen: Boolean = false,
     onCloseDrawer: () -> Unit = {},
     accountState: AccountState = AccountState.LocalOnly,
+    manualBackupState: ManualBackupUiState = ManualBackupUiState(),
+    manualBackupActions: ManualBackupActions = ManualBackupActions(),
     onAccountSignIn: () -> Unit = {},
     onAccountRetry: () -> Unit = {},
     onAccountBack: () -> Unit = { navController.popBackStack() },
@@ -170,7 +174,9 @@ fun IronPathNavHost(
             accountState,
             onAccountSignIn,
             onAccountRetry,
-            onAccountBack
+            onAccountBack,
+            manualBackupState,
+            manualBackupActions,
         )
         composable(Route.AI_PRIVACY) { AiPrivacyScreen(modifier = Modifier.padding(innerPadding)) }
         composable(Route.ABOUT) { AboutScreen(modifier = Modifier.padding(innerPadding)) }

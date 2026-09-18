@@ -25,7 +25,11 @@ object DatabaseModule {
                 IronPathDatabase::class.java,
                 "ironpath.db",
             )
-            .addMigrations(IronPathDatabase.MIGRATION_1_2, IronPathDatabase.MIGRATION_2_3)
+            .addMigrations(
+                IronPathDatabase.MIGRATION_1_2,
+                IronPathDatabase.MIGRATION_2_3,
+                IronPathDatabase.MIGRATION_3_4
+            )
             .build()
 
     @Provides

@@ -18,6 +18,75 @@ import org.junit.Test
 @OptIn(ExperimentalCoroutinesApi::class)
 class PersistedAccountGatewayTest {
     @Test
+    fun `completed empty lineage supersedes older observation and Back cannot cancel established account`() =
+        runTest {
+            val source =
+                Source().apply {
+                    session = profile
+                    remote = RemoteSnapshotPresence.Complete("old", 1, "installation")
+                }
+            val reader =
+                Reader().apply {
+                    context =
+                        context.copy(
+                            ownerUid = profile.id.opaqueValue,
+                            conflict =
+                                PersistedConflictContext(
+                                    "old",
+                                    1,
+                                    "old-digest",
+                                    "installation",
+                                    "installation",
+                                    4,
+                                    4
+                                )
+                        )
+                }
+            val gateway = gateway(source, reader)
+            gateway.refresh()
+            reader.context =
+                reader.context.copy(
+                    localDataIsEmpty = true,
+                    conflict =
+                        PersistedConflictContext(
+                            "empty",
+                            2,
+                            "empty-digest",
+                            "installation",
+                            "installation",
+                            5,
+                            5
+                        )
+                )
+            gateway.refreshLocal()
+            assertTrue(gateway.state.value is AccountState.SignedIn)
+            assertEquals(AccountActionResult.Unavailable, gateway.cancelDataChoice())
+            assertEquals(profile, source.session)
+            assertEquals(1, source.remoteReads)
+        }
+
+    @Test
+    fun `local reconstruction never reads remote and keeps an explicit observation`() = runTest {
+        val source = Source().apply { session = profile }
+        val reader = Reader().apply { context = context.copy(ownerUid = profile.id.opaqueValue) }
+        val gateway = gateway(source, reader)
+        gateway.refreshLocal()
+        assertEquals(0, source.remoteReads)
+        assertTrue(gateway.state.value is AccountState.SignedIn)
+        source.remote = RemoteSnapshotPresence.Complete("remote", 7, "another-installation")
+        gateway.refresh()
+        assertEquals(1, source.remoteReads)
+        assertTrue(gateway.state.value is AccountState.AwaitingDataChoice)
+        gateway.refreshLocal()
+        assertEquals(1, source.remoteReads)
+        assertTrue(gateway.state.value is AccountState.AwaitingDataChoice)
+        gateway.cancelDataChoice()
+        gateway.refreshLocal()
+        assertEquals(AccountState.LocalOnly, gateway.state.value)
+        assertEquals(1, source.remoteReads)
+    }
+
+    @Test
     fun `sign in persists identity but never claims unclaimed data`() = runTest {
         val source = Source()
         val reader = Reader()
@@ -262,6 +331,7 @@ class PersistedAccountGatewayTest {
         var writeSucceeds = true
         var clearSucceeds = true
         var requests = 0
+        var remoteReads = 0
         var ignoreChooserCancellation = false
         var saveStarted: CompletableDeferred<Unit>? = null
         var finishSave: CompletableDeferred<Unit>? = null
@@ -291,7 +361,10 @@ class PersistedAccountGatewayTest {
             return clearSucceeds
         }
 
-        override suspend fun remoteSnapshot(accountId: AccountId) = remote
+        override suspend fun remoteSnapshot(accountId: AccountId): RemoteSnapshotPresence {
+            remoteReads++
+            return remote
+        }
     }
 
     private companion object {

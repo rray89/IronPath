@@ -63,10 +63,19 @@ class AccountBackupScreenTest {
         val profile = AccountProfile(AccountId("demo"), "Demo Athlete", "athlete@example.invalid")
         setScreen(AccountState.SignedIn(profile.id, profile))
         composeRule.onNodeWithText("Demo Athlete").performScrollTo().assertIsDisplayed()
-        composeRule.onNodeWithText("Signed in — manual operations unavailable").assertExists()
+        composeRule.onNodeWithText("Signed in").assertExists()
         composeRule.onNodeWithText("Up to date").assertDoesNotExist()
         composeRule.onNodeWithText("CANCEL ACCOUNT SETUP").assertDoesNotExist()
-        assertManualOperationsUnavailable()
+        composeRule.onNodeWithText("BACK UP NOW").performScrollTo().assertIsEnabled()
+        composeRule.onNodeWithText("REVIEW MANUAL SYNC").performScrollTo().assertIsEnabled()
+        composeRule.onNodeWithText("PREVIEW WHOLE-BACKUP RESTORE").assertIsNotEnabled()
+    }
+
+    @Test
+    fun unclaimedAccount_canRequestAnExplicitBackupPreview() {
+        setScreen(pending(LocalOwnership.Unclaimed))
+        composeRule.onNodeWithText("BACK UP NOW").performScrollTo().assertIsEnabled()
+        composeRule.onNodeWithText("PREVIEW WHOLE-BACKUP RESTORE").assertIsNotEnabled()
     }
 
     @Test

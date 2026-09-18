@@ -1,9 +1,40 @@
 package com.example.ironpath.domain.account
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AccountStateResolverTest {
+    @Test
+    fun resolve_keepsConfirmedEmptyLineageSignedInButUnobservedOrDirtyEmptyRequiresChoice() {
+        val remote = RemoteSnapshotPresence.Complete("empty-backup", 2, "installation")
+        val lineage =
+            PersistedConflictContext(
+                "empty-backup",
+                2,
+                "digest",
+                "installation",
+                "installation",
+                5,
+                5
+            )
+        fun resolve(context: PersistedConflictContext?) =
+            AccountStateResolver.resolve("owner-a", "owner-a", true, remote, context)
+        assertEquals(AccountState.SignedIn(AccountId("owner-a")), resolve(lineage))
+        assertTrue(resolve(null) is AccountState.AwaitingDataChoice)
+        assertTrue(
+            resolve(lineage.copy(lastObservedRemoteGeneration = 1))
+                is AccountState.AwaitingDataChoice
+        )
+        assertTrue(
+            resolve(lineage.copy(lastObservedRemoteBackupId = "old"))
+                is AccountState.AwaitingDataChoice
+        )
+        assertTrue(
+            resolve(lineage.copy(localChangeRevision = 6)) is AccountState.AwaitingDataChoice
+        )
+    }
+
     @Test
     fun resolve_returnsLocalOnlyWithoutAnAuthenticatedSession() {
         assertEquals(
