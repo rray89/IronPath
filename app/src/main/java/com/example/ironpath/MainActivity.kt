@@ -65,6 +65,8 @@ import com.example.ironpath.ui.navigation.navigationChrome
 import com.example.ironpath.ui.navigation.startupRoute
 import com.example.ironpath.ui.screens.accountbackup.ACCOUNT_EXPERIENCE_PREVIEW_ENABLED
 import com.example.ironpath.ui.screens.accountbackup.AccountBackupViewModel
+import com.example.ironpath.ui.screens.accountbackup.ManualBackupActions
+import com.example.ironpath.ui.screens.accountbackup.ManualBackupUiState
 import com.example.ironpath.ui.screens.accountbackup.accountExperiencePreviewTopBarTitle
 import com.example.ironpath.ui.screens.accountbackup.isAccountBackupRoute
 import com.example.ironpath.ui.testing.TestTags
@@ -91,6 +93,9 @@ class MainActivity : ComponentActivity() {
             val accountState =
                 accountViewModel?.state?.collectAsStateWithLifecycle()?.value
                     ?: AccountState.LocalOnly
+            val manualState =
+                accountViewModel?.manual?.collectAsStateWithLifecycle()?.value
+                    ?: ManualBackupUiState()
             IronPathTheme {
                 val onboardingCompleted by
                     produceState<Boolean?>(
@@ -108,6 +113,15 @@ class MainActivity : ComponentActivity() {
                         onboardingCompleted = completed,
                         onCompleteOnboarding = onboardingRepository::complete,
                         accountState = accountState,
+                        manualBackupState = manualState,
+                        manualBackupActions =
+                            ManualBackupActions(
+                                previewBackup = { accountViewModel?.previewBackup() },
+                                previewSync = { accountViewModel?.previewSync() },
+                                selectResolution = { accountViewModel?.selectResolution(it) },
+                                confirmDestructive = { accountViewModel?.confirmDestructive(it) },
+                                confirm = { accountViewModel?.confirm() },
+                            ),
                         onAccountSignIn = { accountViewModel?.signIn() },
                         onAccountRetry = { accountViewModel?.refresh() },
                         onAccountLeave = { onLeave ->
@@ -128,6 +142,8 @@ fun IronPathApp(
     onboardingCompleted: Boolean = false,
     onCompleteOnboarding: suspend () -> Boolean = { true },
     accountState: AccountState = AccountState.LocalOnly,
+    manualBackupState: ManualBackupUiState = ManualBackupUiState(),
+    manualBackupActions: ManualBackupActions = ManualBackupActions(),
     onAccountSignIn: () -> Unit = {},
     onAccountRetry: () -> Unit = {},
     onAccountLeave: (() -> Unit) -> Unit = { it() },
@@ -331,6 +347,8 @@ fun IronPathApp(
                     accountState = accountState,
                     onAccountSignIn = onAccountSignIn,
                     onAccountRetry = onAccountRetry,
+                    manualBackupState = manualBackupState,
+                    manualBackupActions = manualBackupActions,
                     onAccountBack = onAccountBack,
                     drawerOpen = drawerBackInterceptEnabled,
                     onCloseDrawer = {

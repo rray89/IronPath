@@ -17,6 +17,7 @@ import {
 } from "firebase/firestore";
 import { after, before, beforeEach, test } from "node:test";
 import assert from "node:assert/strict";
+import { registerManualProtocolTests } from "./manual-backup.protocol.mjs";
 
 const projectId = "demo-ironpath";
 let testEnvironment;
@@ -453,3 +454,5 @@ async function seedThreeCompleteBackups() {
     });
   });
 }
+
+registerManualProtocolTests(() => testEnvironment);

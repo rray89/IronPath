@@ -3,6 +3,7 @@ package com.example.ironpath.ui.screens.accountbackup
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.padding
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Modifier
 import androidx.navigation.NavGraphBuilder
 import androidx.navigation.NavHostController
@@ -27,8 +28,8 @@ internal val accountExperienceDrawerContent =
     AccountExperienceDrawerContent(
         contentDescription =
             "Local profile. Training data stays on this device until you manually back it up. " +
-                "Open Account and Backup. Manual operations are unavailable in this build.",
-        stateDescription = "Local only. No account connected. Manual operations unavailable.",
+                "Open Account and Backup. Demo backups stay on this device.",
+        stateDescription = "Local only. No account connected.",
         title = "Stored on this device",
         actionLabel = "Back up your training data",
     )
@@ -48,11 +49,16 @@ internal fun NavGraphBuilder.accountExperiencePreviewDestination(
     onSignIn: () -> Unit,
     onRetry: () -> Unit,
     onCancel: () -> Unit,
+    manual: ManualBackupUiState,
+    manualActions: ManualBackupActions,
 ) {
     composable(ACCOUNT_BACKUP_ROUTE) {
+        LaunchedEffect(Unit) { onRetry() }
         BackHandler(onBack = onCancel)
         AccountBackupScreen(
             state = state,
+            manual = manual,
+            manualActions = manualActions,
             onSignIn = onSignIn,
             onRetry = onRetry,
             onCancel = onCancel,

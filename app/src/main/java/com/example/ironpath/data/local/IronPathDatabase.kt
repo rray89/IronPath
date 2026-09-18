@@ -11,6 +11,7 @@ import com.example.ironpath.data.local.dao.RecordDao
 import com.example.ironpath.data.local.dao.SessionDao
 import com.example.ironpath.data.local.entity.AccountBackupMetadata
 import com.example.ironpath.data.local.entity.ActiveSession
+import com.example.ironpath.data.local.entity.BackupBaselineChunk
 import com.example.ironpath.data.local.entity.LoggedExercise
 import com.example.ironpath.data.local.entity.LoggedSet
 import com.example.ironpath.data.local.entity.PersonalRecord
@@ -35,8 +36,9 @@ import com.example.ironpath.data.local.entity.WorkoutLog
             LoggedSet::class,
             PersonalRecord::class,
             AccountBackupMetadata::class,
+            BackupBaselineChunk::class,
         ],
-    version = 3,
+    version = 4,
     exportSchema = true,
 )
 abstract class IronPathDatabase : RoomDatabase() {
@@ -51,6 +53,35 @@ abstract class IronPathDatabase : RoomDatabase() {
     abstract fun backupDao(): BackupDao
 
     companion object {
+        val MIGRATION_3_4 =
+            object : Migration(3, 4) {
+                override fun migrate(db: SupportSQLiteDatabase) {
+                    db.execSQL(
+                        """
+                        CREATE TABLE IF NOT EXISTS `backup_baseline_chunks` (
+                            `chunkIndex` INTEGER NOT NULL,
+                            `ownerUid` TEXT NOT NULL,
+                            `installationId` TEXT NOT NULL,
+                            `backupId` TEXT NOT NULL,
+                            `remoteGeneration` INTEGER NOT NULL,
+                            `completedAt` INTEGER NOT NULL,
+                            `sourceInstallationId` TEXT NOT NULL,
+                            `formatVersion` INTEGER NOT NULL,
+                            `capturedRevision` INTEGER NOT NULL,
+                            `entityCountsJson` TEXT NOT NULL,
+                            `snapshotByteCount` INTEGER NOT NULL,
+                            `snapshotDigest` TEXT NOT NULL,
+                            `payload` TEXT NOT NULL,
+                            `chunkByteCount` INTEGER NOT NULL,
+                            `chunkDigest` TEXT NOT NULL,
+                            PRIMARY KEY(`chunkIndex`)
+                        )
+                        """
+                            .trimIndent()
+                    )
+                }
+            }
+
         val MIGRATION_1_2 =
             object : Migration(1, 2) {
                 override fun migrate(db: SupportSQLiteDatabase) {

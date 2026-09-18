@@ -1,9 +1,31 @@
 package com.example.ironpath.domain.backup
 
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 
 interface BackupCoordinator {
     val status: StateFlow<BackupStatus>
+
+    val latestSummary: StateFlow<RemoteBackupSummary?>
+        get() = MutableStateFlow(null)
+
+    suspend fun refreshStatus() {}
+
+    suspend fun discardPreview(previewId: String) {}
+
+    suspend fun previewBackup(): BackupPreviewResult = BackupPreviewResult.Unavailable
+
+    suspend fun confirmBackup(
+        previewId: String,
+        destructiveConfirmed: Boolean = false
+    ): BackupActionResult = BackupActionResult.Unavailable
+
+    suspend fun previewSync(): SyncPreviewResult = SyncPreviewResult.Unavailable
+
+    suspend fun confirmSync(
+        previewId: String,
+        resolution: SyncConflictResolution? = null
+    ): BackupActionResult = BackupActionResult.Unavailable
 
     suspend fun backUpNow(): BackupActionResult
 
@@ -16,6 +38,12 @@ interface BackupCoordinator {
 
 sealed interface BackupStatus {
     data object LocalOnly : BackupStatus
+
+    data object SignedInNoBackup : BackupStatus
+
+    data object LocalChanges : BackupStatus
+
+    data object ReviewRequired : BackupStatus
 
     data object Preparing : BackupStatus
 
@@ -61,6 +89,10 @@ sealed interface ActiveSessionDisposition {
 }
 
 enum class BackupFailureReason {
+    StalePreview,
+    OwnershipMismatch,
+    ActiveSessionPresent,
+    ConflictChoiceRequired,
     InvalidSnapshot,
     ConcurrentRemoteChange,
     DestructiveLocalChange,
@@ -71,6 +103,48 @@ enum class BackupFailureReason {
     ReauthenticationRequired,
     ServiceUnavailable,
     Unknown,
+}
+
+data class BackupPreview(
+    val id: String,
+    val localRevision: Long,
+    val remoteGeneration: Long,
+    val entityCounts: Map<String, Int>,
+    val previousEntityCount: Int,
+    val requiresDestructiveConfirmation: Boolean,
+    val associationOnly: Boolean,
+)
+
+data class SyncPreview(
+    val id: String,
+    val localRevision: Long,
+    val remoteGeneration: Long,
+    val localChanges: Map<String, Int>,
+    val cloudChanges: Map<String, Int>,
+    val conflicts: Map<String, Int>,
+    val canKeepLocal: Boolean = true,
+    val canKeepCloud: Boolean = true,
+)
+
+enum class SyncConflictResolution {
+    KeepLocal,
+    KeepCloud
+}
+
+sealed interface BackupPreviewResult {
+    data class Ready(val preview: BackupPreview) : BackupPreviewResult
+
+    data object Unavailable : BackupPreviewResult
+
+    data class Failed(val reason: BackupFailureReason) : BackupPreviewResult
+}
+
+sealed interface SyncPreviewResult {
+    data class Ready(val preview: SyncPreview) : SyncPreviewResult
+
+    data object Unavailable : SyncPreviewResult
+
+    data class Failed(val reason: BackupFailureReason) : SyncPreviewResult
 }
 
 sealed interface BackupActionResult {

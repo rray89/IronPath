@@ -2,6 +2,8 @@ package com.example.ironpath.data.account
 
 import android.content.Context
 import android.util.AtomicFile
+import com.example.ironpath.data.backup.RemoteBackupRead
+import com.example.ironpath.data.backup.RemoteBackupStore
 import com.example.ironpath.domain.account.AccountId
 import com.example.ironpath.domain.account.AccountProfile
 import com.example.ironpath.domain.account.AccountSessionAdapter
@@ -17,7 +19,9 @@ import kotlinx.coroutines.withContext
 
 /** Debug credentials only. No Google/Firebase SDK, token, or network access. */
 @Singleton
-class DeterministicAccountSessionAdapter @Inject constructor(@ApplicationContext context: Context) :
+class DeterministicAccountSessionAdapter
+@Inject
+constructor(@ApplicationContext context: Context, private val remote: RemoteBackupStore) :
     AccountSessionAdapter {
     private val sessionFile = AtomicFile(File(context.noBackupFilesDir, SESSION_FILE_NAME))
 
@@ -62,7 +66,16 @@ class DeterministicAccountSessionAdapter @Inject constructor(@ApplicationContext
     }
 
     override suspend fun remoteSnapshot(accountId: AccountId): RemoteSnapshotPresence =
-        RemoteSnapshotPresence.Absent
+        when (val result = remote.latest(accountId)) {
+            is RemoteBackupRead.Absent -> RemoteSnapshotPresence.Absent
+            is RemoteBackupRead.Complete ->
+                RemoteSnapshotPresence.Complete(
+                    result.backup.summary.backupId,
+                    result.backup.generation,
+                    result.backup.summary.sourceInstallationId
+                )
+            is RemoteBackupRead.Failed -> error("Demo backup state is unavailable")
+        }
 
     companion object {
         const val SESSION_FILE_NAME = "ironpath-debug-account-session"

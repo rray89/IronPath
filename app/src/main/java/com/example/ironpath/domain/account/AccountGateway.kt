@@ -7,6 +7,9 @@ interface AccountGateway {
 
     suspend fun refresh(): AccountActionResult
 
+    /** Reconstruct local identity/lineage without inspecting remote storage. */
+    suspend fun refreshLocal(): AccountActionResult = refresh()
+
     suspend fun cancelDataChoice(): AccountActionResult
 
     suspend fun startGoogleSignIn(): AccountActionResult
@@ -142,7 +145,12 @@ object AccountStateResolver {
         conflict: PersistedConflictContext?,
     ): Boolean {
         if (remoteSnapshot !is RemoteSnapshotPresence.Complete) return false
-        if (localDataIsEmpty || conflict == null) return true
+        if (conflict == null) return true
+        if (localDataIsEmpty) {
+            return remoteSnapshot.backupId != conflict.lastObservedRemoteBackupId ||
+                remoteSnapshot.generation != conflict.lastObservedRemoteGeneration ||
+                conflict.localChangeRevision != conflict.lastCompleteLocalRevision
+        }
         return remoteSnapshot.generation > conflict.lastObservedRemoteGeneration &&
             remoteSnapshot.sourceInstallationId != conflict.currentInstallationId
     }
