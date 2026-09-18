@@ -8,15 +8,22 @@ undo, sign-out/deletion and background operations remain outside this slice.
 
 ## Seeker walkthrough
 
-Physical handoff is pending: the September 18 focused Gradle/UTP run passed its
+The September 18 focused Gradle/UTP run passed its
 40 isolated tests, but runner cleanup then uninstalled the target package. The
 installed app and its data were not retained. No recoverable local copy has been
-identified; further Seeker writes are stopped pending BOSS's recovery/reinstallation
-decision. The APK is available from this branch. Physical testing now follows the
+identified. BOSS confirmed that the test data can be rebuilt and explicitly
+authorized reinstallation; the review APK is reinstalled on Seeker with empty
+app data. This is a fresh installation, not restoration of the previous records.
+Product acceptance remains pending. Physical testing now follows the
 direct, non-uninstalling instrumentation instructions in `testing-strategy.md`.
 
 Allow about five to ten minutes. Keep existing app storage; do not uninstall or clear
 it. If the screen is locked, leave physical acceptance for the next session.
+For a fresh installation, continue on this device and first add one disposable
+test record in History → Records. This lets the main walkthrough exercise a
+nonempty backup and sync. To exercise the empty-profile branch instead, complete
+steps 1–3 first, then add a test record and confirm its first **Back Up Now** before
+adding another test record and continuing with steps 4–6.
 
 1. Open Menu → Account & Backup. Sign in to the labelled demo account if necessary.
    Confirm that signing in has not created a backup. The page explains the demo storage
@@ -29,7 +36,7 @@ it. If the screen is locked, leave physical acceptance for the next session.
    demo backup time/counts and **Up to date** status. If an empty profile was associated,
    the correct outcome is **Signed in — no backup yet**.
 4. Close/reopen the app without clearing storage. Check that account identity, latest
-   complete backup and status reconstruct. Create or edit a test personal record using
+   complete backup and status reconstruct. Create another test personal record using
    the normal app flow; the account page should now show **Local changes**. The previous
    backup must not change automatically.
 5. Choose **Review manual sync**. Check the changes, cancel once, and confirm that the
