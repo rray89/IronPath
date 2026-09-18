@@ -91,40 +91,57 @@ class AdaptiveLayoutTest {
     @get:Rule val composeRule = createComposeRule()
 
     @Test
-    fun entry_compactPortraitAt200Percent_keepsActionsAndLegalCopyReachable() {
+    fun entry_compactPortraitAt200Percent_keepsGuestAndAccountActionsReachable() {
         setAdaptiveContent(COMPACT_PORTRAIT) { EntryScreen(onGetStarted = {}) }
 
-        assertEntryContentReachable()
+        assertEntryContentReachable(accountExperiencePreviewEnabled = true)
     }
 
     @Test
-    fun entry_compactLandscapeAt200Percent_keepsActionsAndLegalCopyReachable() {
+    fun entry_compactLandscapeAt200Percent_keepsGuestAndAccountActionsReachable() {
         setAdaptiveContent(COMPACT_LANDSCAPE) { EntryScreen(onGetStarted = {}) }
 
-        assertEntryContentReachable()
+        assertEntryContentReachable(accountExperiencePreviewEnabled = true)
     }
 
     @Test
     fun entry_standardPortraitAt100Percent_keepsActionsAndLegalCopyReachable() {
-        setAdaptiveContent(STANDARD_PORTRAIT) { EntryScreen(onGetStarted = {}) }
+        setAdaptiveContent(STANDARD_PORTRAIT) {
+            EntryScreen(onGetStarted = {}, accountExperiencePreviewEnabled = false)
+        }
 
-        assertEntryContentReachable()
+        assertEntryContentReachable(accountExperiencePreviewEnabled = false)
     }
 
-    private fun assertEntryContentReachable() {
+    private fun assertEntryContentReachable(accountExperiencePreviewEnabled: Boolean) {
         composeRule
             .onNodeWithText("CONTINUE ON THIS DEVICE")
             .performScrollTo()
             .assertIsDisplayed()
             .assertHasClickAction()
-        composeRule
-            .onNodeWithText(
-                "Your training data is already saved on this device. " +
-                    "IronPath cloud backup is not available in this version. " +
-                    "Android device-to-device transfer may copy it to a new phone during setup."
-            )
-            .performScrollTo()
-            .assertIsDisplayed()
+        if (accountExperiencePreviewEnabled) {
+            composeRule
+                .onNodeWithText("SIGN IN WITH GOOGLE")
+                .performScrollTo()
+                .assertIsDisplayed()
+                .assertHasClickAction()
+            composeRule
+                .onNodeWithText(
+                    "Signing in identifies your account. Your training data stays local until " +
+                        "you choose a manual backup or restore."
+                )
+                .performScrollTo()
+                .assertIsDisplayed()
+        } else {
+            composeRule
+                .onNodeWithText(
+                    "Your training data is already saved on this device. " +
+                        "IronPath cloud backup is not available in this version. " +
+                        "Android device-to-device transfer may copy it to a new phone during setup."
+                )
+                .performScrollTo()
+                .assertIsDisplayed()
+        }
     }
 
     @Test

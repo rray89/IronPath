@@ -16,6 +16,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.FitnessCenter
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -24,6 +25,8 @@ import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import com.example.ironpath.ui.components.GreenGradientButton
+import com.example.ironpath.ui.screens.accountbackup.ACCOUNT_EXPERIENCE_PREVIEW_ENABLED
+import com.example.ironpath.ui.screens.accountbackup.accountExperienceEntryContent
 import com.example.ironpath.ui.testing.TestTags
 import com.example.ironpath.ui.theme.AmbientGlow
 import com.example.ironpath.ui.theme.SurfaceContainerHigh
@@ -33,7 +36,10 @@ fun EntryScreen(
     onGetStarted: () -> Unit,
     modifier: Modifier = Modifier,
     continuing: Boolean = false,
+    onSignIn: () -> Unit = {},
+    accountExperiencePreviewEnabled: Boolean = ACCOUNT_EXPERIENCE_PREVIEW_ENABLED,
 ) {
+    val previewContent = accountExperienceEntryContent.takeIf { accountExperiencePreviewEnabled }
     Box(
         modifier =
             modifier.fillMaxSize().background(MaterialTheme.colorScheme.surface).drawBehind {
@@ -99,9 +105,12 @@ fun EntryScreen(
 
             Text(
                 text =
-                    "Your training data is already saved on this device. " +
-                        "IronPath cloud backup is not available in this version. " +
-                        "Android device-to-device transfer may copy it to a new phone during setup.",
+                    previewContent?.privacyCopy
+                        ?: run {
+                            "Your training data is already saved on this device. " +
+                                "IronPath cloud backup is not available in this version. " +
+                                "Android device-to-device transfer may copy it to a new phone during setup."
+                        },
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -114,6 +123,11 @@ fun EntryScreen(
                 enabled = !continuing,
                 modifier = Modifier.testTag(TestTags.ENTRY_GET_STARTED),
             )
+
+            if (previewContent != null) {
+                Spacer(Modifier.height(12.dp))
+                OutlinedButton(onClick = onSignIn) { Text(previewContent.signInLabel) }
+            }
 
             Spacer(Modifier.height(32.dp))
 

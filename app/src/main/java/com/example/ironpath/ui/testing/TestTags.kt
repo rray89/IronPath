@@ -6,6 +6,7 @@ import java.util.Locale
 object TestTags {
     const val APP_CONTENT = "app_content"
     const val ENTRY_GET_STARTED = "entry_get_started"
+    const val ACCOUNT_PREVIEW_LONG_PRESS_RESTORE = "account_preview_long_press_restore"
 
     const val RECORD_NAME = "record_name"
     const val RECORD_WEIGHT = "record_weight"

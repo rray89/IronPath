@@ -1,6 +1,7 @@
 package com.example.ironpath.ui.navigation
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
@@ -24,10 +25,14 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.unit.dp
+import com.example.ironpath.ui.screens.accountbackup.ACCOUNT_EXPERIENCE_PREVIEW_ENABLED
+import com.example.ironpath.ui.screens.accountbackup.accountExperienceDrawerContent
+import com.example.ironpath.ui.screens.accountbackup.openAccountExperiencePreview
 import com.example.ironpath.ui.theme.SurfaceContainerHigh
 import com.example.ironpath.ui.theme.SurfaceContainerLow
 
@@ -36,6 +41,7 @@ fun IronPathDrawer(
     onDestinationSelected: (String) -> Unit,
     modifier: Modifier = Modifier,
     selectedRoute: String? = null,
+    accountExperiencePreviewEnabled: Boolean = ACCOUNT_EXPERIENCE_PREVIEW_ENABLED,
 ) {
     ModalDrawerSheet(
         modifier = modifier,
@@ -50,7 +56,10 @@ fun IronPathDrawer(
                     .padding(horizontal = 16.dp, vertical = 20.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            LocalProfileHeader()
+            LocalProfileHeader(
+                experiencePreviewEnabled = accountExperiencePreviewEnabled,
+                onOpenExperiencePreview = { openAccountExperiencePreview(onDestinationSelected) },
+            )
             Spacer(Modifier.height(12.dp))
             DrawerDestination(
                 label = "Manual",
@@ -79,18 +88,33 @@ fun IronPathDrawer(
 }
 
 @Composable
-private fun LocalProfileHeader(modifier: Modifier = Modifier) {
+private fun LocalProfileHeader(
+    experiencePreviewEnabled: Boolean,
+    onOpenExperiencePreview: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val previewContent = accountExperienceDrawerContent.takeIf { experiencePreviewEnabled }
+    val interactionModifier =
+        if (previewContent != null) {
+            Modifier.clickable(role = Role.Button, onClick = onOpenExperiencePreview)
+        } else Modifier
     Column(
         modifier =
             modifier
                 .fillMaxWidth()
                 .background(SurfaceContainerLow, RoundedCornerShape(4.dp))
+                .then(interactionModifier)
                 .semantics(mergeDescendants = true) {
-                    contentDescription =
-                        "Local profile. Training data already saved on this device. " +
-                            "IronPath cloud backup unavailable. Android device transfer available."
-                    stateDescription =
-                        "Saved locally. Cloud backup unavailable. Device transfer available."
+                    if (previewContent != null) {
+                        contentDescription = previewContent.contentDescription
+                        stateDescription = previewContent.stateDescription
+                    } else {
+                        contentDescription =
+                            "Local profile. Training data already saved on this device. " +
+                                "IronPath cloud backup unavailable. Android device transfer available."
+                        stateDescription =
+                            "Saved locally. Cloud backup unavailable. Device transfer available."
+                    }
                 }
                 .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp),
@@ -101,16 +125,21 @@ private fun LocalProfileHeader(modifier: Modifier = Modifier) {
             color = MaterialTheme.colorScheme.primary,
         )
         Text(
-            text = "Your training data is already saved on this device.",
+            text = previewContent?.title ?: "Your training data is already saved on this device.",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurface,
         )
         Text(
             text =
-                "IronPath cloud backup is not available in this version. " +
-                    "Android device-to-device transfer may copy it to a new phone during setup.",
+                previewContent?.actionLabel
+                    ?: "IronPath cloud backup is not available in this version.",
             style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            color =
+                if (previewContent != null) {
+                    MaterialTheme.colorScheme.primary
+                } else {
+                    MaterialTheme.colorScheme.onSurfaceVariant
+                },
         )
     }
 }

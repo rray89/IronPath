@@ -60,6 +60,7 @@ import com.example.ironpath.ui.navigation.Route
 import com.example.ironpath.ui.navigation.TopNavigationIcon
 import com.example.ironpath.ui.navigation.navigationChrome
 import com.example.ironpath.ui.navigation.startupRoute
+import com.example.ironpath.ui.screens.accountbackup.accountExperiencePreviewTopBarTitle
 import com.example.ironpath.ui.testing.TestTags
 import com.example.ironpath.ui.theme.IronPathTheme
 import dagger.hilt.android.AndroidEntryPoint
@@ -304,11 +305,12 @@ fun IronPathApp(
 }
 
 private fun topBarTitle(route: String?): String =
-    when (route) {
-        Route.MANUAL -> "MANUAL"
-        Route.AI_PRIVACY -> "AI & PRIVACY"
-        Route.ABOUT -> "ABOUT IRONPATH"
-        Route.WORKOUT_PREVIEW -> "WORKOUT PREVIEW"
-        Route.WORKOUT_LOG_DETAIL -> "WORKOUT LOG"
-        else -> "IRONPATH"
-    }
+    accountExperiencePreviewTopBarTitle(route)
+        ?: when (route) {
+            Route.MANUAL -> "MANUAL"
+            Route.AI_PRIVACY -> "AI & PRIVACY"
+            Route.ABOUT -> "ABOUT IRONPATH"
+            Route.WORKOUT_PREVIEW -> "WORKOUT PREVIEW"
+            Route.WORKOUT_LOG_DETAIL -> "WORKOUT LOG"
+            else -> "IRONPATH"
+        }

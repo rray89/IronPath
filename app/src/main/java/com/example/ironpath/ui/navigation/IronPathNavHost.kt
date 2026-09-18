@@ -16,6 +16,9 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.navArgument
 import com.example.ironpath.ui.screens.about.AboutScreen
+import com.example.ironpath.ui.screens.accountbackup.ACCOUNT_EXPERIENCE_PREVIEW_ENABLED
+import com.example.ironpath.ui.screens.accountbackup.accountExperiencePreviewDestination
+import com.example.ironpath.ui.screens.accountbackup.openAccountExperiencePreview
 import com.example.ironpath.ui.screens.active.ActiveScreen
 import com.example.ironpath.ui.screens.aiprivacy.AiPrivacyScreen
 import com.example.ironpath.ui.screens.devtools.DevToolsScreen
@@ -35,6 +38,7 @@ fun IronPathNavHost(
     modifier: Modifier = Modifier,
     startDestination: String = Route.ENTRY,
     onCompleteOnboarding: suspend () -> Boolean = { true },
+    accountExperiencePreviewEnabled: Boolean = ACCOUNT_EXPERIENCE_PREVIEW_ENABLED,
     drawerOpen: Boolean = false,
     onCloseDrawer: () -> Unit = {},
 ) {
@@ -63,6 +67,8 @@ fun IronPathNavHost(
                     }
                 },
                 continuing = onboardingCompletionInProgress,
+                accountExperiencePreviewEnabled = accountExperiencePreviewEnabled,
+                onSignIn = { navController.openAccountExperiencePreview() },
             )
         }
         composable(Route.HOME) {
@@ -146,6 +152,7 @@ fun IronPathNavHost(
             }
         }
         composable(Route.MANUAL) { ManualScreen(modifier = Modifier.padding(innerPadding)) }
+        accountExperiencePreviewDestination(innerPadding)
         composable(Route.AI_PRIVACY) { AiPrivacyScreen(modifier = Modifier.padding(innerPadding)) }
         composable(Route.ABOUT) { AboutScreen(modifier = Modifier.padding(innerPadding)) }
         composable(

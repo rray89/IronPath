@@ -13,6 +13,7 @@ import androidx.compose.ui.test.assertContentDescriptionContains
 import androidx.compose.ui.test.assertContentDescriptionEquals
 import androidx.compose.ui.test.assertHasClickAction
 import androidx.compose.ui.test.assertHasNoClickAction
+import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertIsNotSelected
@@ -79,6 +80,7 @@ import com.example.ironpath.ui.testing.TestTags
 import com.example.ironpath.ui.theme.IronPathTheme
 import java.time.LocalDate
 import java.time.ZoneOffset
+import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -369,12 +371,29 @@ class SemanticsContractTest {
     }
 
     @Test
-    fun entry_exposesOnlyTheAvailableLocalContinuationAction() {
-        setThemedContent { EntryScreen(onGetStarted = {}) }
+    fun entry_exposesGuestAndOptionalGoogleAccountActions() {
+        var signInCount = 0
+        setThemedContent { EntryScreen(onGetStarted = {}, onSignIn = { signInCount++ }) }
 
         composeRule.onNodeWithText("CONTINUE ON THIS DEVICE").assertHasClickAction()
-        composeRule.onNodeWithText("Sign in with Google").assertDoesNotExist()
+        composeRule.onNodeWithText("SIGN IN WITH GOOGLE").assertHasClickAction()
+        composeRule
+            .onNodeWithText(
+                "Signing in identifies your account. Your training data stays local until you " +
+                    "choose a manual backup or restore."
+            )
+            .assertIsDisplayed()
+        composeRule.onNodeWithText("SIGN IN WITH GOOGLE").performClick()
+        composeRule.runOnIdle { assertEquals(1, signInCount) }
         composeRule.onNodeWithText("Terms of Service", substring = true).assertDoesNotExist()
+    }
+
+    @Test
+    fun entry_whenExperiencePreviewIsDisabled_exposesOnlyLocalContinuation() {
+        setThemedContent { EntryScreen(onGetStarted = {}, accountExperiencePreviewEnabled = false) }
+
+        composeRule.onNodeWithText("CONTINUE ON THIS DEVICE").assertHasClickAction()
+        composeRule.onNodeWithText("SIGN IN WITH GOOGLE").assertDoesNotExist()
     }
 
     @Test

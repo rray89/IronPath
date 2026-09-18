@@ -1,5 +1,7 @@
 package com.example.ironpath.ui.navigation
 
+import com.example.ironpath.ui.screens.accountbackup.isAccountExperiencePreviewRoute
+
 enum class TopNavigationIcon {
     None,
     Menu,
@@ -13,8 +15,17 @@ data class NavigationChrome(
     val drawerEnabled: Boolean,
 )
 
-fun navigationChrome(route: String?): NavigationChrome =
-    when (route) {
+fun navigationChrome(route: String?): NavigationChrome {
+    if (isAccountExperiencePreviewRoute(route)) {
+        return NavigationChrome(
+            showTopBar = true,
+            showBottomBar = false,
+            navigationIcon = TopNavigationIcon.Back,
+            drawerEnabled = false,
+        )
+    }
+
+    return when (route) {
         Route.HOME,
         Route.PLAN,
         Route.ACTIVE,
@@ -44,6 +55,7 @@ fun navigationChrome(route: String?): NavigationChrome =
                 drawerEnabled = false,
             )
     }
+}
 
 fun startupRoute(onboardingCompleted: Boolean): String =
     if (onboardingCompleted) Route.HOME else Route.ENTRY
