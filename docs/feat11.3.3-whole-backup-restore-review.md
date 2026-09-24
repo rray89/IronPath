@@ -45,10 +45,13 @@ shared base and requires an explicit sync choice. The focused API 29 managed-emu
 run passed 41 tests covering the account screen, Home/History journey, Room restore and
 undo transactions, cold Room reopen, migration, and accessibility semantics. A
 follow-up Room run passed 18/18 tests, including failed-undo rollback and retry plus
-populated undo-slot clearing during reset and installation transfer. The API 36
-accessibility package passed 39 tests. Final-source lint/build and JVM/core-coverage
-gates are still running; release assembly has passed, with release isolation to be
-checked from the artifact.
+populated undo-slot clearing during reset and installation transfer. The complete JVM
+suite passed 361/361 tests; core coverage is line 93.24% and branch 78.29%. The API 36
+accessibility package passed 39 tests. Final-source `spotlessCheck`, `lintDebug`,
+`lintBenchmarkRelease`, `assembleDebug`, and `assembleRelease` all passed. Release APK
+inspection found the release-bound `LocalOnlyBackupCoordinator`; debug-only backup
+transport, DI module, directory, and preview-screen classes do not appear in the release
+mapping. Node 22 Firebase verification remains a CI check.
 
 Firebase protocol tests exercise corrupt or missing chunks of artifacts already marked
 COMPLETE under the emulator rules; their local 25-test run used bundled Node 24.19.0
