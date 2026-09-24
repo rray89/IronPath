@@ -261,6 +261,11 @@ Experience Direction remains the interaction baseline. This slice gets its own F
 Usable Slice review before merge; physical acceptance may wait until the next day if
 the Seeker lock screen prevents testing. Code and automated verification may continue.
 
+BOSS completed and accepted the six-step Seeker functional walkthrough on September
+24, 2026, including manual sync and restart persistence. Account & Backup usability
+refinement is a low-priority follow-up (RRA-62); functional delivery remains the
+priority. This acceptance does not waive technical review, CI or the merge gate.
+
 - The debug build uses a clearly labelled, persistent **demo backup on this device**.
   It contacts no live Google or Firebase service and does not protect against device
   loss or uninstall. The confirmation explains that manual sync can change real local

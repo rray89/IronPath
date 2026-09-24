@@ -14,7 +14,7 @@ installed app and its data were not retained. No recoverable local copy has been
 identified. BOSS confirmed that the test data can be rebuilt and explicitly
 authorized reinstallation; the review APK is reinstalled on Seeker with empty
 app data. This is a fresh installation, not restoration of the previous records.
-Product acceptance remains pending. Physical testing now follows the
+Physical testing now follows the
 direct, non-uninstalling instrumentation instructions in `testing-strategy.md`.
 
 Allow about five to ten minutes. Keep existing app storage; do not uninstall or clear
@@ -69,5 +69,13 @@ It does not claim Android Firebase integration or production authentication.
 
 ## Checkpoint
 
-Product acceptance of this slice is pending. After acceptance and merge, the next core
-flow is feat11.3.3 whole-backup restore and one-snapshot undo.
+BOSS completed the six-step Seeker walkthrough on September 24, 2026 and confirmed
+the functional behavior, including manual-sync cancellation/confirmation and the
+final restart/data-retention check. Product acceptance is complete; technical review,
+CI and merge remain separate delivery gates.
+
+BOSS found the overall Account & Backup action sequence unintuitive and prioritized
+functionality for this slice. UI hierarchy, wording and flow refinement are parked as
+the low-priority [RRA-62 follow-up](https://linear.app/rray-codex-main/issue/RRA-62/feat113-make-the-account-and-backup-flow-easier-to-understand),
+without blocking this acceptance. After merge, the next core flow is feat11.3.3
+whole-backup restore and one-snapshot undo.
