@@ -254,6 +254,44 @@ beyond the accepted deterministic first slice. The next product slice is
 explicit manual backup and revision-aware sync (feat11.3.2), followed
 by whole-backup restore and undo (feat11.3.3).
 
+### Feat11.3.2 implementation contract
+
+BOSS authorized the next manual backup/sync slice on September 18, 2026. The accepted
+Experience Direction remains the interaction baseline. This slice gets its own First
+Usable Slice review before merge; physical acceptance may wait until the next day if
+the Seeker lock screen prevents testing. Code and automated verification may continue.
+
+BOSS completed and accepted the six-step Seeker functional walkthrough on September
+24, 2026, including manual sync and restart persistence. Account & Backup usability
+refinement is a low-priority follow-up (RRA-62); functional delivery remains the
+priority. This acceptance does not waive technical review, CI or the merge gate.
+
+- The debug build uses a clearly labelled, persistent **demo backup on this device**.
+  It contacts no live Google or Firebase service and does not protect against device
+  loss or uninstall. The confirmation explains that manual sync can change real local
+  training records. Release keeps the inert coordinator and no demo storage adapter.
+- `Back Up Now` first shows included counts. Explicit confirmation associates eligible
+  unclaimed data; empty data associates without creating an empty backup. A previously
+  nonempty lineage becoming empty or losing more than half its included records needs
+  an additional destructive acknowledgement.
+- `Review manual sync` uses a durable shared baseline, local revision and cloud
+  generation. One-sided changes are included in either confirmed outcome. The two
+  accepted conflict choices select local or cloud **conflicting versions**; neither
+  choice is selected automatically. Invalid merged graphs cannot be confirmed.
+- Previews are ephemeral. Back cancels the review and returns to the account overview
+  without cancelling account setup. Confirmation rechecks the captured identity,
+  installation, local revision and remote generation; changed inputs require review
+  again. An active workout blocks sync, while backup excludes its transient records.
+- Shared baselines are stored transactionally in bounded Room chunk rows. Reset and
+  installation transfer clear that lineage. A remote completion racing with a local
+  write cannot mark the newer local state up to date or discard the write.
+- Deterministic adapter tests and Firebase emulator protocol integration cover manual
+  publication, merged snapshots, generation races and denied access. They do not imply
+  live Firebase activation or real Google authentication.
+
+Whole-backup restore and undo remain the following feat11.3.3 flow. This slice adds no
+background work, sign-out/deletion controls, live credentials or billing configuration.
+
 ### Free-tier enforcement
 
 - V5 implementation and documentation target Firebase Spark only.
@@ -940,7 +978,8 @@ The Entry, Manual, AI & Privacy, and Account & Backup copy must match this polic
    absent
 6. `feat11.3.2: implement revision-aware manual backup/sync preview and explicit
    conflict outcomes against deterministic and emulator adapters`; add no background
-   scheduling
+   scheduling. The First Usable Slice review and Seeker walkthrough are in
+   [`feat11.3.2-manual-backup-sync-review.md`](feat11.3.2-manual-backup-sync-review.md).
 7. `feat11.3.3: implement whole-backup restore preview, long-press confirmation, atomic
    replacement, exactly one pre-restore undo snapshot, and the fixture/emulator
    end-to-end journey`

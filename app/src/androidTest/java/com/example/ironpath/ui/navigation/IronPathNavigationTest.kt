@@ -173,6 +173,9 @@ class IronPathNavigationTest {
                                     installationGuard
                                 ),
                                 gatedContext,
+                                com.example.ironpath.data.backup.LocalOnlyBackupCoordinator(
+                                    installationGuard
+                                ),
                             )
                         }
                     },

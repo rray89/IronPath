@@ -3,6 +3,7 @@ package com.example.ironpath.data.backup
 import androidx.room.withTransaction
 import com.example.ironpath.data.local.IronPathDatabase
 import com.example.ironpath.data.local.entity.AccountBackupMetadata
+import com.example.ironpath.domain.account.AccountId
 import com.example.ironpath.domain.identity.IdProvider
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -16,13 +17,142 @@ constructor(
     private val database: IronPathDatabase,
     private val idProvider: IdProvider,
     private val sentinel: InstallationSentinel = NonPersistentInstallationSentinel,
-) : BackupChangeTracker {
+) : BackupChangeTracker, ManualBackupLocalStore {
     private val installationValidationMutex = Mutex()
+
+    override suspend fun capture(): ManualBackupCapture =
+        database.withTransaction {
+            val bundle = export()
+            val metadata = checkNotNull(database.backupDao().getMetadata())
+            ManualBackupCapture(
+                metadata,
+                bundle,
+                BackupBaselineCodec.decode(database.backupDao().getBaselineChunks(), metadata),
+                database.sessionDao().getActiveSession()?.id
+            )
+        }
+
+    override suspend fun associateEmpty(
+        captured: ManualBackupCapture,
+        accountId: AccountId
+    ): Boolean =
+        database.withTransaction {
+            val current = checkNotNull(database.backupDao().getMetadata())
+            if (
+                !sameAuthority(current, captured, accountId) ||
+                    !sameContent(current, captured) ||
+                    database.backupDao().hasIncludedData()
+            )
+                return@withTransaction false
+            database.backupDao().updateMetadata(current.copy(ownerUid = accountId.opaqueValue))
+            true
+        }
+
+    override suspend fun recordBackup(
+        captured: ManualBackupCapture,
+        accountId: AccountId,
+        backup: RemoteBackupArtifact
+    ): Boolean =
+        database.withTransaction {
+            val current = checkNotNull(database.backupDao().getMetadata())
+            if (
+                !sameAuthority(current, captured, accountId) ||
+                    current.localChangeRevision < captured.metadata.localChangeRevision ||
+                    current.lastObservedRemoteGeneration > backup.generation
+            )
+                return@withTransaction false
+            require(
+                backup.snapshot.contentDigest ==
+                    BackupSnapshotCodec().encode(captured.bundle).contentDigest
+            )
+            persistCompleted(current, accountId, backup, captured.metadata.localChangeRevision)
+            true
+        }
+
+    override suspend fun applySync(
+        captured: ManualBackupCapture,
+        accountId: AccountId,
+        backup: RemoteBackupArtifact
+    ): Boolean =
+        database.withTransaction {
+            val current = checkNotNull(database.backupDao().getMetadata())
+            if (
+                !sameAuthority(current, captured, accountId) ||
+                    !sameContent(current, captured) ||
+                    database.sessionDao().getActiveSession() != null ||
+                    current.lastObservedRemoteGeneration > backup.generation
+            )
+                return@withTransaction false
+            val merged = backup.validatedBundle()
+            val revision = Math.addExact(current.localChangeRevision, 1)
+            val dao = database.backupDao()
+            dao.deletePersonalRecords()
+            dao.deleteWorkoutLogs()
+            dao.deleteWeeklyPlans()
+            dao.insertWeeklyPlans(merged.weeklyPlans)
+            dao.insertPlannedWorkouts(merged.plannedWorkouts)
+            dao.insertPlannedExercises(merged.plannedExercises)
+            dao.insertWorkoutLogs(merged.workoutLogs)
+            dao.insertLoggedExercises(merged.loggedExercises)
+            dao.insertLoggedSets(merged.loggedSets)
+            dao.insertPersonalRecords(merged.personalRecords)
+            persistCompleted(
+                current.copy(localChangeRevision = revision),
+                accountId,
+                backup,
+                revision
+            )
+            true
+        }
+
+    private fun sameAuthority(
+        current: AccountBackupMetadata,
+        captured: ManualBackupCapture,
+        accountId: AccountId
+    ): Boolean =
+        current.installationId == captured.metadata.installationId &&
+            current.ownerUid == captured.metadata.ownerUid &&
+            (current.ownerUid == null || current.ownerUid == accountId.opaqueValue)
+
+    private suspend fun sameContent(
+        current: AccountBackupMetadata,
+        captured: ManualBackupCapture
+    ): Boolean =
+        current.localChangeRevision == captured.metadata.localChangeRevision &&
+            BackupSnapshotCodec().encode(export()).contentDigest ==
+                BackupSnapshotCodec().encode(captured.bundle).contentDigest
+
+    private suspend fun persistCompleted(
+        current: AccountBackupMetadata,
+        accountId: AccountId,
+        backup: RemoteBackupArtifact,
+        completedRevision: Long
+    ) {
+        val dao = database.backupDao()
+        val rows = BackupBaselineCodec.encode(backup, accountId.opaqueValue, current.installationId)
+        dao.deleteBaselineChunks()
+        dao.insertBaselineChunks(rows)
+        dao.updateMetadata(
+            current.copy(
+                ownerUid = accountId.opaqueValue,
+                lastCompleteLocalRevision = completedRevision,
+                lastObservedRemoteBackupId = backup.summary.backupId,
+                lastObservedRemoteGeneration = backup.generation,
+                lastObservedRemoteDigest = backup.snapshot.contentDigest,
+                lastObservedSourceInstallationId = backup.summary.sourceInstallationId,
+                lastObservedRemoteCompletedAt = backup.summary.completedAtEpochMillis
+            )
+        )
+    }
 
     override suspend fun markIncludedDataChanged() {
         database.withTransaction {
             ensureMetadata()
-            database.backupDao().incrementLocalChangeRevision()
+            val dao = database.backupDao()
+            val metadata = checkNotNull(dao.getMetadata())
+            dao.updateMetadata(
+                metadata.copy(localChangeRevision = Math.addExact(metadata.localChangeRevision, 1))
+            )
         }
     }
 
@@ -74,6 +204,7 @@ constructor(
             backupDao.deletePersonalRecords()
             backupDao.deleteWorkoutLogs()
             backupDao.deleteWeeklyPlans()
+            backupDao.deleteBaselineChunks()
 
             val restored = validated.bundle
             if (restored.weeklyPlans.isNotEmpty()) {
@@ -131,6 +262,7 @@ constructor(
                 backupDao.deletePersonalRecords()
                 backupDao.deleteWorkoutLogs()
                 backupDao.deleteWeeklyPlans()
+                backupDao.deleteBaselineChunks()
                 backupDao.insertMetadataIfAbsent(resetMetadata)
                 backupDao.updateMetadata(resetMetadata)
             }
@@ -184,6 +316,7 @@ constructor(
                             lastObservedRemoteCompletedAt = null,
                         )
                     backupDao.updateMetadata(replacement)
+                    backupDao.deleteBaselineChunks()
                     replacement
                 }
             if (writeSentinel(sentinel, rotated.installationId)) {

@@ -10,7 +10,10 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 @Singleton
-class FakeAccountSessionAdapter @Inject constructor() : AccountSessionAdapter {
+class FakeAccountSessionAdapter
+@Inject
+constructor(private val remote: com.example.ironpath.data.backup.RemoteBackupStore) :
+    AccountSessionAdapter {
     var session: AccountProfile? = null
     var result: CredentialResult =
         CredentialResult.Selected(
@@ -32,7 +35,18 @@ class FakeAccountSessionAdapter @Inject constructor() : AccountSessionAdapter {
     }
 
     override suspend fun remoteSnapshot(accountId: AccountId): RemoteSnapshotPresence =
-        RemoteSnapshotPresence.Absent
+        when (val result = remote.latest(accountId)) {
+            is com.example.ironpath.data.backup.RemoteBackupRead.Absent ->
+                RemoteSnapshotPresence.Absent
+            is com.example.ironpath.data.backup.RemoteBackupRead.Complete ->
+                RemoteSnapshotPresence.Complete(
+                    result.backup.summary.backupId,
+                    result.backup.generation,
+                    result.backup.summary.sourceInstallationId
+                )
+            is com.example.ironpath.data.backup.RemoteBackupRead.Failed ->
+                error("Isolated test remote unavailable")
+        }
 }
 
 @Module

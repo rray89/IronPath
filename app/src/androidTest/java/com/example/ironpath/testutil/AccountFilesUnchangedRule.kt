@@ -23,12 +23,27 @@ class AccountFilesUnchangedRule : TestWatcher() {
 
     private fun snapshot(): List<String> {
         val context = ApplicationProvider.getApplicationContext<Context>()
-        return listOf("ironpath-installation", DeterministicAccountSessionAdapter.SESSION_FILE_NAME)
+        return listOf(
+                "ironpath-installation",
+                DeterministicAccountSessionAdapter.SESSION_FILE_NAME,
+                "ironpath-debug-remote"
+            )
             .map { name ->
                 val file = File(context.noBackupFilesDir, name)
                 when {
                     !file.exists() -> "absent"
-                    file.isDirectory -> "directory"
+                    file.isDirectory ->
+                        file
+                            .walkTopDown()
+                            .filter { it.isFile }
+                            .sortedBy { it.relativeTo(file).path }
+                            .joinToString("|") { child ->
+                                child.relativeTo(file).path +
+                                    ":" +
+                                    MessageDigest.getInstance("SHA-256")
+                                        .digest(child.readBytes())
+                                        .joinToString("") { "%02x".format(it) }
+                            }
                     else ->
                         MessageDigest.getInstance("SHA-256").digest(file.readBytes()).joinToString(
                             ""

@@ -13,7 +13,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -39,7 +38,13 @@ fun AccountBackupScreen(
     onCancel: () -> Unit,
     onPreview: () -> Unit,
     modifier: Modifier = Modifier,
+    manual: ManualBackupUiState = ManualBackupUiState(),
+    manualActions: ManualBackupActions = ManualBackupActions(),
 ) {
+    if (manual.review != null) {
+        ManualBackupReviewScreen(manual, manualActions, onCancel, modifier)
+        return
+    }
     Column(
         modifier = modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
@@ -90,26 +95,25 @@ fun AccountBackupScreen(
             "Signing in identifies your account. Your training data stays local until you choose a manual backup or restore.",
             style = MaterialTheme.typography.bodyMedium
         )
-        Text(
-            "Manual backup, sync, and restore are not available in this build.",
-            style = MaterialTheme.typography.bodyMedium
-        )
-        listOf("BACK UP NOW", "REVIEW MANUAL SYNC", "PREVIEW WHOLE-BACKUP RESTORE").forEach { label
-            ->
-            OutlinedButton(onClick = {}, enabled = false, modifier = Modifier.fillMaxWidth()) {
-                Text(label)
-            }
-        }
+        ManualBackupOverview(state, manual, manualActions, onRetry)
         if (
             state == AccountState.SigningIn ||
                 state is AccountState.AwaitingDataChoice ||
                 (state is AccountState.RecoverableError && state.canCancelDataChoice)
         ) {
-            TextButton(onClick = onCancel, modifier = Modifier.fillMaxWidth()) {
+            TextButton(
+                onClick = onCancel,
+                enabled = !manual.busy,
+                modifier = Modifier.fillMaxWidth()
+            ) {
                 Text("CANCEL ACCOUNT SETUP")
             }
         }
-        TextButton(onClick = onPreview, modifier = Modifier.fillMaxWidth()) {
+        TextButton(
+            onClick = onPreview,
+            enabled = !manual.busy,
+            modifier = Modifier.fillMaxWidth()
+        ) {
             Text("EXPLORE BACKUP PREVIEW")
         }
     }
@@ -122,7 +126,7 @@ internal fun accountStatusLabel(state: AccountState): String =
         AccountState.SigningIn -> "Signing in"
         AccountState.CancellingDataChoice -> "Cancelling account setup"
         is AccountState.AwaitingDataChoice -> "Data choice required"
-        is AccountState.SignedIn -> "Signed in — manual operations unavailable"
+        is AccountState.SignedIn -> "Signed in"
         is AccountState.RecoverableError -> "Account needs attention"
         AccountState.NeedsReauthentication -> "Needs sign-in"
         AccountState.SigningOut,
@@ -148,7 +152,7 @@ internal fun accountStatusDetail(state: AccountState): String =
                     "Your training data remains local. Sign-in has not linked, uploaded, merged, or replaced it."
             }
         is AccountState.SignedIn ->
-            "This account matches the existing local owner. No manual operation has run."
+            "This account matches the owner of the training data on this device."
         is AccountState.RecoverableError ->
             when (state.reason) {
                 AccountFailureReason.LocalStateUnavailable ->
@@ -165,7 +169,7 @@ internal fun accountStatusDetail(state: AccountState): String =
     }
 
 @Composable
-private fun AccountSection(
+internal fun AccountSection(
     title: String,
     body: String,
     modifier: Modifier = Modifier,

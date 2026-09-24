@@ -101,9 +101,23 @@ class AccountPersistenceTest {
         assertEquals(AccountState.LocalOnly, gateway.state.value)
     }
 
+    private val absentRemote =
+        object : com.example.ironpath.data.backup.RemoteBackupStore {
+            override suspend fun latest(accountId: com.example.ironpath.domain.account.AccountId) =
+                com.example.ironpath.data.backup.RemoteBackupRead.Absent()
+
+            override suspend fun publish(
+                accountId: com.example.ironpath.domain.account.AccountId,
+                expectedGeneration: Long,
+                sourceInstallationId: String,
+                snapshot: com.example.ironpath.data.backup.EncodedBackupSnapshot
+            ): com.example.ironpath.data.backup.RemoteBackupPublish =
+                error("Account persistence never publishes")
+        }
+
     private fun gateway() =
         PersistedAccountGateway(
-            DeterministicAccountSessionAdapter(context),
+            DeterministicAccountSessionAdapter(context, absentRemote),
             RoomAccountContextReader(database),
             guard
         )
@@ -112,7 +126,7 @@ class AccountPersistenceTest {
         Room.databaseBuilder(context, IronPathDatabase::class.java, DATABASE_NAME).build()
 
     private fun clearSession() = runBlocking {
-        check(DeterministicAccountSessionAdapter(context).clearSession())
+        check(DeterministicAccountSessionAdapter(context, absentRemote).clearSession())
     }
 
     private fun sessionFile() =

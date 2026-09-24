@@ -79,6 +79,35 @@ Every database version increment must export the new schema and add both a direc
 
 The principal local gates are:
 
+For Seeker or another physical device with existing app data, build the APKs and
+run a selected set of isolated tests directly. **Do not use
+any Gradle/UTP-managed connected instrumentation on that device**, including
+`connectedDebugAndroidTest`, aggregate `connectedAndroidTest` / `connectedCheck`,
+and connected profile/benchmark tasks. Runner cleanup can uninstall the target
+package and its data even when every test uses an isolated database; benchmark
+variants also use the same application ID.
+Verify the selected tests also isolate account files and preferences. Keep the
+test APK installed after the run; do not clear or uninstall either package.
+`install -r` updates an app; it is not a data backup or a preservation guarantee.
+Never resolve an update failure by uninstalling or clearing data. Establish the
+installed package/files baseline before testing, and use a disposable emulator if
+preservation cannot be verified.
+The project also disables connected-runner uninstall cleanup and incompatible-APK
+uninstall fallback in `gradle.properties` as defense in depth. These defaults do
+not replace the physical-device procedure or provide recovery for a prior deletion.
+Set `ANDROID_SERIAL` from `adb devices -l` and `TEST_CLASSES` to the reviewed,
+comma-separated class list before these commands:
+
+```bash
+./gradlew assembleDebug assembleDebugAndroidTest
+adb -s "$ANDROID_SERIAL" install -r app/build/outputs/apk/debug/app-debug.apk
+adb -s "$ANDROID_SERIAL" install -r -t app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
+adb -s "$ANDROID_SERIAL" shell am instrument -w -r -e class "$TEST_CLASSES" com.example.ironpath.test/com.example.ironpath.HiltTestRunner
+```
+
+Confirm that the app package and its existing files remain present after the run.
+Use disposable managed emulators for the full suite:
+
 ```bash
 ./gradlew spotlessCheck :app:lintDebug :app:lintBenchmarkRelease assembleDebug assembleRelease
 ./gradlew testDebugUnitTest createDebugUnitTestCoverageReport verifyCoreCoverage -PenableCoverage
@@ -86,6 +115,13 @@ The principal local gates are:
 ./gradlew pixel2Api29DebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.notClass=com.example.ironpath.accessibility.PlatformAccessibilityChecksTest
 ./gradlew productionMatrixGroupDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.notClass=com.example.ironpath.accessibility.PlatformAccessibilityChecksTest
 ./gradlew pixel8Api36DebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.package=com.example.ironpath.accessibility
+```
+
+The following connected performance commands require an explicitly selected
+**disposable device with no app data to retain**. They are not the normal Seeker
+feature-test path. The nightly workflow uses disposable API 36 emulators.
+
+```bash
 ./gradlew :app:generateReleaseBaselineProfile -PbaselineProfileUseConnectedDevices=true -Pandroid.testInstrumentationRunnerArguments.class=com.example.ironpath.benchmark.BaselineProfileGenerator -Pandroid.testInstrumentationRunnerArguments.androidx.benchmark.enabledRules=BaselineProfile
 ./gradlew :benchmark:connectedBenchmarkReleaseAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=com.example.ironpath.benchmark.StartupBenchmark,com.example.ironpath.benchmark.CriticalFlowBenchmark -Pandroid.testInstrumentationRunnerArguments.androidx.benchmark.enabledRules=Macrobenchmark
 ```

@@ -92,7 +92,13 @@ class AccountBackupViewModelTest {
 
                 override suspend fun read(): LocalAccountContext =
                     error("Gateway owns reading account context")
-            }
+            },
+            com.example.ironpath.data.backup.LocalOnlyBackupCoordinator(
+                object : com.example.ironpath.data.backup.InstallationGuard {
+                    override suspend fun validate() =
+                        com.example.ironpath.data.backup.InstallationValidationResult.Validated
+                }
+            ),
         )
 
     private class Gateway : AccountGateway {

@@ -318,6 +318,64 @@ class IronPathDatabaseMigrationTest {
 
     @Test
     @Throws(IOException::class)
+    fun migrate3To4_preservesOwnedWorkoutDataAndStartsWithNoInventedSharedBase() {
+        val name = "manual-sync-migration-3.db"
+        helper.createDatabase(name, 3).apply {
+            seedVersionOneData()
+            execSQL(
+                "INSERT INTO account_backup_metadata VALUES (1, 'owner', 'installation', 9, 8, 'backup', 2, 'digest', 'source', 100)"
+            )
+            close()
+        }
+        helper.runMigrationsAndValidate(name, 4, true, IronPathDatabase.MIGRATION_3_4).use {
+            database ->
+            database.assertSingleRow("SELECT * FROM account_backup_metadata WHERE id = 1") {
+                assertEquals("owner", string("ownerUid"))
+                assertEquals(9L, long("localChangeRevision"))
+            }
+            database.assertSingleRow("SELECT * FROM weekly_plans WHERE id = '$PLAN_ID'") {
+                assertEquals("Active", string("status"))
+            }
+            database.query("SELECT COUNT(*) FROM backup_baseline_chunks").use { cursor ->
+                cursor.moveToFirst()
+                assertEquals(0, cursor.getInt(0))
+            }
+        }
+    }
+
+    @Test
+    @Throws(IOException::class)
+    fun migrate2To4_preservesWorkoutDataAndInitializesUnclaimedWithoutABaseline() {
+        val name = "manual-sync-migration-2.db"
+        helper.createDatabase(name, 2).apply {
+            seedVersionOneData()
+            close()
+        }
+        helper
+            .runMigrationsAndValidate(
+                name,
+                4,
+                true,
+                IronPathDatabase.MIGRATION_2_3,
+                IronPathDatabase.MIGRATION_3_4
+            )
+            .use { database ->
+                database.assertSingleRow("SELECT * FROM account_backup_metadata WHERE id = 1") {
+                    assertNull(nullableString("ownerUid"))
+                    assertEquals(1L, long("localChangeRevision"))
+                }
+                database.assertSingleRow("SELECT * FROM workout_logs WHERE id = '$LOG_ID'") {
+                    assertEquals("Strength A", string("title"))
+                }
+                database.query("SELECT COUNT(*) FROM backup_baseline_chunks").use { cursor ->
+                    cursor.moveToFirst()
+                    assertEquals(0, cursor.getInt(0))
+                }
+            }
+    }
+
+    @Test
+    @Throws(IOException::class)
     fun allMigrations_openLatestSchemaAndAllDaosRemainUsable() {
         helper.createDatabase(ALL_MIGRATIONS_DATABASE, 1).apply {
             seedVersionOneData()
@@ -326,17 +384,22 @@ class IronPathDatabaseMigrationTest {
         helper
             .runMigrationsAndValidate(
                 ALL_MIGRATIONS_DATABASE,
-                3,
+                4,
                 true,
                 IronPathDatabase.MIGRATION_1_2,
                 IronPathDatabase.MIGRATION_2_3,
+                IronPathDatabase.MIGRATION_3_4,
             )
             .close()
 
         val context = ApplicationProvider.getApplicationContext<Context>()
         val database =
             Room.databaseBuilder(context, IronPathDatabase::class.java, ALL_MIGRATIONS_DATABASE)
-                .addMigrations(IronPathDatabase.MIGRATION_1_2, IronPathDatabase.MIGRATION_2_3)
+                .addMigrations(
+                    IronPathDatabase.MIGRATION_1_2,
+                    IronPathDatabase.MIGRATION_2_3,
+                    IronPathDatabase.MIGRATION_3_4
+                )
                 .build()
         try {
             database.openHelper.writableDatabase

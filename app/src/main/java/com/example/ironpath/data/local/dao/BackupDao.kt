@@ -6,6 +6,7 @@ import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import androidx.room.Update
 import com.example.ironpath.data.local.entity.AccountBackupMetadata
+import com.example.ironpath.data.local.entity.BackupBaselineChunk
 import com.example.ironpath.data.local.entity.LoggedExercise
 import com.example.ironpath.data.local.entity.LoggedSet
 import com.example.ironpath.data.local.entity.PersonalRecord
@@ -17,6 +18,13 @@ import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface BackupDao {
+    @Query("SELECT * FROM backup_baseline_chunks ORDER BY chunkIndex")
+    suspend fun getBaselineChunks(): List<BackupBaselineChunk>
+
+    @Insert suspend fun insertBaselineChunks(chunks: List<BackupBaselineChunk>)
+
+    @Query("DELETE FROM backup_baseline_chunks") suspend fun deleteBaselineChunks()
+
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insertMetadataIfAbsent(metadata: AccountBackupMetadata)
 
