@@ -12,23 +12,37 @@ sealed interface ManualReview {
     data class Sync(val preview: SyncPreview) : ManualReview {
         override val id = preview.id
     }
+
+    data class Restore(val preview: RestorePreview) : ManualReview {
+        override val id = preview.id
+    }
+
+    data class Undo(val preview: UndoPreview) : ManualReview {
+        override val id = preview.id
+    }
 }
 
 data class ManualBackupUiState(
     val status: BackupStatus = BackupStatus.LocalOnly,
     val latest: RemoteBackupSummary? = null,
+    val undoAvailable: Boolean = false,
     val review: ManualReview? = null,
     val busy: Boolean = false,
     val resolution: SyncConflictResolution? = null,
     val destructiveConfirmed: Boolean = false,
+    val activeWorkoutDiscardConfirmed: Boolean = false,
     val feedback: String? = null,
 )
 
 data class ManualBackupActions(
     val previewBackup: () -> Unit = {},
     val previewSync: () -> Unit = {},
+    val previewRestore: () -> Unit = {},
+    val previewUndo: () -> Unit = {},
     val selectResolution: (SyncConflictResolution) -> Unit = {},
     val confirmDestructive: (Boolean) -> Unit = {},
+    val confirmActiveWorkoutDiscard: (Boolean) -> Unit = {},
+    val holdGuidance: () -> Unit = {},
     val confirm: () -> Unit = {},
 )
 
@@ -39,7 +53,7 @@ internal fun backupFailureMessage(reason: BackupFailureReason): String =
             "Data changed since this review. Open a fresh preview before confirming."
         BackupFailureReason.OwnershipMismatch -> "This device's data belongs to another account."
         BackupFailureReason.ActiveSessionPresent ->
-            "Finish your active workout before syncing. Your workout has not changed."
+            "Finish or discard your active workout through its normal workout flow, then review again. Your workout has not changed."
         BackupFailureReason.ConflictChoiceRequired ->
             "Choose which conflict versions to keep before confirming."
         BackupFailureReason.DestructiveLocalChange ->

@@ -17,6 +17,8 @@ import com.example.ironpath.data.local.entity.LoggedSet
 import com.example.ironpath.data.local.entity.PersonalRecord
 import com.example.ironpath.data.local.entity.PlannedExercise
 import com.example.ironpath.data.local.entity.PlannedWorkout
+import com.example.ironpath.data.local.entity.RestoreUndoChunk
+import com.example.ironpath.data.local.entity.RestoreUndoMetadata
 import com.example.ironpath.data.local.entity.SessionExercise
 import com.example.ironpath.data.local.entity.SessionSet
 import com.example.ironpath.data.local.entity.WeeklyPlan
@@ -37,8 +39,10 @@ import com.example.ironpath.data.local.entity.WorkoutLog
             PersonalRecord::class,
             AccountBackupMetadata::class,
             BackupBaselineChunk::class,
+            RestoreUndoMetadata::class,
+            RestoreUndoChunk::class,
         ],
-    version = 4,
+    version = 5,
     exportSchema = true,
 )
 abstract class IronPathDatabase : RoomDatabase() {
@@ -75,6 +79,63 @@ abstract class IronPathDatabase : RoomDatabase() {
                             `chunkByteCount` INTEGER NOT NULL,
                             `chunkDigest` TEXT NOT NULL,
                             PRIMARY KEY(`chunkIndex`)
+                        )
+                        """
+                            .trimIndent()
+                    )
+                }
+            }
+
+        val MIGRATION_4_5 =
+            object : Migration(4, 5) {
+                override fun migrate(db: SupportSQLiteDatabase) {
+                    db.execSQL(
+                        "ALTER TABLE `account_backup_metadata` ADD COLUMN `requiresLineageReviewAfterUndo` INTEGER NOT NULL DEFAULT 0"
+                    )
+                    db.execSQL(
+                        """
+                        CREATE TABLE IF NOT EXISTS `restore_undo_metadata` (
+                            `id` INTEGER NOT NULL,
+                            `slotIdentity` TEXT NOT NULL,
+                            `restoringOwnerUid` TEXT NOT NULL,
+                            `restoringInstallationId` TEXT NOT NULL,
+                            `previousOwnerUid` TEXT,
+                            `previousInstallationId` TEXT NOT NULL,
+                            `previousLocalChangeRevision` INTEGER NOT NULL,
+                            `previousLastCompleteLocalRevision` INTEGER NOT NULL,
+                            `previousLastObservedRemoteBackupId` TEXT,
+                            `previousLastObservedRemoteGeneration` INTEGER NOT NULL,
+                            `previousLastObservedRemoteDigest` TEXT,
+                            `previousLastObservedSourceInstallationId` TEXT,
+                            `previousLastObservedRemoteCompletedAt` INTEGER,
+                            `snapshotFormatVersion` INTEGER NOT NULL,
+                            `snapshotRevision` INTEGER NOT NULL,
+                            `snapshotEntityCountsJson` TEXT NOT NULL,
+                            `snapshotByteCount` INTEGER NOT NULL,
+                            `snapshotDigest` TEXT NOT NULL,
+                            `baselineBackupId` TEXT,
+                            `baselineGeneration` INTEGER,
+                            `baselineCompletedAt` INTEGER,
+                            `baselineSourceInstallationId` TEXT,
+                            `baselineFormatVersion` INTEGER,
+                            `baselineRevision` INTEGER,
+                            `baselineEntityCountsJson` TEXT,
+                            `baselineByteCount` INTEGER,
+                            `baselineDigest` TEXT,
+                            PRIMARY KEY(`id`)
+                        )
+                        """
+                            .trimIndent()
+                    )
+                    db.execSQL(
+                        """
+                        CREATE TABLE IF NOT EXISTS `restore_undo_chunks` (
+                            `kind` TEXT NOT NULL,
+                            `chunkIndex` INTEGER NOT NULL,
+                            `payload` TEXT NOT NULL,
+                            `payloadByteCount` INTEGER NOT NULL,
+                            `payloadDigest` TEXT NOT NULL,
+                            PRIMARY KEY(`kind`, `chunkIndex`)
                         )
                         """
                             .trimIndent()

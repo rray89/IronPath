@@ -28,7 +28,8 @@ object DatabaseModule {
             .addMigrations(
                 IronPathDatabase.MIGRATION_1_2,
                 IronPathDatabase.MIGRATION_2_3,
-                IronPathDatabase.MIGRATION_3_4
+                IronPathDatabase.MIGRATION_3_4,
+                IronPathDatabase.MIGRATION_4_5
             )
             .build()
 

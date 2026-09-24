@@ -118,8 +118,14 @@ class MainActivity : ComponentActivity() {
                             ManualBackupActions(
                                 previewBackup = { accountViewModel?.previewBackup() },
                                 previewSync = { accountViewModel?.previewSync() },
+                                previewRestore = { accountViewModel?.previewRestore() },
+                                previewUndo = { accountViewModel?.previewUndo() },
                                 selectResolution = { accountViewModel?.selectResolution(it) },
                                 confirmDestructive = { accountViewModel?.confirmDestructive(it) },
+                                confirmActiveWorkoutDiscard = {
+                                    accountViewModel?.confirmActiveWorkoutDiscard(it)
+                                },
+                                holdGuidance = { accountViewModel?.holdGuidance() },
                                 confirm = { accountViewModel?.confirm() },
                             ),
                         onAccountSignIn = { accountViewModel?.signIn() },

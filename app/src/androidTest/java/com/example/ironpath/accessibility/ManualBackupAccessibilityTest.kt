@@ -87,7 +87,7 @@ class ManualBackupAccessibilityTest {
         showAndCheck("REVIEW MANUAL SYNC")
         composeRule.onNodeWithText("REVIEW MANUAL SYNC").assertIsEnabled()
         showAndCheck("PREVIEW WHOLE-BACKUP RESTORE")
-        composeRule.onNodeWithText("PREVIEW WHOLE-BACKUP RESTORE").assertIsNotEnabled()
+        composeRule.onNodeWithText("PREVIEW WHOLE-BACKUP RESTORE").assertIsEnabled()
 
         composeRule.runOnIdle {
             ui = ui.copy(status = BackupStatus.BackingUp, busy = true, feedback = null)
@@ -102,6 +102,8 @@ class ManualBackupAccessibilityTest {
         composeRule.onNodeWithText("BACK UP NOW").assertIsNotEnabled()
         showAndCheck("REVIEW MANUAL SYNC")
         composeRule.onNodeWithText("REVIEW MANUAL SYNC").assertIsNotEnabled()
+        showAndCheck("PREVIEW WHOLE-BACKUP RESTORE")
+        composeRule.onNodeWithText("PREVIEW WHOLE-BACKUP RESTORE").assertIsNotEnabled()
     }
 
     @Test

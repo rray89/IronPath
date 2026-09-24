@@ -34,8 +34,10 @@ internal constructor(
 
     override val status = MutableStateFlow<BackupStatus>(BackupStatus.LocalOnly)
     override val latestSummary = MutableStateFlow<RemoteBackupSummary?>(null)
+    override val undoAvailable = MutableStateFlow(false)
     private val mutex = Mutex()
     private val codec = BackupSnapshotCodec()
+    private val localCodec = BackupSnapshotCodec(preserveDanglingProvenance = true)
     private var pending: Pending? = null
     private var lastRemoteObservation: Pair<AccountId, RemoteBackupRead>? = null
 
@@ -47,6 +49,10 @@ internal constructor(
         val backup: BackupPreview? = null,
         val sync: SyncPreview? = null,
         val merge: SyncMergeAnalysis? = null,
+        val restore: RestorePreview? = null,
+        val restoreArtifact: ValidatedRestoreArtifact? = null,
+        val undo: UndoPreview? = null,
+        val undoCapture: ManualBackupUndoCapture? = null,
     )
 
     override suspend fun refreshStatus() =
@@ -57,10 +63,13 @@ internal constructor(
                 latestSummary.value = null
                 lastRemoteObservation = null
                 pending = null
+                undoAvailable.value = false
                 status.value = BackupStatus.LocalOnly
             } else {
                 val captured = localStore.capture()
                 requireOwner(captured, profile.id)
+                undoAvailable.value =
+                    localStore.captureUndo(profile.id, captured.metadata.installationId) != null
                 // Product mutations only refresh persisted local state. Reading the remote pointer
                 // belongs to an explicit account-screen lookup or a manual operation preview.
                 val persisted =
@@ -205,6 +214,155 @@ internal constructor(
             BackupActionResult.Completed
         }
 
+    override suspend fun previewRestore(): RestorePreviewResult =
+        locked(RestorePreviewResult.Unavailable, { RestorePreviewResult.Failed(it) }) {
+            pending = null
+            status.value = BackupStatus.Preparing
+            val (account, captured) = authorizedCapture()
+            val observed = readRemote(account)
+            val remoteArtifact =
+                (observed as? RemoteBackupRead.Complete)?.backup
+                    ?: run {
+                        updateStatus(captured, observed)
+                        return@locked RestorePreviewResult.Unavailable
+                    }
+            val validated = remoteArtifact.toValidatedRestore(account)
+            val preview =
+                RestorePreview(
+                    id = idProvider.newId(),
+                    latest = remoteArtifact.summary,
+                    sourceDescription =
+                        if (
+                            remoteArtifact.summary.sourceInstallationId ==
+                                captured.metadata.installationId
+                        )
+                            "This device"
+                        else "Another device",
+                    impact = RestoreImpactAnalyzer.analyze(captured.bundle, validated.bundle),
+                    activeWorkoutDiscardRequired = captured.activeSessionId != null,
+                    activeWorkoutTitle = captured.activeSessionTitle,
+                    nulledProvenanceFields = validated.nulledProvenanceFields,
+                )
+            pending =
+                Pending(
+                    preview.id,
+                    account,
+                    captured,
+                    observed,
+                    restore = preview,
+                    restoreArtifact = validated,
+                )
+            status.value = BackupStatus.ReviewRequired
+            RestorePreviewResult.Ready(preview)
+        }
+
+    override suspend fun confirmRestore(
+        previewId: String,
+        activeWorkoutDiscardConfirmed: Boolean,
+    ): BackupActionResult =
+        locked(BackupActionResult.Unavailable, { BackupActionResult.Failed(it) }) {
+            val request =
+                pending?.takeIf { it.id == previewId && it.restore != null }
+                    ?: fail(BackupFailureReason.StalePreview)
+            val preview = checkNotNull(request.restore)
+            if (preview.activeWorkoutDiscardRequired && !activeWorkoutDiscardConfirmed)
+                return@locked BackupActionResult.ActiveSessionRequiresConfirmation(
+                    checkNotNull(request.captured.activeSessionId)
+                )
+            pending = null
+            val (current, observed) = revalidate(request)
+            val artifact = checkNotNull(request.restoreArtifact)
+            val discardId =
+                if (activeWorkoutDiscardConfirmed) request.captured.activeSessionId else null
+            status.value = BackupStatus.BackingUp
+            requireSession(request.accountId)
+            if (!localStore.restore(current, request.accountId, artifact, discardId))
+                fail(BackupFailureReason.StalePreview)
+            val restoredCapture = localStore.capture()
+            val complete =
+                (observed as? RemoteBackupRead.Complete)?.backup
+                    ?: fail(BackupFailureReason.InvalidSnapshot)
+            latestSummary.value = complete.summary
+            lastRemoteObservation = request.accountId to RemoteBackupRead.Complete(complete)
+            undoAvailable.value =
+                localStore.captureUndo(
+                    request.accountId,
+                    restoredCapture.metadata.installationId
+                ) != null
+            updateStatus(restoredCapture, RemoteBackupRead.Complete(complete))
+            BackupActionResult.Completed
+        }
+
+    override suspend fun previewUndo(): UndoPreviewResult =
+        locked(UndoPreviewResult.Unavailable, { UndoPreviewResult.Failed(it) }) {
+            pending = null
+            status.value = BackupStatus.Preparing
+            val (account, captured) = authorizedCapture()
+            val undo =
+                localStore.captureUndo(account, captured.metadata.installationId)
+                    ?: run {
+                        undoAvailable.value = false
+                        updateStatus(captured, lastObservationFor(account, captured))
+                        return@locked UndoPreviewResult.Unavailable
+                    }
+            val preview =
+                UndoPreview(
+                    id = idProvider.newId(),
+                    impact = RestoreImpactAnalyzer.analyze(captured.bundle, undo.bundle),
+                    activeWorkoutPresent = captured.activeSessionId != null,
+                )
+            pending =
+                Pending(
+                    preview.id,
+                    account,
+                    captured,
+                    lastObservationFor(account, captured),
+                    undo = preview,
+                    undoCapture = undo,
+                )
+            undoAvailable.value = true
+            status.value = BackupStatus.ReviewRequired
+            UndoPreviewResult.Ready(preview)
+        }
+
+    override suspend fun confirmUndo(previewId: String): BackupActionResult =
+        locked(BackupActionResult.Unavailable, { BackupActionResult.Failed(it) }) {
+            val request =
+                pending?.takeIf { it.id == previewId && it.undo != null }
+                    ?: fail(BackupFailureReason.StalePreview)
+            val preview = checkNotNull(request.undo)
+            if (preview.activeWorkoutPresent)
+                return@locked BackupActionResult.ActiveSessionRequiresConfirmation(
+                    checkNotNull(request.captured.activeSessionId)
+                )
+            pending = null
+            val current = revalidateUndoCapture(request)
+            val undo = checkNotNull(request.undoCapture)
+            val previousOwnerMatches =
+                undo.previousMetadata.ownerUid == request.accountId.opaqueValue
+            status.value = BackupStatus.BackingUp
+            requireSession(request.accountId)
+            if (!localStore.undo(current, request.accountId, undo))
+                fail(BackupFailureReason.StalePreview)
+            val restored = localStore.capture()
+            val observation =
+                if (previousOwnerMatches) {
+                    lastObservationFor(request.accountId, restored)
+                } else {
+                    null
+                }
+            if (observation == null) {
+                lastRemoteObservation = null
+                latestSummary.value = null
+            } else {
+                lastRemoteObservation = request.accountId to observation
+                latestSummary.value = (observation as? RemoteBackupRead.Complete)?.backup?.summary
+            }
+            undoAvailable.value = false
+            updateStatus(restored, observation ?: RemoteBackupRead.Absent())
+            BackupActionResult.Completed
+        }
+
     private suspend fun publishOrReuse(
         request: Pending,
         observed: RemoteBackupRead,
@@ -248,8 +406,9 @@ internal constructor(
                     request.captured.metadata.localChangeRevision ||
                 current.metadata.lastObservedRemoteGeneration !=
                     request.captured.metadata.lastObservedRemoteGeneration ||
-                codec.encode(current.bundle).contentDigest !=
-                    codec.encode(request.captured.bundle).contentDigest
+                current.activeSessionId != request.captured.activeSessionId ||
+                localCodec.encode(current.bundle).contentDigest !=
+                    localCodec.encode(request.captured.bundle).contentDigest
         )
             fail(BackupFailureReason.StalePreview)
         val observed = readRemote(account)
@@ -260,8 +419,63 @@ internal constructor(
                 (request.remote as? RemoteBackupRead.Complete)?.backup?.snapshot?.contentDigest
         )
             fail(BackupFailureReason.StalePreview)
+        val observedArtifact = (observed as? RemoteBackupRead.Complete)?.backup
+        val requestedArtifact = (request.remote as? RemoteBackupRead.Complete)?.backup
+        if (
+            observedArtifact?.summary?.backupId != requestedArtifact?.summary?.backupId ||
+                observedArtifact?.summary?.sourceInstallationId !=
+                    requestedArtifact?.summary?.sourceInstallationId ||
+                observedArtifact?.summary?.completedAtEpochMillis !=
+                    requestedArtifact?.summary?.completedAtEpochMillis
+        )
+            fail(BackupFailureReason.StalePreview)
         return current to observed
     }
+
+    private suspend fun revalidateUndoCapture(request: Pending): ManualBackupCapture {
+        val (account, current) = authorizedCapture()
+        if (
+            account != request.accountId ||
+                current.metadata != request.captured.metadata ||
+                current.activeSessionId != request.captured.activeSessionId ||
+                localCodec.encode(current.bundle).contentDigest !=
+                    localCodec.encode(request.captured.bundle).contentDigest ||
+                current.baseline != request.captured.baseline
+        )
+            fail(BackupFailureReason.StalePreview)
+        return current
+    }
+
+    private fun RemoteBackupArtifact.toValidatedRestore(
+        account: AccountId
+    ): ValidatedRestoreArtifact {
+        val snapshot = snapshot
+        return codec.decodeForRestore(
+            snapshot,
+            RestoreLineage(
+                ownerUid = account.opaqueValue,
+                remoteBackupId = summary.backupId,
+                remoteGeneration = generation,
+                remoteDigest = snapshot.contentDigest,
+                sourceInstallationId = summary.sourceInstallationId,
+                completedAt = summary.completedAtEpochMillis,
+            ),
+        )
+    }
+
+    private fun lastObservationFor(
+        account: AccountId,
+        captured: ManualBackupCapture,
+    ): RemoteBackupRead =
+        lastRemoteObservation
+            ?.takeIf {
+                it.first == account && generation(it.second) >= generationOf(captured.baseline)
+            }
+            ?.second
+            ?: captured.baseline?.let { RemoteBackupRead.Complete(it) }
+            ?: RemoteBackupRead.Absent()
+
+    private fun generationOf(baseline: RemoteBackupArtifact?): Long = baseline?.generation ?: 0
 
     private suspend fun authorizedCapture(): Pair<AccountId, ManualBackupCapture> {
         validateInstallation()
@@ -292,6 +506,9 @@ internal constructor(
 
     private suspend fun readRemote(account: AccountId): RemoteBackupRead {
         val observed = remote.latest(account)
+        // The account may change while the remote read is suspended. Do not publish an
+        // observation into another account's screen or reuse it as the active lineage.
+        requireSession(account)
         when (observed) {
             is RemoteBackupRead.Failed -> fail(observed.reason)
             is RemoteBackupRead.Complete -> {
@@ -326,14 +543,18 @@ internal constructor(
         val complete = (observed as? RemoteBackupRead.Complete)?.backup
         status.value =
             when {
+                complete == null && captured.metadata.requiresLineageReviewAfterUndo ->
+                    BackupStatus.LocalChanges
                 complete == null -> BackupStatus.SignedInNoBackup
                 captured.metadata.ownerUid == null || unobservedRemote(captured, complete) ->
                     BackupStatus.ReviewRequired
                 captured.metadata.localChangeRevision ==
                     captured.metadata.lastCompleteLocalRevision &&
+                    !captured.metadata.requiresLineageReviewAfterUndo &&
                     codec.encode(captured.bundle).contentDigest ==
                         complete.snapshot.contentDigest ->
                     BackupStatus.UpToDate(complete.summary.completedAtEpochMillis)
+                captured.metadata.requiresLineageReviewAfterUndo -> BackupStatus.LocalChanges
                 else -> BackupStatus.LocalChanges
             }
     }
@@ -406,9 +627,6 @@ internal constructor(
                 is RemoteBackupRead.Failed -> BackupLookupResult.Failed(observed.reason)
             }
         }
-
-    override suspend fun restore(request: RestoreRequest): BackupActionResult =
-        BackupActionResult.Unavailable
 
     override suspend fun deleteAllRemoteData(): BackupActionResult = BackupActionResult.Unavailable
 }

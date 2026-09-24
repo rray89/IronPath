@@ -15,6 +15,7 @@ data class AccountBackupMetadata(
     val lastObservedRemoteDigest: String? = null,
     val lastObservedSourceInstallationId: String? = null,
     val lastObservedRemoteCompletedAt: Long? = null,
+    val requiresLineageReviewAfterUndo: Boolean = false,
 ) {
     companion object {
         const val SINGLETON_ID = 1

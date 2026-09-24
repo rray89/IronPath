@@ -15,6 +15,7 @@ internal constructor(
     val lineage: RestoreLineage,
     val contentDigest: String,
     val nulledProvenanceFields: Set<String>,
+    val remoteSnapshot: EncodedBackupSnapshot? = null,
 ) {
     init {
         require(contentDigest.isNotBlank())
@@ -23,6 +24,9 @@ internal constructor(
         require(lineage.remoteGeneration >= 0)
         require(lineage.remoteDigest == contentDigest) {
             "Restore lineage digest does not match the validated snapshot"
+        }
+        require(remoteSnapshot == null || remoteSnapshot.contentDigest == contentDigest) {
+            "Restore source snapshot digest does not match the validated snapshot"
         }
         require(lineage.sourceInstallationId.isNotBlank())
         require(lineage.completedAt >= 0)
@@ -42,3 +46,12 @@ sealed interface RestoreResult {
 
     data class Success(val nulledProvenanceFields: Set<String>) : RestoreResult
 }
+
+data class ManualBackupUndoCapture(
+    val slotIdentity: String,
+    val restoringOwnerUid: String,
+    val restoringInstallationId: String,
+    val previousMetadata: com.example.ironpath.data.local.entity.AccountBackupMetadata,
+    val bundle: BackupBundle,
+    val baseline: RemoteBackupArtifact?,
+)

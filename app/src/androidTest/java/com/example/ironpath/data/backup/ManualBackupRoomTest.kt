@@ -82,11 +82,39 @@ class ManualBackupRoomTest {
     fun transferredInstallationClearsBaselineAndOwnershipTogether() = runBlocking {
         val store = RoomBackupStore(databaseRule.database, SequenceIdProvider("installation"))
         val captured = store.capture()
-        assertTrue(store.recordBackup(captured, AccountId("owner"), artifact(captured.bundle)))
+        val account = AccountId("owner")
+        assertTrue(store.recordBackup(captured, account, artifact(captured.bundle)))
+        val beforeRestore = store.capture()
+        val restoreSnapshot =
+            BackupSnapshotCodec()
+                .encode(
+                    beforeRestore.bundle.copy(
+                        personalRecords = listOf(TestData.record(id = "restored-record")),
+                    )
+                )
+        val restoreArtifact =
+            BackupSnapshotCodec()
+                .decodeForRestore(
+                    restoreSnapshot,
+                    RestoreLineage(
+                        ownerUid = account.opaqueValue,
+                        remoteBackupId = "restored-backup",
+                        remoteGeneration = 2,
+                        remoteDigest = restoreSnapshot.contentDigest,
+                        sourceInstallationId = "another-installation",
+                        completedAt = TestData.BASE_TIME,
+                    ),
+                )
+        assertTrue(store.restore(beforeRestore, account, restoreArtifact, null))
+        assertNotNull(databaseRule.database.backupDao().getRestoreUndoMetadata())
+        assertTrue(databaseRule.database.backupDao().getRestoreUndoChunks().isNotEmpty())
+
         assertEquals(InstallationValidationResult.Transferred, store.validateInstallation())
         val transferred = store.capture()
         assertNull(transferred.metadata.ownerUid)
         assertNull(transferred.baseline)
+        assertNull(databaseRule.database.backupDao().getRestoreUndoMetadata())
+        assertTrue(databaseRule.database.backupDao().getRestoreUndoChunks().isEmpty())
     }
 
     @Test

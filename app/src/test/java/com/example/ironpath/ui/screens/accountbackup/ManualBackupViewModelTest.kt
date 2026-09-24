@@ -255,8 +255,6 @@ class ManualBackupViewModelTest {
             return lookup
         }
 
-        override suspend fun restore(request: RestoreRequest) = BackupActionResult.Unavailable
-
         override suspend fun deleteAllRemoteData() = BackupActionResult.Unavailable
     }
 }

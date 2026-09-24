@@ -3,12 +3,20 @@ package com.example.ironpath.data.backup
 import androidx.room.withTransaction
 import com.example.ironpath.data.local.IronPathDatabase
 import com.example.ironpath.data.local.entity.AccountBackupMetadata
+import com.example.ironpath.data.local.entity.RestoreUndoChunk
+import com.example.ironpath.data.local.entity.RestoreUndoMetadata
 import com.example.ironpath.domain.account.AccountId
 import com.example.ironpath.domain.identity.IdProvider
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.int
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 
 @Singleton
 class RoomBackupStore
@@ -19,16 +27,20 @@ constructor(
     private val sentinel: InstallationSentinel = NonPersistentInstallationSentinel,
 ) : BackupChangeTracker, ManualBackupLocalStore {
     private val installationValidationMutex = Mutex()
+    private val codec = BackupSnapshotCodec()
+    private val undoCodec = BackupSnapshotCodec(preserveDanglingProvenance = true)
 
     override suspend fun capture(): ManualBackupCapture =
         database.withTransaction {
             val bundle = export()
             val metadata = checkNotNull(database.backupDao().getMetadata())
+            val activeSession = database.sessionDao().getActiveSession()
             ManualBackupCapture(
                 metadata,
                 bundle,
                 BackupBaselineCodec.decode(database.backupDao().getBaselineChunks(), metadata),
-                database.sessionDao().getActiveSession()?.id
+                activeSession?.id,
+                activeSession?.workoutTitle,
             )
         }
 
@@ -119,8 +131,8 @@ constructor(
         captured: ManualBackupCapture
     ): Boolean =
         current.localChangeRevision == captured.metadata.localChangeRevision &&
-            BackupSnapshotCodec().encode(export()).contentDigest ==
-                BackupSnapshotCodec().encode(captured.bundle).contentDigest
+            undoCodec.encode(export()).contentDigest ==
+                undoCodec.encode(captured.bundle).contentDigest
 
     private suspend fun persistCompleted(
         current: AccountBackupMetadata,
@@ -140,7 +152,8 @@ constructor(
                 lastObservedRemoteGeneration = backup.generation,
                 lastObservedRemoteDigest = backup.snapshot.contentDigest,
                 lastObservedSourceInstallationId = backup.summary.sourceInstallationId,
-                lastObservedRemoteCompletedAt = backup.summary.completedAtEpochMillis
+                lastObservedRemoteCompletedAt = backup.summary.completedAtEpochMillis,
+                requiresLineageReviewAfterUndo = false,
             )
         )
     }
@@ -173,32 +186,79 @@ constructor(
             )
         }
 
-    suspend fun restore(
+    override suspend fun restore(
+        captured: ManualBackupCapture,
+        accountId: AccountId,
         artifact: ValidatedRestoreArtifact,
-        activeSessionDisposition: ActiveSessionRestoreDisposition,
-    ): RestoreResult {
+        discardActiveSessionId: String?,
+    ): Boolean {
         val bundle = artifact.bundle
         val lineage = artifact.lineage
-        val validated =
-            try {
-                BackupBundleValidator.validate(bundle)
-            } catch (failure: IllegalArgumentException) {
-                return RestoreResult.InvalidSnapshot(
-                    failure.message ?: "Snapshot validation failed",
-                )
-            }
+        val validated = BackupBundleValidator.validate(bundle)
+        // Build the complete bounded undo record before opening the mutation transaction. A
+        // snapshot that cannot be represented safely must fail without touching Room.
+        val localSnapshot = undoCodec.encode(captured.bundle)
+        val baseline = captured.baseline?.also { it.validatedBundle() }
+        val targetSnapshot = artifact.remoteSnapshot ?: codec.encode(validated.bundle)
+        require(targetSnapshot.contentDigest == artifact.contentDigest)
+        val oldBaselineChunks = baseline?.snapshot?.chunks.orEmpty()
+        require(oldBaselineChunks.size <= BackupSnapshotCodec.MAX_CHUNKS)
+        require(
+            oldBaselineChunks.all { it.encodedByteCount <= BackupSnapshotCodec.MAX_CHUNK_BYTES }
+        )
         return database.withTransaction {
             val backupDao = database.backupDao()
+            val currentMetadata = checkNotNull(backupDao.getMetadata())
+            if (!captureStillCurrent(currentMetadata, captured, accountId))
+                return@withTransaction false
             val activeSession = database.sessionDao().getActiveSession()
+            if (activeSession?.id != captured.activeSessionId) return@withTransaction false
+            if ((activeSession?.id) != discardActiveSessionId && activeSession != null)
+                return@withTransaction false
+            if (activeSession == null && discardActiveSessionId != null)
+                return@withTransaction false
+
+            val localRows = localSnapshot.toUndoRows(RestoreUndoChunk.LOCAL_SNAPSHOT)
+            val baselineRows =
+                baseline?.snapshot?.toUndoRows(RestoreUndoChunk.REMOTE_BASELINE).orEmpty()
+            val baselineSnapshot = baseline?.snapshot
+            val prior = currentMetadata
+            val undoMetadata =
+                RestoreUndoMetadata(
+                    slotIdentity = idProvider.newId(),
+                    restoringOwnerUid = accountId.opaqueValue,
+                    restoringInstallationId = prior.installationId,
+                    previousOwnerUid = prior.ownerUid,
+                    previousInstallationId = prior.installationId,
+                    previousLocalChangeRevision = prior.localChangeRevision,
+                    previousLastCompleteLocalRevision = prior.lastCompleteLocalRevision,
+                    previousLastObservedRemoteBackupId = prior.lastObservedRemoteBackupId,
+                    previousLastObservedRemoteGeneration = prior.lastObservedRemoteGeneration,
+                    previousLastObservedRemoteDigest = prior.lastObservedRemoteDigest,
+                    previousLastObservedSourceInstallationId =
+                        prior.lastObservedSourceInstallationId,
+                    previousLastObservedRemoteCompletedAt = prior.lastObservedRemoteCompletedAt,
+                    snapshotFormatVersion = localSnapshot.formatVersion,
+                    snapshotRevision = localSnapshot.localChangeRevision,
+                    snapshotEntityCountsJson = localSnapshot.entityCounts.toCountsJson(),
+                    snapshotByteCount = localSnapshot.encodedByteCount,
+                    snapshotDigest = localSnapshot.contentDigest,
+                    baselineBackupId = baseline?.summary?.backupId,
+                    baselineGeneration = baseline?.generation,
+                    baselineCompletedAt = baseline?.summary?.completedAtEpochMillis,
+                    baselineSourceInstallationId = baseline?.summary?.sourceInstallationId,
+                    baselineFormatVersion = baselineSnapshot?.formatVersion,
+                    baselineRevision = baselineSnapshot?.localChangeRevision,
+                    baselineEntityCountsJson = baselineSnapshot?.entityCounts?.toCountsJson(),
+                    baselineByteCount = baselineSnapshot?.encodedByteCount,
+                    baselineDigest = baselineSnapshot?.contentDigest,
+                )
+            backupDao.deleteRestoreUndoChunks()
+            backupDao.deleteRestoreUndoMetadata()
+            backupDao.insertRestoreUndoMetadata(undoMetadata)
+            backupDao.insertRestoreUndoChunks(localRows + baselineRows)
+
             if (activeSession != null) {
-                val confirmedSessionId =
-                    (activeSessionDisposition as? ActiveSessionRestoreDisposition.Discard)
-                        ?.confirmedSessionId
-                if (confirmedSessionId != activeSession.id) {
-                    return@withTransaction RestoreResult.ActiveSessionRequiresConfirmation(
-                        activeSession.id
-                    )
-                }
                 database.sessionDao().deleteSession(activeSession.id)
             }
             backupDao.deletePersonalRecords()
@@ -229,26 +289,141 @@ constructor(
                 backupDao.insertPersonalRecords(restored.personalRecords)
             }
 
-            ensureMetadata()
-            val metadata = checkNotNull(backupDao.getMetadata())
-            val restoredRevision = Math.addExact(metadata.localChangeRevision, 1)
+            val restoredRevision = Math.addExact(currentMetadata.localChangeRevision, 1)
+            val targetRows =
+                BackupBaselineCodec.encode(
+                    RemoteBackupArtifact(
+                        com.example.ironpath.domain.backup.RemoteBackupSummary(
+                            lineage.remoteBackupId,
+                            lineage.completedAt,
+                            lineage.sourceInstallationId,
+                            targetSnapshot.entityCounts,
+                        ),
+                        lineage.remoteGeneration,
+                        targetSnapshot,
+                    ),
+                    accountId.opaqueValue,
+                    currentMetadata.installationId,
+                )
+            backupDao.deleteBaselineChunks()
+            if (targetRows.isNotEmpty()) backupDao.insertBaselineChunks(targetRows)
             backupDao.updateMetadata(
-                metadata.copy(
-                    ownerUid = lineage.ownerUid,
+                currentMetadata.copy(
+                    ownerUid = accountId.opaqueValue,
                     localChangeRevision = restoredRevision,
-                    lastCompleteLocalRevision = restoredRevision - 1,
+                    lastCompleteLocalRevision = restoredRevision,
                     lastObservedRemoteBackupId = lineage.remoteBackupId,
                     lastObservedRemoteGeneration = lineage.remoteGeneration,
                     lastObservedRemoteDigest = lineage.remoteDigest,
                     lastObservedSourceInstallationId = lineage.sourceInstallationId,
                     lastObservedRemoteCompletedAt = lineage.completedAt,
+                    requiresLineageReviewAfterUndo = false,
                 )
             )
-            RestoreResult.Success(
-                artifact.nulledProvenanceFields + validated.nulledProvenanceFields
-            )
+            // Keep the whole slot replacement and restore atomic. The prior slot was only
+            // removed inside this transaction, so any insert failure also preserves it.
+            true
         }
     }
+
+    override suspend fun captureUndo(
+        accountId: AccountId,
+        installationId: String,
+    ): ManualBackupUndoCapture? =
+        database.withTransaction {
+            val dao = database.backupDao()
+            val metadata = dao.getRestoreUndoMetadata() ?: return@withTransaction null
+            if (
+                metadata.restoringOwnerUid != accountId.opaqueValue ||
+                    metadata.restoringInstallationId != installationId
+            )
+                return@withTransaction null
+            decodeUndo(metadata, dao.getRestoreUndoChunks())
+        }
+
+    override suspend fun undo(
+        captured: ManualBackupCapture,
+        accountId: AccountId,
+        undo: ManualBackupUndoCapture,
+    ): Boolean =
+        database.withTransaction {
+            val dao = database.backupDao()
+            val currentMetadata = dao.getMetadata() ?: return@withTransaction false
+            if (!captureStillCurrent(currentMetadata, captured, accountId))
+                return@withTransaction false
+            if (
+                captured.activeSessionId != null || database.sessionDao().getActiveSession() != null
+            )
+                return@withTransaction false
+            val persisted = dao.getRestoreUndoMetadata() ?: return@withTransaction false
+            if (
+                persisted.slotIdentity != undo.slotIdentity ||
+                    persisted.restoringOwnerUid != accountId.opaqueValue ||
+                    persisted.restoringInstallationId != currentMetadata.installationId
+            )
+                return@withTransaction false
+            if (decodeUndo(persisted, dao.getRestoreUndoChunks()) != undo)
+                return@withTransaction false
+
+            val priorMetadata = undo.previousMetadata
+            val restoredRevision = Math.addExact(currentMetadata.localChangeRevision, 1)
+            require(priorMetadata.lastCompleteLocalRevision < restoredRevision) {
+                "Undo baseline cannot be current at the new local revision"
+            }
+            val previousOwnerMatches = priorMetadata.ownerUid == accountId.opaqueValue
+            val baselineToRestore = undo.baseline.takeIf { previousOwnerMatches }
+            val baselineRows =
+                baselineToRestore
+                    ?.let {
+                        BackupBaselineCodec.encode(
+                            it,
+                            priorMetadata.ownerUid ?: accountId.opaqueValue,
+                            currentMetadata.installationId,
+                        )
+                    }
+                    .orEmpty()
+
+            dao.deletePersonalRecords()
+            dao.deleteWorkoutLogs()
+            dao.deleteWeeklyPlans()
+            val prior = undo.bundle
+            if (prior.weeklyPlans.isNotEmpty()) dao.insertWeeklyPlans(prior.weeklyPlans)
+            if (prior.plannedWorkouts.isNotEmpty()) dao.insertPlannedWorkouts(prior.plannedWorkouts)
+            if (prior.plannedExercises.isNotEmpty())
+                dao.insertPlannedExercises(prior.plannedExercises)
+            if (prior.workoutLogs.isNotEmpty()) dao.insertWorkoutLogs(prior.workoutLogs)
+            if (prior.loggedExercises.isNotEmpty()) dao.insertLoggedExercises(prior.loggedExercises)
+            if (prior.loggedSets.isNotEmpty()) dao.insertLoggedSets(prior.loggedSets)
+            if (prior.personalRecords.isNotEmpty()) dao.insertPersonalRecords(prior.personalRecords)
+            dao.deleteBaselineChunks()
+            if (baselineRows.isNotEmpty()) dao.insertBaselineChunks(baselineRows)
+            dao.updateMetadata(
+                priorMetadata.copy(
+                    installationId = currentMetadata.installationId,
+                    localChangeRevision = restoredRevision,
+                    // Keep the old marker exactly: it is strictly older than this revision and
+                    // cannot claim that the restored pre-restore state is current remotely.
+                    lastCompleteLocalRevision = priorMetadata.lastCompleteLocalRevision,
+                    requiresLineageReviewAfterUndo = true,
+                    lastObservedRemoteBackupId =
+                        if (previousOwnerMatches) priorMetadata.lastObservedRemoteBackupId
+                        else null,
+                    lastObservedRemoteGeneration =
+                        if (previousOwnerMatches) priorMetadata.lastObservedRemoteGeneration else 0,
+                    lastObservedRemoteDigest =
+                        if (previousOwnerMatches) priorMetadata.lastObservedRemoteDigest else null,
+                    lastObservedSourceInstallationId =
+                        if (previousOwnerMatches) priorMetadata.lastObservedSourceInstallationId
+                        else null,
+                    lastObservedRemoteCompletedAt =
+                        if (previousOwnerMatches) priorMetadata.lastObservedRemoteCompletedAt
+                        else null,
+                )
+            )
+            dao.deleteRestoreUndoChunks()
+            dao.deleteRestoreUndoMetadata()
+            true
+        }
 
     suspend fun resetLocalProfile() {
         installationValidationMutex.withLock {
@@ -263,6 +438,8 @@ constructor(
                 backupDao.deleteWorkoutLogs()
                 backupDao.deleteWeeklyPlans()
                 backupDao.deleteBaselineChunks()
+                backupDao.deleteRestoreUndoChunks()
+                backupDao.deleteRestoreUndoMetadata()
                 backupDao.insertMetadataIfAbsent(resetMetadata)
                 backupDao.updateMetadata(resetMetadata)
             }
@@ -317,6 +494,8 @@ constructor(
                         )
                     backupDao.updateMetadata(replacement)
                     backupDao.deleteBaselineChunks()
+                    backupDao.deleteRestoreUndoChunks()
+                    backupDao.deleteRestoreUndoMetadata()
                     replacement
                 }
             if (writeSentinel(sentinel, rotated.installationId)) {
@@ -343,6 +522,166 @@ constructor(
                 AccountBackupMetadata(installationId = idProvider.newId()),
             )
         }
+    }
+
+    private suspend fun captureStillCurrent(
+        current: AccountBackupMetadata,
+        captured: ManualBackupCapture,
+        accountId: AccountId,
+    ): Boolean {
+        if (
+            current != captured.metadata ||
+                current.installationId != captured.metadata.installationId ||
+                (current.ownerUid != null && current.ownerUid != accountId.opaqueValue)
+        )
+            return false
+        val dao = database.backupDao()
+        val currentBundle = readIncludedBundle(current.localChangeRevision)
+        if (
+            undoCodec.encode(currentBundle).contentDigest !=
+                undoCodec.encode(captured.bundle).contentDigest
+        )
+            return false
+        val baseline = BackupBaselineCodec.decode(dao.getBaselineChunks(), current)
+        if (baseline != captured.baseline) return false
+        return database.sessionDao().getActiveSession()?.id == captured.activeSessionId
+    }
+
+    private suspend fun readIncludedBundle(revision: Long): BackupBundle {
+        val dao = database.backupDao()
+        return BackupBundle(
+            revision,
+            dao.getWeeklyPlans(),
+            dao.getPlannedWorkouts(),
+            dao.getPlannedExercises(),
+            dao.getWorkoutLogs(),
+            dao.getLoggedExercises(),
+            dao.getLoggedSets(),
+            dao.getPersonalRecords(),
+        )
+    }
+
+    private fun EncodedBackupSnapshot.toUndoRows(kind: String): List<RestoreUndoChunk> {
+        require(chunks.size in 1..BackupSnapshotCodec.MAX_CHUNKS)
+        return chunks.map { chunk ->
+            require(chunk.encodedByteCount <= BackupSnapshotCodec.MAX_CHUNK_BYTES)
+            RestoreUndoChunk(
+                kind,
+                chunk.index,
+                chunk.payload,
+                chunk.encodedByteCount,
+                chunk.digest,
+            )
+        }
+    }
+
+    private fun Map<String, Int>.toCountsJson(): String =
+        JsonObject(mapValues { JsonPrimitive(it.value) }).toString()
+
+    private fun decodeUndo(
+        metadata: RestoreUndoMetadata,
+        rows: List<RestoreUndoChunk>,
+    ): ManualBackupUndoCapture {
+        require(metadata.id == RestoreUndoMetadata.SINGLETON_ID)
+        val localSnapshot =
+            rows.snapshot(
+                RestoreUndoChunk.LOCAL_SNAPSHOT,
+                metadata.snapshotFormatVersion,
+                metadata.snapshotRevision,
+                metadata.snapshotEntityCountsJson,
+                metadata.snapshotByteCount,
+                metadata.snapshotDigest,
+            )
+        val previousMetadata =
+            AccountBackupMetadata(
+                ownerUid = metadata.previousOwnerUid,
+                installationId = metadata.previousInstallationId,
+                localChangeRevision = metadata.previousLocalChangeRevision,
+                lastCompleteLocalRevision = metadata.previousLastCompleteLocalRevision,
+                lastObservedRemoteBackupId = metadata.previousLastObservedRemoteBackupId,
+                lastObservedRemoteGeneration = metadata.previousLastObservedRemoteGeneration,
+                lastObservedRemoteDigest = metadata.previousLastObservedRemoteDigest,
+                lastObservedSourceInstallationId =
+                    metadata.previousLastObservedSourceInstallationId,
+                lastObservedRemoteCompletedAt = metadata.previousLastObservedRemoteCompletedAt,
+            )
+        val baselineFields =
+            listOf(
+                metadata.baselineBackupId,
+                metadata.baselineGeneration,
+                metadata.baselineCompletedAt,
+                metadata.baselineSourceInstallationId,
+                metadata.baselineFormatVersion,
+                metadata.baselineRevision,
+                metadata.baselineEntityCountsJson,
+                metadata.baselineByteCount,
+                metadata.baselineDigest,
+            )
+        val baseline =
+            if (baselineFields.all { it == null }) {
+                require(rows.none { it.kind == RestoreUndoChunk.REMOTE_BASELINE })
+                null
+            } else {
+                require(baselineFields.all { it != null }) { "Incomplete undo baseline metadata" }
+                val snapshot =
+                    rows.snapshot(
+                        RestoreUndoChunk.REMOTE_BASELINE,
+                        checkNotNull(metadata.baselineFormatVersion),
+                        checkNotNull(metadata.baselineRevision),
+                        checkNotNull(metadata.baselineEntityCountsJson),
+                        checkNotNull(metadata.baselineByteCount),
+                        checkNotNull(metadata.baselineDigest),
+                    )
+                RemoteBackupArtifact(
+                        com.example.ironpath.domain.backup.RemoteBackupSummary(
+                            checkNotNull(metadata.baselineBackupId),
+                            checkNotNull(metadata.baselineCompletedAt),
+                            checkNotNull(metadata.baselineSourceInstallationId),
+                            snapshot.entityCounts,
+                        ),
+                        checkNotNull(metadata.baselineGeneration),
+                        snapshot,
+                    )
+                    .also { it.validatedBundle() }
+            }
+        require(localSnapshot.localChangeRevision == previousMetadata.localChangeRevision)
+        return ManualBackupUndoCapture(
+            metadata.slotIdentity,
+            metadata.restoringOwnerUid,
+            metadata.restoringInstallationId,
+            previousMetadata,
+            undoCodec.decode(localSnapshot),
+            baseline,
+        )
+    }
+
+    private fun List<RestoreUndoChunk>.snapshot(
+        kind: String,
+        formatVersion: Int,
+        revision: Long,
+        entityCountsJson: String,
+        byteCount: Int,
+        contentDigest: String,
+    ): EncodedBackupSnapshot {
+        val selected = filter { it.kind == kind }.sortedBy { it.chunkIndex }
+        require(selected.isNotEmpty() && selected.size <= BackupSnapshotCodec.MAX_CHUNKS)
+        require(selected.map { it.chunkIndex } == selected.indices.toList())
+        val counts =
+            Json.parseToJsonElement(entityCountsJson).jsonObject.mapValues {
+                it.value.jsonPrimitive.int
+            }
+        return EncodedBackupSnapshot(
+            formatVersion,
+            revision,
+            selected.map { row ->
+                require(row.payloadByteCount <= BackupSnapshotCodec.MAX_CHUNK_BYTES)
+                require(row.payload.toByteArray(Charsets.UTF_8).size == row.payloadByteCount)
+                BackupChunk(row.chunkIndex, row.payload, row.payloadByteCount, row.payloadDigest)
+            },
+            counts,
+            byteCount,
+            contentDigest,
+        )
     }
 
     private object NonPersistentInstallationSentinel : InstallationSentinel {

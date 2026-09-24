@@ -1,6 +1,7 @@
 package com.example.ironpath.ui.screens.accountbackup
 
 import com.example.ironpath.domain.account.*
+import com.example.ironpath.domain.backup.*
 import com.example.ironpath.util.MainDispatcherRule
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -28,6 +29,31 @@ class AccountBackupViewModelTest {
         assertEquals(2, gateway.refreshes)
         assertEquals(1, gateway.signIns)
     }
+
+    @Test
+    fun `successful same-route sign in looks up latest backup and enables restore review`() =
+        runTest {
+            val gateway =
+                Gateway().apply {
+                    signInStateAfterSuccess = AccountState.SignedIn(AccountId("owner"))
+                }
+            val backup = Backup()
+            val viewModel = viewModel(gateway, backup)
+            advanceUntilIdle()
+            assertNull(viewModel.manual.value.latest)
+            assertEquals(0, backup.lookups)
+
+            viewModel.signIn()
+            advanceUntilIdle()
+
+            assertEquals(2, backup.statusRefreshes)
+            assertEquals(1, backup.lookups)
+            assertEquals(backup.summary, viewModel.manual.value.latest)
+            assertTrue(gateway.state.value is AccountState.SignedIn)
+            viewModel.previewRestore()
+            advanceUntilIdle()
+            assertTrue(viewModel.manual.value.review is ManualReview.Restore)
+        }
 
     @Test
     fun `back waits for successful cancellation and failure stays on screen`() = runTest {
@@ -84,7 +110,16 @@ class AccountBackupViewModelTest {
             assertEquals(2, gateway.cancellations)
         }
 
-    private fun viewModel(gateway: Gateway) =
+    private fun viewModel(
+        gateway: Gateway,
+        backup: BackupCoordinator =
+            com.example.ironpath.data.backup.LocalOnlyBackupCoordinator(
+                object : com.example.ironpath.data.backup.InstallationGuard {
+                    override suspend fun validate() =
+                        com.example.ironpath.data.backup.InstallationValidationResult.Validated
+                }
+            ),
+    ) =
         AccountBackupViewModel(
             gateway,
             object : AccountContextReader {
@@ -93,12 +128,7 @@ class AccountBackupViewModelTest {
                 override suspend fun read(): LocalAccountContext =
                     error("Gateway owns reading account context")
             },
-            com.example.ironpath.data.backup.LocalOnlyBackupCoordinator(
-                object : com.example.ironpath.data.backup.InstallationGuard {
-                    override suspend fun validate() =
-                        com.example.ironpath.data.backup.InstallationValidationResult.Validated
-                }
-            ),
+            backup,
         )
 
     private class Gateway : AccountGateway {
@@ -107,6 +137,7 @@ class AccountBackupViewModelTest {
         var signIns = 0
         var cancellations = 0
         var cancelResult: AccountActionResult = AccountActionResult.Completed
+        var signInStateAfterSuccess: AccountState? = null
 
         override suspend fun refresh(): AccountActionResult {
             refreshes++
@@ -115,6 +146,7 @@ class AccountBackupViewModelTest {
 
         override suspend fun startGoogleSignIn(): AccountActionResult {
             signIns++
+            signInStateAfterSuccess?.let { state.value = it }
             return AccountActionResult.Completed
         }
 
@@ -128,5 +160,42 @@ class AccountBackupViewModelTest {
         override suspend fun signOut(): AccountActionResult = AccountActionResult.Unavailable
 
         override suspend fun deleteAccount(): AccountActionResult = AccountActionResult.Unavailable
+    }
+
+    private class Backup : BackupCoordinator {
+        override val status = MutableStateFlow<BackupStatus>(BackupStatus.LocalOnly)
+        override val latestSummary = MutableStateFlow<RemoteBackupSummary?>(null)
+        override val undoAvailable = MutableStateFlow(false)
+        val summary = RemoteBackupSummary("latest", 100, "other-device", mapOf("Record" to 1))
+        var statusRefreshes = 0
+        var lookups = 0
+
+        override suspend fun refreshStatus() {
+            statusRefreshes++
+        }
+
+        override suspend fun latestCompleteBackup(): BackupLookupResult {
+            lookups++
+            latestSummary.value = summary
+            status.value = BackupStatus.ReviewRequired
+            return BackupLookupResult.Complete(summary)
+        }
+
+        override suspend fun previewRestore() =
+            RestorePreviewResult.Ready(
+                RestorePreview(
+                    "restore",
+                    summary,
+                    "Another device",
+                    emptyMap(),
+                    false,
+                    null,
+                    emptySet()
+                )
+            )
+
+        override suspend fun backUpNow() = BackupActionResult.Unavailable
+
+        override suspend fun deleteAllRemoteData() = BackupActionResult.Unavailable
     }
 }

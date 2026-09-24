@@ -10,6 +10,7 @@ import {
   runTransaction,
   serverTimestamp,
   setDoc,
+  updateDoc,
 } from "firebase/firestore";
 
 const fixtures = JSON.parse(
@@ -30,14 +31,38 @@ export function registerManualProtocolTests(environment) {
       installation,
     );
 
+  const publishCorruptibleLatest = async (id) => {
+    const store = owner();
+    await store.publish(fixtures.base, 0, "previous-valid");
+    await store.publish(fixtures.local, 1, id);
+    return store;
+  };
+
+  const corruptPersistedArtifact = async (operation) => {
+    // Model persisted damage after a valid client completion; ordinary owners cannot write it.
+    await environment().withSecurityRulesDisabled(async (context) => {
+      await operation(context.firestore());
+    });
+  };
+
+  const assertCorruptLatestRejected = async (id, expectedFailure) => {
+    const fresh = owner();
+    const metadata = (await getDoc(fresh.user)).data();
+    const manifest = (await getDoc(fresh.manifest(id))).data();
+    assert.equal(metadata.latestCompleteBackupId, id);
+    assert.equal(manifest.state, "COMPLETE");
+    assert.ok((await getDoc(fresh.manifest("previous-valid"))).exists());
+    await assert.rejects(fresh.readLatestComplete(), expectedFailure);
+  };
+
   test("manual protocol uploads Kotlin-codec bytes and survives a new client", async () => {
     const first = owner();
-    assert.equal(await first.latest(), null);
+    assert.equal(await first.readLatestComplete(), null);
     const completed = await first.publish(fixtures.base, 0, "base");
     assert.equal(completed.generation, 1);
     assert.deepEqual(completed.snapshot, fixtures.base);
     const recreated = owner();
-    assert.deepEqual(await recreated.latest(), completed);
+    assert.deepEqual(await recreated.readLatestComplete(), completed);
     const metadata = (await getDoc(recreated.user)).data();
     assert.equal(metadata.activeUploadBackupId, null);
     assert.deepEqual(metadata.backupIds, ["base"]);
@@ -49,7 +74,7 @@ export function registerManualProtocolTests(environment) {
     const deviceB = owner("installation-b");
     await deviceA.publish(fixtures.base, 0, "base");
     await deviceB.publish(fixtures.remote, 1, "remote-change");
-    const beforeConfirmation = await deviceA.latest();
+    const beforeConfirmation = await deviceA.readLatestComplete();
     assert.deepEqual(beforeConfirmation.snapshot, fixtures.remote);
     assert.equal(beforeConfirmation.generation, 2);
 
@@ -60,7 +85,7 @@ export function registerManualProtocolTests(environment) {
     assert.equal(records.find((record) => record.id === "record-bench").payload.weightKg, 65.5);
     assert.equal(merged.generation, 3);
     assert.equal(merged.source, "installation-a");
-    assert.deepEqual((await deviceB.latest()).snapshot, fixtures.merged);
+    assert.deepEqual((await deviceB.readLatestComplete()).snapshot, fixtures.merged);
     assert.deepEqual((await getDoc(deviceA.user)).data().backupIds, ["remote-change", "confirmed-merge"]);
     assert.equal((await getDoc(deviceA.manifest("base"))).exists(), false);
     assert.equal((await getDoc(deviceA.chunk("base", 0))).exists(), false);
@@ -77,10 +102,10 @@ export function registerManualProtocolTests(environment) {
     assert.equal(attempts.filter((result) => result.status === "fulfilled").length, 1);
     const failure = attempts.find((result) => result.status === "rejected");
     assert.ok(failure.reason instanceof GenerationConflict, `Unexpected race failure: ${failure.reason?.name} ${failure.reason?.code} ${failure.reason?.message}`);
-    const current = await deviceA.latest();
+    const current = await deviceA.readLatestComplete();
     assert.equal(current.generation, 2);
     await assert.rejects(deviceB.publish(fixtures.merged, 1, "stale-confirmation"), GenerationConflict);
-    assert.deepEqual(await deviceA.latest(), current);
+    assert.deepEqual(await deviceA.readLatestComplete(), current);
     assert.equal((await getDoc(deviceA.manifest("stale-confirmation"))).exists(), false);
   });
 
@@ -93,13 +118,66 @@ export function registerManualProtocolTests(environment) {
       }),
       /simulated process interruption/,
     );
-    assert.deepEqual(await owner().latest(), previous);
+    assert.deepEqual(await owner().readLatestComplete(), previous);
     const metadata = (await getDoc(store.user)).data();
     assert.equal(metadata.generation, 1);
     assert.equal(metadata.activeUploadBackupId, "interrupted");
     assert.equal((await getDoc(store.manifest("interrupted"))).data().state, "UPLOADING");
     await assert.rejects(owner("installation-b").publish(fixtures.remote, 1, "blocked"), GenerationConflict);
-    assert.deepEqual(await store.latest(), previous);
+    assert.deepEqual(await store.readLatestComplete(), previous);
+  });
+
+  test("manual protocol rejects malformed chunk JSON after a snapshot is COMPLETE", async () => {
+    const id = "malformed-complete";
+    await publishCorruptibleLatest(id);
+    const payload = "{malformed";
+    await corruptPersistedArtifact((firestore) => setDoc(
+      doc(firestore, `users/manual-owner/backups/${id}/chunks/000`),
+      {
+        formatVersion: fixtures.local.formatVersion,
+        chunkIndex: 0,
+        encodedByteCount: Buffer.byteLength(payload, "utf8"),
+        chunkDigest: digest(payload),
+        payload,
+      },
+    ));
+
+    await assertCorruptLatestRejected(id, SyntaxError);
+  });
+
+  test("manual protocol rejects a COMPLETE chunk whose content no longer matches its digest", async () => {
+    const id = "digest-mismatch-complete";
+    await publishCorruptibleLatest(id);
+    await corruptPersistedArtifact((firestore) => updateDoc(
+      doc(firestore, `users/manual-owner/backups/${id}/chunks/000`),
+      {
+        payload: fixtures.remote.chunks[0].payload,
+        encodedByteCount: fixtures.remote.chunks[0].encodedByteCount,
+      },
+    ));
+
+    await assertCorruptLatestRejected(id, /Chunk digest mismatch/);
+  });
+
+  test("manual protocol rejects a COMPLETE artifact with a missing required chunk", async () => {
+    const id = "missing-chunk-complete";
+    await publishCorruptibleLatest(id);
+    await corruptPersistedArtifact((firestore) => deleteDoc(
+      doc(firestore, `users/manual-owner/backups/${id}/chunks/000`),
+    ));
+
+    await assertCorruptLatestRejected(id, /Missing required chunk 000/);
+  });
+
+  test("manual protocol rejects invalid metadata on the referenced COMPLETE manifest", async () => {
+    const id = "invalid-metadata-complete";
+    await publishCorruptibleLatest(id);
+    await corruptPersistedArtifact((firestore) => updateDoc(
+      doc(firestore, `users/manual-owner/backups/${id}`),
+      { contentDigest: "0".repeat(64) },
+    ));
+
+    await assertCorruptLatestRejected(id, /Snapshot content digest mismatch/);
   });
 
   test("manual protocol validates digest before completion even when rules accept the bounded chunk", async () => {
@@ -111,7 +189,7 @@ export function registerManualProtocolTests(environment) {
       }),
       /Chunk digest mismatch/,
     );
-    assert.deepEqual(await store.latest(), previous);
+    assert.deepEqual(await store.readLatestComplete(), previous);
     assert.equal((await getDoc(store.manifest("tampered"))).data().state, "UPLOADING");
   });
 
@@ -123,10 +201,10 @@ export function registerManualProtocolTests(environment) {
       environment().authenticatedContext("different-owner").firestore(),
     ]) {
       const denied = new EmulatorManualBackupStore(client, "manual-owner", "intruder");
-      await assert.rejects(denied.latest(), (error) => error.code === "permission-denied");
+      await assert.rejects(denied.readLatestComplete(), (error) => error.code === "permission-denied");
       await assert.rejects(denied.publish(fixtures.local, 1, "denied"), (error) => error.code === "permission-denied");
     }
-    assert.deepEqual(await store.latest(), previous);
+    assert.deepEqual(await store.readLatestComplete(), previous);
     assert.equal((await getDoc(store.manifest("denied"))).exists(), false);
   });
 
@@ -160,7 +238,7 @@ class EmulatorManualBackupStore {
     return doc(this.firestore, `users/${this.uid}/backups/${id}/chunks/${String(index).padStart(3, "0")}`);
   }
 
-  async latest() {
+  async readLatestComplete() {
     const metadata = await getDoc(this.user);
     if (!metadata.exists() || metadata.data().latestCompleteBackupId === null) return null;
     const pointer = metadata.data();
@@ -239,13 +317,15 @@ class EmulatorManualBackupStore {
       });
     });
     await this.retainTwo();
-    return this.latest();
+    return this.readLatestComplete();
   }
 
   async readSnapshot(id, manifest) {
     const chunks = [];
     for (let index = 0; index < manifest.chunkCount; index += 1) {
-      const document = (await getDoc(this.chunk(id, index))).data();
+      const documentSnapshot = await getDoc(this.chunk(id, index));
+      assert.ok(documentSnapshot.exists(), `Missing required chunk ${String(index).padStart(3, "0")}`);
+      const document = documentSnapshot.data();
       assert.equal(document.formatVersion, manifest.formatVersion);
       chunks.push({ index: document.chunkIndex, payload: document.payload, encodedByteCount: document.encodedByteCount, digest: document.chunkDigest });
     }
@@ -306,7 +386,7 @@ function validateSnapshot(snapshot) {
   });
   assert.equal(snapshot.encodedByteCount, byteCount);
   const envelopes = entities(snapshot);
-  assert.equal(snapshot.contentDigest, digest(JSON.stringify(envelopes)));
+  assert.equal(snapshot.contentDigest, digest(JSON.stringify(envelopes)), "Snapshot content digest mismatch");
   const counts = Object.fromEntries(entityTypes.map((type) => [type, 0]));
   const keys = new Set();
   for (const envelope of envelopes) {
