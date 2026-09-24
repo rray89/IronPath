@@ -14,6 +14,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.liveRegion
@@ -256,7 +257,15 @@ internal fun ManualBackupReviewScreen(
                     )
             }
         }
-        ui.feedback?.let { Feedback(it) }
+        ui.feedback?.let { feedback ->
+            val color =
+                when (review) {
+                    is ManualReview.Restore,
+                    is ManualReview.Undo -> MaterialTheme.colorScheme.error
+                    else -> LocalContentColor.current
+                }
+            Feedback(feedback, color)
+        }
         if (ui.busy) Feedback("Manual operation in progress")
         val canConfirm =
             when (review) {
@@ -351,11 +360,12 @@ private fun DemoBackupNotice() {
 }
 
 @Composable
-private fun Feedback(text: String) {
+private fun Feedback(text: String, color: Color = LocalContentColor.current) {
     Text(
         text,
         modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },
-        style = MaterialTheme.typography.bodyMedium
+        style = MaterialTheme.typography.bodyMedium,
+        color = color,
     )
 }
 

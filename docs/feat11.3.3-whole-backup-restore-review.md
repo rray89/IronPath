@@ -30,10 +30,14 @@ the existing feat11.3.2 app data and account backup; do not clear it or sign out
    impact, and hold **Undo**. Record B returns, the undo slot is consumed, and undo leaves
    the demo backup unchanged. A new active workout blocks undo until it is finished or
    discarded through its normal workout flow.
-6. Check that the account reports Local changes or Review required after undo. Use the
-   bottom navigation to visit Home and then **History → Records**; confirm the restored
-   records remain visible. An explicit manual backup or sync is required to reestablish
-   current lineage.
+6. Check that the account reports **Local changes**, not Up to date, after undo. Use the
+   bottom navigation to visit Home and then **History → Records**; confirm record B
+   remains visible. An explicit manual backup or sync is required to reestablish current
+   lineage.
+
+For this retained same-account walkthrough, undo is expected to leave **Local changes**.
+An unowned profile or an unobserved newer remote backup can require review in other
+scenarios; those conditions are not part of this walkthrough.
 
 ## Automated evidence
 
