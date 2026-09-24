@@ -61,7 +61,13 @@ class WorkoutCompletionJourneyTest {
         val sessionStartedAt = timeProvider.epochMillis()
         seedAcceptedPlan(sessionStartedAt)
 
-        composeRule.onNodeWithText("CONTINUE ON THIS DEVICE").performClick()
+        // MainActivity resolves startup asynchronously before the entry action renders.
+        waitForTag(TestTags.ENTRY_GET_STARTED)
+        composeRule
+            .onNodeWithTag(TestTags.ENTRY_GET_STARTED)
+            .performScrollTo()
+            .assertIsDisplayed()
+            .performClick()
         waitForText("2 WORKOUTS PLANNED  •  0 COMPLETED")
 
         waitForTag(TestTags.workout(TODAY_WORKOUT_ID))
