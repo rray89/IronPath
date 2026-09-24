@@ -5,7 +5,10 @@ import java.time.DayOfWeek
 import java.time.LocalDate
 
 internal object BackupBundleValidator {
-    fun validate(bundle: BackupBundle): ValidationResult {
+    fun validate(
+        bundle: BackupBundle,
+        preserveDanglingProvenance: Boolean = false,
+    ): ValidationResult {
         require(bundle.localChangeRevision >= 0) { "Snapshot revision cannot be negative" }
         requireUnique("weekly plan", bundle.weeklyPlans.map { it.id })
         requireUnique("planned workout", bundle.plannedWorkouts.map { it.id })
@@ -144,7 +147,9 @@ internal object BackupBundleValidator {
         val sanitizedLogs =
             bundle.workoutLogs.map { log ->
                 if (
-                    log.sourcePlannedWorkoutId != null && log.sourcePlannedWorkoutId !in workoutIds
+                    !preserveDanglingProvenance &&
+                        log.sourcePlannedWorkoutId != null &&
+                        log.sourcePlannedWorkoutId !in workoutIds
                 ) {
                     nulledFields += "sourcePlannedWorkoutId"
                     log.copy(sourcePlannedWorkoutId = null)
@@ -154,7 +159,11 @@ internal object BackupBundleValidator {
             }
         val sanitizedRecords =
             bundle.personalRecords.map { record ->
-                if (record.sourceWorkoutLogId != null && record.sourceWorkoutLogId !in logIds) {
+                if (
+                    !preserveDanglingProvenance &&
+                        record.sourceWorkoutLogId != null &&
+                        record.sourceWorkoutLogId !in logIds
+                ) {
                     nulledFields += "sourceWorkoutLogId"
                     record.copy(sourceWorkoutLogId = null)
                 } else {

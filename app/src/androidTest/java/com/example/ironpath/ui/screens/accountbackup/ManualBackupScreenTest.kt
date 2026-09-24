@@ -6,6 +6,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createComposeRule
@@ -33,6 +34,7 @@ class ManualBackupScreenTest {
     private var cancellations = 0
     private var backupPreviews = 0
     private var syncPreviews = 0
+    private var holdGuidances = 0
     private val selections = mutableListOf<SyncConflictResolution>()
     private lateinit var originalLocale: Locale
     private lateinit var originalZone: TimeZone
@@ -303,6 +305,100 @@ class ManualBackupScreenTest {
     }
 
     @Test
+    fun restorePreview_isEnabledOnlyWhenALatestCompleteBackupIsAvailable() {
+        setScreen(ManualBackupUiState())
+        composeRule
+            .onNodeWithText("PREVIEW WHOLE-BACKUP RESTORE")
+            .performScrollTo()
+            .assertIsNotEnabled()
+
+        composeRule.runOnIdle {
+            ui =
+                ManualBackupUiState(
+                    latest =
+                        RemoteBackupSummary(
+                            backupId = "complete-backup",
+                            completedAtEpochMillis = COMPLETED_AT,
+                            sourceInstallationId = "source-installation",
+                            entityCounts = linkedMapOf("PersonalRecord" to 1),
+                        )
+                )
+        }
+
+        composeRule
+            .onNodeWithText("PREVIEW WHOLE-BACKUP RESTORE")
+            .performScrollTo()
+            .assertIsEnabled()
+    }
+
+    @Test
+    fun restoreReviewNamesSourceAndWorkoutRequiresAcknowledgementAndLongPress() {
+        val restore =
+            RestorePreview(
+                id = "restore-review",
+                latest =
+                    RemoteBackupSummary(
+                        "backup-id",
+                        1_700_000_000_000,
+                        "another-installation",
+                        mapOf("PersonalRecord" to 2),
+                    ),
+                sourceDescription = "Another device",
+                impact =
+                    mapOf(
+                        "PersonalRecord" to
+                            BackupCategoryImpact(added = 1, updated = 1, replaced = 0)
+                    ),
+                activeWorkoutDiscardRequired = true,
+                activeWorkoutTitle = "Evening strength",
+                nulledProvenanceFields = emptySet(),
+            )
+        setScreen(ManualBackupUiState(review = ManualReview.Restore(restore)))
+
+        composeRule.onNodeWithText("WHOLE-BACKUP RESTORE REVIEW").assertIsDisplayed()
+        composeRule
+            .onNodeWithText("Backup source: Another device")
+            .performScrollTo()
+            .assertIsDisplayed()
+        composeRule
+            .onNodeWithText(
+                "The active workout ‘Evening strength’ was found. Confirming will discard it, and it will not be part of the one undo."
+            )
+            .performScrollTo()
+            .assertIsDisplayed()
+        composeRule
+            .onNodeWithText("I understand this active workout will be discarded")
+            .performScrollTo()
+            .assertIsOff()
+        composeRule
+            .onNodeWithText("PRESS AND HOLD TO RESTORE")
+            .performScrollTo()
+            .assertIsNotEnabled()
+        assertEquals(0, confirmations)
+
+        composeRule
+            .onNodeWithText("I understand this active workout will be discarded")
+            .performScrollTo()
+            .performClick()
+        composeRule
+            .onNodeWithText("I understand this active workout will be discarded")
+            .assertIsOn()
+        composeRule.onNodeWithText("PRESS AND HOLD TO RESTORE").assertIsEnabled().performClick()
+        composeRule
+            .onNodeWithText("Press and hold to confirm this whole-backup change.")
+            .assertIsDisplayed()
+        composeRule.runOnIdle {
+            assertEquals(1, holdGuidances)
+            assertEquals(0, confirmations)
+        }
+        composeRule
+            .onNodeWithText("PRESS AND HOLD TO RESTORE")
+            .assert(SemanticsMatcher.keyIsDefined(SemanticsActions.OnLongClick))
+            .performSemanticsAction(SemanticsActions.OnLongClick)
+        composeRule.runOnIdle { assertEquals(1, confirmations) }
+    }
+
+    @Test
     fun overview_exposesEveryManualStatusInSemantics() {
         setScreen(ManualBackupUiState(status = BackupStatus.SignedInNoBackup))
         listOf(
@@ -406,12 +502,25 @@ class ManualBackupScreenTest {
                                 ManualBackupActions(
                                     previewBackup = { backupPreviews++ },
                                     previewSync = { syncPreviews++ },
+                                    previewRestore = {},
+                                    previewUndo = {},
                                     selectResolution = {
                                         selections += it
                                         ui = ui.copy(resolution = it)
                                     },
                                     confirmDestructive = {
                                         ui = ui.copy(destructiveConfirmed = it)
+                                    },
+                                    confirmActiveWorkoutDiscard = {
+                                        ui = ui.copy(activeWorkoutDiscardConfirmed = it)
+                                    },
+                                    holdGuidance = {
+                                        holdGuidances++
+                                        ui =
+                                            ui.copy(
+                                                feedback =
+                                                    "Press and hold to confirm this whole-backup change."
+                                            )
                                     },
                                     confirm = { confirmations++ },
                                 ),

@@ -1,6 +1,8 @@
 package com.example.ironpath.ui.screens.accountbackup
 
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
@@ -78,10 +80,25 @@ internal fun ManualBackupOverview(
     ) {
         Text("REVIEW MANUAL SYNC")
     }
-    OutlinedButton(onClick = {}, enabled = false, modifier = Modifier.fillMaxWidth()) {
+    OutlinedButton(
+        onClick = actions.previewRestore,
+        enabled = eligible && ui.latest != null && !ui.busy,
+        modifier = Modifier.fillMaxWidth()
+    ) {
         Text("PREVIEW WHOLE-BACKUP RESTORE")
     }
-    Text("Whole-backup restore is not available yet.", style = MaterialTheme.typography.bodySmall)
+    Text(
+        "Restore uses the latest complete backup only. Older backups cannot be selected.",
+        style = MaterialTheme.typography.bodySmall
+    )
+    if (ui.undoAvailable)
+        OutlinedButton(
+            onClick = actions.previewUndo,
+            enabled = eligible && !ui.busy,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text("PREVIEW ONE UNDO")
+        }
     if (eligible)
         TextButton(onClick = onRefresh, enabled = !ui.busy, modifier = Modifier.fillMaxWidth()) {
             Text("REFRESH BACKUP STATUS")
@@ -101,7 +118,12 @@ internal fun ManualBackupReviewScreen(
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         Text(
-            if (review is ManualReview.Backup) "MANUAL BACKUP PREVIEW" else "MANUAL SYNC PREVIEW",
+            when (review) {
+                is ManualReview.Backup -> "MANUAL BACKUP PREVIEW"
+                is ManualReview.Sync -> "MANUAL SYNC PREVIEW"
+                is ManualReview.Restore -> "WHOLE-BACKUP RESTORE REVIEW"
+                is ManualReview.Undo -> "ONE-UNDO REVIEW"
+            },
             style = MaterialTheme.typography.headlineMedium
         )
         DemoBackupNotice()
@@ -180,6 +202,59 @@ internal fun ManualBackupReviewScreen(
                         "An unavailable outcome would leave inconsistent training records. Choose a valid outcome or cancel the review."
                     )
             }
+            is ManualReview.Restore -> {
+                AccountSection(
+                    "LATEST COMPLETE DEMO BACKUP",
+                    "${completionTime(review.preview.latest.completedAtEpochMillis)}\n${countSummary(review.preview.latest.entityCounts)}"
+                )
+                Text("Backup source: ${review.preview.sourceDescription}")
+                Text(
+                    "This replaces all included training data on this device with the latest complete backup. You can review the changes and undo them once on this device. Your active workout is not included in undo."
+                )
+                ImpactSummary(review.preview.impact)
+                if (review.preview.nulledProvenanceFields.isNotEmpty())
+                    Text(
+                        "Links to unavailable source records will be cleared: ${provenanceLabels(review.preview.nulledProvenanceFields).joinToString()}"
+                    )
+                if (review.preview.activeWorkoutDiscardRequired) {
+                    Text(activeWorkoutDiscardCopy(review.preview.activeWorkoutTitle))
+                    Row(
+                        Modifier.fillMaxWidth()
+                            .toggleable(
+                                value = ui.activeWorkoutDiscardConfirmed,
+                                enabled = !ui.busy,
+                                role = Role.Checkbox,
+                                onValueChange = actions.confirmActiveWorkoutDiscard
+                            )
+                            .padding(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Checkbox(
+                            checked = ui.activeWorkoutDiscardConfirmed,
+                            onCheckedChange = null,
+                            enabled = !ui.busy
+                        )
+                        Text(
+                            "I understand this active workout will be discarded",
+                            modifier = Modifier.padding(start = 8.dp)
+                        )
+                    }
+                }
+            }
+            is ManualReview.Undo -> {
+                Text(
+                    "This brings back the included training records from before the last restore. Active workout state is excluded from undo, and undo does not change the backup."
+                )
+                ImpactSummary(review.preview.impact)
+                if (review.preview.activeWorkoutPresent)
+                    Text(
+                        "Finish or discard the active workout through its normal workout flow before undoing. The workout has not changed."
+                    )
+                else
+                    Text(
+                        "After undo, this device will show local changes until you explicitly back up or review a manual sync."
+                    )
+            }
         }
         ui.feedback?.let { Feedback(it) }
         if (ui.busy) Feedback("Manual operation in progress")
@@ -196,16 +271,37 @@ internal fun ManualBackupReviewScreen(
                             review.preview.canKeepCloud
                         else -> false
                     }
+                is ManualReview.Restore ->
+                    !review.preview.activeWorkoutDiscardRequired || ui.activeWorkoutDiscardConfirmed
+                is ManualReview.Undo -> !review.preview.activeWorkoutPresent
             }
-        Button(
-            onClick = actions.confirm,
-            enabled = canConfirm && !ui.busy,
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Text(
-                if (review is ManualReview.Backup) "CONFIRM MANUAL BACKUP"
-                else "CONFIRM MANUAL SYNC"
-            )
+        when (review) {
+            is ManualReview.Backup,
+            is ManualReview.Sync ->
+                Button(
+                    onClick = actions.confirm,
+                    enabled = canConfirm && !ui.busy,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(
+                        if (review is ManualReview.Backup) "CONFIRM MANUAL BACKUP"
+                        else "CONFIRM MANUAL SYNC"
+                    )
+                }
+            is ManualReview.Restore ->
+                HoldConfirmButton(
+                    "PRESS AND HOLD TO RESTORE",
+                    canConfirm && !ui.busy,
+                    actions.holdGuidance,
+                    actions.confirm
+                )
+            is ManualReview.Undo ->
+                HoldConfirmButton(
+                    "PRESS AND HOLD TO UNDO",
+                    canConfirm && !ui.busy,
+                    actions.holdGuidance,
+                    actions.confirm
+                )
         }
         TextButton(onClick = onBack, enabled = !ui.busy, modifier = Modifier.fillMaxWidth()) {
             Text("BACK TO ACCOUNT & BACKUP")
@@ -269,6 +365,75 @@ internal fun countSummary(counts: Map<String, Int>): String {
         .filterValues { it > 0 }
         .entries
         .joinToString("\n") { (category, count) -> "${categoryLabel(category)}: $count" }
+}
+
+@Composable
+private fun ImpactSummary(impact: Map<String, BackupCategoryImpact>) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text("WHOLE-BACKUP CHANGE", style = MaterialTheme.typography.labelLarge)
+        Text("Added = records from the backup that will appear on this device.")
+        Text("Updated = records found on both sides whose details differ.")
+        Text(
+            "Replaced = records on this device that are missing from the backup and will be removed."
+        )
+        impact.forEach { (category, change) ->
+            if (change.added + change.updated + change.replaced > 0)
+                AccountSection(
+                    categoryLabel(category),
+                    "Added: ${change.added} · Updated: ${change.updated} · Replaced: ${change.replaced}"
+                )
+        }
+        if (impact.values.all { it.added + it.updated + it.replaced == 0 })
+            Text("No included records change.")
+    }
+}
+
+private fun activeWorkoutDiscardCopy(title: String?): String =
+    title
+        ?.takeIf { it.isNotBlank() }
+        ?.let {
+            "The active workout ‘$it’ was found. Confirming will discard it, and it will not be part of the one undo."
+        }
+        ?: "An active workout was found. Confirming will discard it, and it will not be part of the one undo."
+
+private fun provenanceLabels(fields: Set<String>): List<String> =
+    fields.sorted().map {
+        when (it) {
+            "sourcePlannedWorkoutId" -> "original planned workout"
+            "sourceWorkoutLogId" -> "original workout log"
+            else -> "source record link"
+        }
+    }
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun HoldConfirmButton(
+    label: String,
+    enabled: Boolean,
+    onTap: () -> Unit,
+    onHold: () -> Unit,
+) {
+    val container =
+        if (enabled) MaterialTheme.colorScheme.primary
+        else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f)
+    val content =
+        if (enabled) MaterialTheme.colorScheme.onPrimary
+        else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
+    Box(
+        Modifier.fillMaxWidth()
+            .heightIn(min = 48.dp)
+            .background(container, RoundedCornerShape(24.dp))
+            .combinedClickable(
+                enabled = enabled,
+                role = Role.Button,
+                onClick = onTap,
+                onLongClick = onHold
+            )
+            .padding(horizontal = 24.dp, vertical = 12.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(label, color = content, style = MaterialTheme.typography.labelLarge)
+    }
 }
 
 private fun categoryLabel(category: String): String =

@@ -728,7 +728,8 @@ Before local replacement, the app:
 
 Restore cannot proceed silently while an `ActiveSession` exists. The user may return
 to the workout or choose `Discard active workout and restore`; that confirmation names
-the loss. The final Restore action requires a long press after the impact preview.
+the loss. The acknowledgement starts unchecked and applies to the session shown in the
+preview. The final Restore action requires a long press after the impact preview.
 Immediately before a confirmed successful restore, the same Room transaction captures
 the complete pre-restore local durable-data bundle, replaces the prior undo snapshot,
 deletes the active session and cascaded children when applicable, replaces the included
@@ -737,6 +738,30 @@ revision. Exactly one pre-restore snapshot is retained and supports one atomic u
 the next successful restore replaces it. Any download, parse, validation, confirmation
 cancellation, or transaction failure leaves the pre-restore local database, active
 session, and prior undo snapshot unchanged.
+
+### feat11.3.3 First Usable Slice
+
+The first usable restore slice reads only the latest complete supported backup. It does
+not offer a historical-backup picker. Its accepted demo adapter stores data inside this
+app on this device; it is useful for reviewing and exercising the flow, but does not
+protect against uninstall or device loss and does not imply a live Google or Firebase
+backup.
+
+The one undo is a bounded Room snapshot tied to the account and installation that
+performed the restore. It survives process recreation, is consumed after a successful
+undo, and is replaced only by a later successful restore. Failed or cancelled restore
+and undo leave it available; local reset or installation transfer clears it. Undo has
+its own impact preview and long-press confirmation, performs no remote write, restores
+the previous local training rows and their matching shared-backup baseline, preserves
+the current installation ID, and advances the local revision. It does not restore an
+active workout that was discarded by restore. Any active workout blocks undo until the
+user finishes or discards it through the normal workout flow. Undo stays `Local changes` or
+`Review required` until an explicit manual backup or sync establishes current lineage;
+the old complete revision marker never advances just because local rows were restored.
+If a same-account remote observation is newer than that restored baseline, the app
+keeps it available in the coordinator while preserving the older shared baseline for
+three-way conflict review. A fresh explicit latest lookup can refresh the displayed
+observation after process recreation.
 
 ### Sign-in and manual data-choice matrix
 
@@ -758,8 +783,9 @@ manual actions. It does not attach, upload, merge, or replace workout data.
      after confirmation; same-record conflicts require the user to choose `Merge and
      keep local conflict versions` or `Overwrite this device from cloud`.
    - `Preview whole-backup restore` never merges. It validates the complete snapshot,
-     shows backup date/source and categorized impact counts, and proceeds only after
-     the final long-press confirmation.
+     identifies that it is using the latest complete backup, shows backup date/source
+     and categorized impact counts, and proceeds only after the final long-press
+     confirmation.
 4. Canceling any preview leaves local data, remote data, ownership, lineage, and the
    existing pre-restore undo snapshot unchanged.
 

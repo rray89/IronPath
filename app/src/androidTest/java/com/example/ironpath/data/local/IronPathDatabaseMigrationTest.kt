@@ -376,6 +376,32 @@ class IronPathDatabaseMigrationTest {
 
     @Test
     @Throws(IOException::class)
+    fun migrate4To5_preservesLineageAndCreatesAnEmptyUndoSlot() {
+        val name = "restore-undo-migration-4.db"
+        helper.createDatabase(name, 4).apply {
+            seedVersionOneData()
+            execSQL(
+                "INSERT INTO account_backup_metadata VALUES (1, 'owner', 'installation', 9, 8, 'backup', 2, 'digest', 'source', 100)"
+            )
+            close()
+        }
+        helper.runMigrationsAndValidate(name, 5, true, IronPathDatabase.MIGRATION_4_5).use {
+            database ->
+            database.assertSingleRow("SELECT * FROM account_backup_metadata WHERE id = 1") {
+                assertEquals("owner", string("ownerUid"))
+                assertEquals(9L, long("localChangeRevision"))
+                assertEquals(0, int("requiresLineageReviewAfterUndo"))
+            }
+            database.assertSingleRow("SELECT * FROM weekly_plans WHERE id = '$PLAN_ID'") {
+                assertEquals("Active", string("status"))
+            }
+            assertEquals(0, database.rowCount("restore_undo_metadata"))
+            assertEquals(0, database.rowCount("restore_undo_chunks"))
+        }
+    }
+
+    @Test
+    @Throws(IOException::class)
     fun allMigrations_openLatestSchemaAndAllDaosRemainUsable() {
         helper.createDatabase(ALL_MIGRATIONS_DATABASE, 1).apply {
             seedVersionOneData()
@@ -384,11 +410,12 @@ class IronPathDatabaseMigrationTest {
         helper
             .runMigrationsAndValidate(
                 ALL_MIGRATIONS_DATABASE,
-                4,
+                5,
                 true,
                 IronPathDatabase.MIGRATION_1_2,
                 IronPathDatabase.MIGRATION_2_3,
                 IronPathDatabase.MIGRATION_3_4,
+                IronPathDatabase.MIGRATION_4_5,
             )
             .close()
 
@@ -398,7 +425,8 @@ class IronPathDatabaseMigrationTest {
                 .addMigrations(
                     IronPathDatabase.MIGRATION_1_2,
                     IronPathDatabase.MIGRATION_2_3,
-                    IronPathDatabase.MIGRATION_3_4
+                    IronPathDatabase.MIGRATION_3_4,
+                    IronPathDatabase.MIGRATION_4_5
                 )
                 .build()
         try {

@@ -38,6 +38,11 @@ constructor(
             }
         }
         viewModelScope.launch {
+            backup.undoAvailable.collect { available ->
+                mutableManual.update { it.copy(undoAvailable = available) }
+            }
+        }
+        viewModelScope.launch {
             accountGateway.refreshLocal()
             backup.refreshStatus()
             localContext.changes
@@ -96,6 +101,26 @@ constructor(
         }
     }
 
+    fun previewRestore() = runManual {
+        discardReview()
+        when (val result = backup.previewRestore()) {
+            is RestorePreviewResult.Ready ->
+                mutableManual.update { it.copy(review = ManualReview.Restore(result.preview)) }
+            is RestorePreviewResult.Failed -> showFailure(result.reason)
+            RestorePreviewResult.Unavailable -> unavailable()
+        }
+    }
+
+    fun previewUndo() = runManual {
+        discardReview()
+        when (val result = backup.previewUndo()) {
+            is UndoPreviewResult.Ready ->
+                mutableManual.update { it.copy(review = ManualReview.Undo(result.preview)) }
+            is UndoPreviewResult.Failed -> showFailure(result.reason)
+            UndoPreviewResult.Unavailable -> unavailable()
+        }
+    }
+
     fun selectResolution(resolution: SyncConflictResolution) {
         if (manual.value.busy) return
         val review = (manual.value.review as? ManualReview.Sync)?.preview ?: return
@@ -106,6 +131,20 @@ constructor(
 
     fun confirmDestructive(confirmed: Boolean) {
         if (!manual.value.busy) mutableManual.update { it.copy(destructiveConfirmed = confirmed) }
+    }
+
+    fun confirmActiveWorkoutDiscard(confirmed: Boolean) {
+        if (!manual.value.busy)
+            mutableManual.update {
+                it.copy(activeWorkoutDiscardConfirmed = confirmed, feedback = null)
+            }
+    }
+
+    fun holdGuidance() {
+        if (!manual.value.busy)
+            mutableManual.update {
+                it.copy(feedback = "Press and hold to confirm this whole-backup change.")
+            }
     }
 
     fun confirm() {
@@ -123,12 +162,22 @@ constructor(
                 current.resolution == null
         )
             return
+        if (
+            review is ManualReview.Restore &&
+                review.preview.activeWorkoutDiscardRequired &&
+                !current.activeWorkoutDiscardConfirmed
+        )
+            return
+        if (review is ManualReview.Undo && review.preview.activeWorkoutPresent) return
         runManual {
             val result =
                 when (review) {
                     is ManualReview.Backup ->
                         backup.confirmBackup(review.id, current.destructiveConfirmed)
                     is ManualReview.Sync -> backup.confirmSync(review.id, current.resolution)
+                    is ManualReview.Restore ->
+                        backup.confirmRestore(review.id, current.activeWorkoutDiscardConfirmed)
+                    is ManualReview.Undo -> backup.confirmUndo(review.id)
                 }
             when (result) {
                 BackupActionResult.Completed -> {
@@ -138,6 +187,10 @@ constructor(
                                 "Account ready. No backup was created because there is no included training data."
                             review is ManualReview.Backup ->
                                 "Manual backup complete in demo storage."
+                            review is ManualReview.Restore ->
+                                "The latest complete demo backup replaced the included training data. One local undo is available."
+                            review is ManualReview.Undo ->
+                                "One undo restored the pre-restore training data. Local changes still need an explicit backup or sync review."
                             else ->
                                 "Manual sync complete. Your training data now reflects the confirmed choice."
                         }
@@ -146,7 +199,8 @@ constructor(
                             review = null,
                             feedback = message,
                             resolution = null,
-                            destructiveConfirmed = false
+                            destructiveConfirmed = false,
+                            activeWorkoutDiscardConfirmed = false,
                         )
                     }
                     accountGateway.refreshLocal()
@@ -202,7 +256,12 @@ constructor(
     private suspend fun discardReview() {
         manual.value.review?.let { backup.discardPreview(it.id) }
         mutableManual.update {
-            it.copy(review = null, resolution = null, destructiveConfirmed = false)
+            it.copy(
+                review = null,
+                resolution = null,
+                destructiveConfirmed = false,
+                activeWorkoutDiscardConfirmed = false,
+            )
         }
     }
 

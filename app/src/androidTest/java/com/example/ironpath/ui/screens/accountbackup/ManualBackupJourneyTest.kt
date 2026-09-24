@@ -35,6 +35,7 @@ import dagger.hilt.android.testing.HiltAndroidTest
 import javax.inject.Inject
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
@@ -229,6 +230,78 @@ class ManualBackupJourneyTest {
             )
             .assertExists()
 
+        applyPreRestoreLocalChange()
+        val beforeRestore = runBlocking { local.capture() }
+        assertTrue(beforeRestore.bundle.personalRecords.any { it.id == UNDO_ONLY_RECORD_ID })
+        val remoteBeforeRestore = latest(accountId)
+        val expectedSource =
+            if (
+                remoteBeforeRestore.summary.sourceInstallationId ==
+                    beforeRestore.metadata.installationId
+            )
+                "This device"
+            else "Another device"
+        composeRule.onNodeWithContentDescription("Menu").performClick()
+        composeRule.onNodeWithText("Back up your training data").performClick()
+        waitForText("YOUR ACCOUNT")
+        waitForText("Local changes")
+        waitForText("PREVIEW WHOLE-BACKUP RESTORE")
+        composeRule.onNodeWithText("PREVIEW WHOLE-BACKUP RESTORE").performScrollTo().performClick()
+        waitForText("WHOLE-BACKUP RESTORE REVIEW")
+        composeRule
+            .onNodeWithText("Backup source: $expectedSource")
+            .performScrollTo()
+            .assertExists()
+        composeRule
+            .onNode(
+                hasText("Personal records", substring = true) and
+                    hasText("Replaced: 1", substring = true)
+            )
+            .performScrollTo()
+            .assertExists()
+        composeRule
+            .onNodeWithText("PRESS AND HOLD TO RESTORE")
+            .performScrollTo()
+            .performTouchInput { longClick(durationMillis = 1_000) }
+        waitForText(
+            "The latest complete demo backup replaced the included training data. One local undo is available."
+        )
+        val restored = runBlocking { local.capture() }
+        assertFalse(restored.bundle.personalRecords.any { it.id == UNDO_ONLY_RECORD_ID })
+        assertEquals(remoteBeforeRestore, latest(accountId))
+        assertNotNull(runBlocking { database.backupDao().getRestoreUndoMetadata() })
+
+        // A recreated account screen rediscovers the persisted one-slot capability from Room.
+        composeRule.activityRule.scenario.recreate()
+        waitForText("YOUR ACCOUNT")
+        composeRule
+            .onNodeWithText("PREVIEW ONE UNDO")
+            .performScrollTo()
+            .assertIsEnabled()
+            .performClick()
+        waitForText("ONE-UNDO REVIEW")
+        composeRule.onNodeWithText("PRESS AND HOLD TO UNDO").performScrollTo().performTouchInput {
+            longClick(durationMillis = 1_000)
+        }
+        waitForText(
+            "One undo restored the pre-restore training data. Local changes still need an explicit backup or sync review."
+        )
+        val undone = runBlocking { local.capture() }
+        assertTrue(undone.bundle.personalRecords.any { it.id == UNDO_ONLY_RECORD_ID })
+        assertTrue(undone.metadata.requiresLineageReviewAfterUndo)
+        assertTrue(undone.metadata.localChangeRevision > undone.metadata.lastCompleteLocalRevision)
+        assertEquals(remoteBeforeRestore, latest(accountId))
+
+        Espresso.pressBack()
+        composeRule.onNodeWithTag(TestTags.bottomNav(Route.HOME)).performClick()
+        waitForText("No workout plan yet")
+        composeRule.onNodeWithTag(TestTags.bottomNav(Route.HISTORY)).performClick()
+        composeRule.onNodeWithTag(TestTags.historyTab("Records")).performClick()
+        composeRule
+            .onNodeWithTag(TestTags.record(UNDO_ONLY_RECORD_ID))
+            .performScrollTo()
+            .assertIsDisplayed()
+
         // Reopen the file and reconstruct the persistence owner after the Activity is gone.
         composeRule.activityRule.scenario.close()
         val reopened =
@@ -236,8 +309,10 @@ class ManualBackupJourneyTest {
         val reconstructed = runBlocking {
             RoomBackupStore(reopened, SequenceIdProvider("unused-reconstruction")).capture()
         }
-        assertEquals(merged, reconstructed)
+        assertEquals(undone, reconstructed)
         assertNotNull(reconstructed.baseline)
+        assertTrue(reconstructed.metadata.requiresLineageReviewAfterUndo)
+        assertNull(runBlocking { reopened.backupDao().getRestoreUndoMetadata() })
         assertEquals(mergedRemote, latest(accountId))
     }
 
@@ -276,6 +351,23 @@ class ManualBackupJourneyTest {
                 arrayOf<Any>(110.0, SHARED_RECORD_ID)
             )
             records.insertRecord(localRecord())
+        }
+    }
+
+    private fun applyPreRestoreLocalChange() = runBlocking {
+        database.withTransaction {
+            database.openHelper.writableDatabase.execSQL(
+                "UPDATE personal_records SET weightKg = ? WHERE id = ?",
+                arrayOf<Any>(130.0, SHARED_RECORD_ID),
+            )
+            records.insertRecord(
+                TestData.record(
+                    id = UNDO_ONLY_RECORD_ID,
+                    exerciseName = "Overhead Press",
+                    normalizedExerciseName = "overhead press",
+                    weightKg = 55.0,
+                )
+            )
         }
     }
 
@@ -360,6 +452,7 @@ class ManualBackupJourneyTest {
         const val SHARED_RECORD_ID = "manual-journey-shared-record"
         const val LOCAL_RECORD_ID = "manual-journey-local-record"
         const val CLOUD_RECORD_ID = "manual-journey-cloud-record"
+        const val UNDO_ONLY_RECORD_ID = "manual-journey-undo-only-record"
         const val LOG_ID = "manual-journey-log"
         const val LOGGED_EXERCISE_ID = "manual-journey-exercise"
         const val CLOUD_WEIGHT = 120.0

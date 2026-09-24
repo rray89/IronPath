@@ -8,6 +8,7 @@ data class ManualBackupCapture(
     val bundle: BackupBundle,
     val baseline: RemoteBackupArtifact?,
     val activeSessionId: String?,
+    val activeSessionTitle: String? = null,
 )
 
 interface ManualBackupLocalStore {
@@ -25,5 +26,23 @@ interface ManualBackupLocalStore {
         captured: ManualBackupCapture,
         accountId: AccountId,
         backup: RemoteBackupArtifact
+    ): Boolean
+
+    suspend fun restore(
+        captured: ManualBackupCapture,
+        accountId: AccountId,
+        artifact: ValidatedRestoreArtifact,
+        discardActiveSessionId: String?,
+    ): Boolean
+
+    suspend fun captureUndo(
+        accountId: AccountId,
+        installationId: String,
+    ): ManualBackupUndoCapture?
+
+    suspend fun undo(
+        captured: ManualBackupCapture,
+        accountId: AccountId,
+        undo: ManualBackupUndoCapture,
     ): Boolean
 }

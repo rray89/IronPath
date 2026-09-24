@@ -9,6 +9,9 @@ interface BackupCoordinator {
     val latestSummary: StateFlow<RemoteBackupSummary?>
         get() = MutableStateFlow(null)
 
+    val undoAvailable: StateFlow<Boolean>
+        get() = MutableStateFlow(false)
+
     suspend fun refreshStatus() {}
 
     suspend fun discardPreview(previewId: String) {}
@@ -27,11 +30,20 @@ interface BackupCoordinator {
         resolution: SyncConflictResolution? = null
     ): BackupActionResult = BackupActionResult.Unavailable
 
+    suspend fun previewRestore(): RestorePreviewResult = RestorePreviewResult.Unavailable
+
+    suspend fun confirmRestore(
+        previewId: String,
+        activeWorkoutDiscardConfirmed: Boolean = false,
+    ): BackupActionResult = BackupActionResult.Unavailable
+
+    suspend fun previewUndo(): UndoPreviewResult = UndoPreviewResult.Unavailable
+
+    suspend fun confirmUndo(previewId: String): BackupActionResult = BackupActionResult.Unavailable
+
     suspend fun backUpNow(): BackupActionResult
 
     suspend fun latestCompleteBackup(): BackupLookupResult
-
-    suspend fun restore(request: RestoreRequest): BackupActionResult
 
     suspend fun deleteAllRemoteData(): BackupActionResult
 }
@@ -77,17 +89,6 @@ sealed interface BackupLookupResult {
     data class Failed(val reason: BackupFailureReason) : BackupLookupResult
 }
 
-data class RestoreRequest(
-    val backupId: String,
-    val activeSessionDisposition: ActiveSessionDisposition = ActiveSessionDisposition.Preserve,
-)
-
-sealed interface ActiveSessionDisposition {
-    data object Preserve : ActiveSessionDisposition
-
-    data class Discard(val confirmedSessionId: String) : ActiveSessionDisposition
-}
-
 enum class BackupFailureReason {
     StalePreview,
     OwnershipMismatch,
@@ -125,6 +126,44 @@ data class SyncPreview(
     val canKeepLocal: Boolean = true,
     val canKeepCloud: Boolean = true,
 )
+
+data class BackupCategoryImpact(
+    val added: Int,
+    val updated: Int,
+    val replaced: Int,
+)
+
+data class RestorePreview(
+    val id: String,
+    val latest: RemoteBackupSummary,
+    val sourceDescription: String,
+    val impact: Map<String, BackupCategoryImpact>,
+    val activeWorkoutDiscardRequired: Boolean,
+    val activeWorkoutTitle: String?,
+    val nulledProvenanceFields: Set<String>,
+)
+
+data class UndoPreview(
+    val id: String,
+    val impact: Map<String, BackupCategoryImpact>,
+    val activeWorkoutPresent: Boolean,
+)
+
+sealed interface RestorePreviewResult {
+    data class Ready(val preview: RestorePreview) : RestorePreviewResult
+
+    data object Unavailable : RestorePreviewResult
+
+    data class Failed(val reason: BackupFailureReason) : RestorePreviewResult
+}
+
+sealed interface UndoPreviewResult {
+    data class Ready(val preview: UndoPreview) : UndoPreviewResult
+
+    data object Unavailable : UndoPreviewResult
+
+    data class Failed(val reason: BackupFailureReason) : UndoPreviewResult
+}
 
 enum class SyncConflictResolution {
     KeepLocal,

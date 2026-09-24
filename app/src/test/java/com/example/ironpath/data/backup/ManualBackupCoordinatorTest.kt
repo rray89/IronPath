@@ -139,6 +139,124 @@ class ManualBackupCoordinatorTest {
     }
 
     @Test
+    fun restoreAndUndoPreserveOldSharedBaseAndRequireAnExplicitConflictChoice() = runTest {
+        val fixture = Fixture()
+        fixture.firstBackup()
+        val originalBase = fixture.local.value.baseline
+        val revision = fixture.local.value.metadata.localChangeRevision + 1
+        fixture.local.value =
+            fixture.local.value.copy(
+                metadata = fixture.local.value.metadata.copy(localChangeRevision = revision),
+                bundle =
+                    fixture.local.value.bundle.copy(
+                        localChangeRevision = revision,
+                        personalRecords = listOf(record("first").copy(weightKg = 60.0)),
+                    ),
+            )
+        fixture.cloud.change(bundle(listOf(record("first").copy(weightKg = 70.0))))
+
+        val preview = (fixture.coordinator.previewRestore() as RestorePreviewResult.Ready).preview
+        assertEquals(1, preview.impact.getValue("PersonalRecord").updated)
+        assertEquals("Another device", preview.sourceDescription)
+        assertEquals(BackupActionResult.Completed, fixture.coordinator.confirmRestore(preview.id))
+        assertTrue(fixture.coordinator.undoAvailable.value)
+        val undo = (fixture.coordinator.previewUndo() as UndoPreviewResult.Ready).preview
+        assertEquals(1, undo.impact.getValue("PersonalRecord").updated)
+        assertEquals(BackupActionResult.Completed, fixture.coordinator.confirmUndo(undo.id))
+
+        assertEquals(60.0, fixture.local.value.bundle.personalRecords.single().weightKg, 0.0)
+        assertEquals(originalBase, fixture.local.value.baseline)
+        assertEquals(1L, fixture.local.value.metadata.lastObservedRemoteGeneration)
+        assertEquals(BackupStatus.ReviewRequired, fixture.coordinator.status.value)
+        assertFalse(fixture.coordinator.undoAvailable.value)
+        assertEquals(1, fixture.cloud.writes)
+
+        val sync = (fixture.coordinator.previewSync() as SyncPreviewResult.Ready).preview
+        assertEquals(1, sync.conflicts.getValue("PersonalRecord"))
+        assertEquals(1, fixture.cloud.writes)
+    }
+
+    @Test
+    fun activeWorkoutRequiresUncheckedThenBoundDiscardAcknowledgement() = runTest {
+        val fixture = Fixture()
+        fixture.cloud.change(bundle(listOf(record("remote"))))
+        fixture.local.value =
+            fixture.local.value.copy(
+                activeSessionId = "session-current",
+                activeSessionTitle = "Evening strength",
+            )
+
+        val preview = (fixture.coordinator.previewRestore() as RestorePreviewResult.Ready).preview
+        assertTrue(preview.activeWorkoutDiscardRequired)
+        assertEquals("Evening strength", preview.activeWorkoutTitle)
+        assertEquals(
+            BackupActionResult.ActiveSessionRequiresConfirmation("session-current"),
+            fixture.coordinator.confirmRestore(preview.id),
+        )
+        assertEquals(0, fixture.local.writes)
+        assertEquals(0, fixture.cloud.writes)
+
+        fixture.local.value = fixture.local.value.copy(activeSessionId = "session-replacement")
+        assertEquals(
+            BackupActionResult.Failed(BackupFailureReason.StalePreview),
+            fixture.coordinator.confirmRestore(preview.id, activeWorkoutDiscardConfirmed = true),
+        )
+        assertEquals(0, fixture.local.writes)
+        assertEquals(0, fixture.cloud.writes)
+    }
+
+    @Test
+    fun accountLossWhileRestoreRevalidationWaitsOnRemoteCannotMutateRoomOrUndoSlot() = runTest {
+        val fixture = Fixture()
+        fixture.cloud.change(bundle(listOf(record("remote"))))
+        val preview = (fixture.coordinator.previewRestore() as RestorePreviewResult.Ready).preview
+        val readStarted = CompletableDeferred<Unit>()
+        val finishRead = CompletableDeferred<Unit>()
+        fixture.cloud.onRead = {
+            fixture.cloud.onRead = {}
+            readStarted.complete(Unit)
+            finishRead.await()
+        }
+
+        val confirmation = async { fixture.coordinator.confirmRestore(preview.id) }
+        readStarted.await()
+        fixture.session.profile = null
+        finishRead.complete(Unit)
+
+        assertEquals(
+            BackupActionResult.Failed(BackupFailureReason.ReauthenticationRequired),
+            confirmation.await(),
+        )
+        assertEquals(0, fixture.local.writes)
+        assertNull(fixture.local.captureUndo(AccountId("owner"), "installation"))
+        assertEquals(0, fixture.cloud.writes)
+    }
+
+    @Test
+    fun accountLossAfterUndoRevalidationCannotConsumeTheUndoSlot() = runTest {
+        val fixture = Fixture()
+        fixture.cloud.change(bundle(listOf(record("remote"))))
+        val restore = (fixture.coordinator.previewRestore() as RestorePreviewResult.Ready).preview
+        assertEquals(BackupActionResult.Completed, fixture.coordinator.confirmRestore(restore.id))
+        val installationId = fixture.local.value.metadata.installationId
+        val slotBefore = checkNotNull(fixture.local.captureUndo(AccountId("owner"), installationId))
+        val undo = (fixture.coordinator.previewUndo() as UndoPreviewResult.Ready).preview
+        val writesBefore = fixture.local.writes
+
+        fixture.local.onCapture = { fixture.session.profile = null }
+
+        assertEquals(
+            BackupActionResult.Failed(BackupFailureReason.ReauthenticationRequired),
+            fixture.coordinator.confirmUndo(undo.id),
+        )
+        assertEquals(writesBefore, fixture.local.writes)
+        assertEquals(
+            slotBefore,
+            fixture.local.captureUndo(AccountId("owner"), installationId),
+        )
+    }
+
+    @Test
     fun confirmedFirstBackupClaimsDataAndReplayCannotWriteAgain() = runTest {
         val fixture = Fixture()
         val preview = (fixture.coordinator.previewBackup() as BackupPreviewResult.Ready).preview
@@ -370,8 +488,8 @@ class ManualBackupCoordinatorTest {
         )
         assertEquals(BackupActionResult.Unavailable, fixture.coordinator.backUpNow())
         assertEquals(
-            BackupActionResult.Unavailable,
-            fixture.coordinator.restore(RestoreRequest("unused"))
+            RestorePreviewResult.Failed(BackupFailureReason.ReauthenticationRequired),
+            fixture.coordinator.previewRestore()
         )
         assertEquals(BackupActionResult.Unavailable, fixture.coordinator.deleteAllRemoteData())
         val failed =
@@ -561,6 +679,105 @@ class ManualBackupCoordinatorTest {
             value = value.copy(bundle = BackupSnapshotCodec().decode(backup.snapshot))
             return true
         }
+
+        private var undoSlot: ManualBackupUndoCapture? = null
+
+        override suspend fun restore(
+            captured: ManualBackupCapture,
+            accountId: AccountId,
+            artifact: ValidatedRestoreArtifact,
+            discardActiveSessionId: String?,
+        ): Boolean {
+            if (
+                captured.metadata != value.metadata ||
+                    captured.activeSessionId != value.activeSessionId ||
+                    (value.activeSessionId != null &&
+                        discardActiveSessionId != value.activeSessionId)
+            )
+                return false
+            undoSlot =
+                ManualBackupUndoCapture(
+                    "undo-slot",
+                    accountId.opaqueValue,
+                    captured.metadata.installationId,
+                    captured.metadata,
+                    captured.bundle,
+                    captured.baseline,
+                )
+            val revision = Math.addExact(value.metadata.localChangeRevision, 1)
+            val snapshot = artifact.remoteSnapshot ?: BackupSnapshotCodec().encode(artifact.bundle)
+            val remoteArtifact =
+                RemoteBackupArtifact(
+                    artifact.lineage.toSummary(snapshot.entityCounts),
+                    artifact.lineage.remoteGeneration,
+                    snapshot,
+                )
+            value =
+                ManualBackupCapture(
+                    value.metadata.copy(
+                        ownerUid = accountId.opaqueValue,
+                        localChangeRevision = revision,
+                        lastCompleteLocalRevision = revision,
+                        lastObservedRemoteBackupId = artifact.lineage.remoteBackupId,
+                        lastObservedRemoteGeneration = artifact.lineage.remoteGeneration,
+                        lastObservedRemoteDigest = artifact.lineage.remoteDigest,
+                        lastObservedSourceInstallationId = artifact.lineage.sourceInstallationId,
+                        lastObservedRemoteCompletedAt = artifact.lineage.completedAt,
+                    ),
+                    artifact.bundle.copy(localChangeRevision = revision),
+                    remoteArtifact,
+                    null,
+                )
+            writes++
+            return true
+        }
+
+        override suspend fun captureUndo(
+            accountId: AccountId,
+            installationId: String,
+        ): ManualBackupUndoCapture? =
+            undoSlot?.takeIf {
+                it.restoringOwnerUid == accountId.opaqueValue &&
+                    it.restoringInstallationId == installationId
+            }
+
+        override suspend fun undo(
+            captured: ManualBackupCapture,
+            accountId: AccountId,
+            undo: ManualBackupUndoCapture,
+        ): Boolean {
+            if (
+                undoSlot != undo ||
+                    captured.metadata != value.metadata ||
+                    captured.activeSessionId != null ||
+                    value.activeSessionId != null
+            )
+                return false
+            val revision = Math.addExact(value.metadata.localChangeRevision, 1)
+            val prior = undo.previousMetadata
+            value =
+                ManualBackupCapture(
+                    prior.copy(
+                        installationId = captured.metadata.installationId,
+                        localChangeRevision = revision,
+                        lastObservedRemoteBackupId = prior.lastObservedRemoteBackupId,
+                        lastObservedRemoteGeneration = prior.lastObservedRemoteGeneration,
+                        lastObservedRemoteDigest = prior.lastObservedRemoteDigest,
+                        lastObservedSourceInstallationId = prior.lastObservedSourceInstallationId,
+                        lastObservedRemoteCompletedAt = prior.lastObservedRemoteCompletedAt,
+                        requiresLineageReviewAfterUndo = true,
+                    ),
+                    undo.bundle.copy(localChangeRevision = revision),
+                    undo.baseline,
+                    null,
+                )
+            undoSlot = null
+            writes++
+            return true
+        }
+
+        private fun RestoreLineage.toSummary(counts: Map<String, Int>) =
+            RemoteBackupSummary(remoteBackupId, completedAt, sourceInstallationId, counts)
     }
 
     private class Cloud : RemoteBackupStore {
@@ -572,6 +789,7 @@ class ManualBackupCoordinatorTest {
         var readFailure: BackupFailureReason? = null
         var throwOnRead = false
         var onPublish: () -> Unit = {}
+        var onRead: suspend () -> Unit = {}
 
         fun change(bundle: BackupBundle) {
             generation++
@@ -591,6 +809,7 @@ class ManualBackupCoordinatorTest {
 
         override suspend fun latest(accountId: AccountId): RemoteBackupRead {
             reads++
+            onRead()
             if (throwOnRead) error("private diagnostic must not escape")
             readFailure?.let {
                 return RemoteBackupRead.Failed(it)

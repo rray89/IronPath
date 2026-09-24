@@ -12,6 +12,8 @@ import com.example.ironpath.data.local.entity.LoggedSet
 import com.example.ironpath.data.local.entity.PersonalRecord
 import com.example.ironpath.data.local.entity.PlannedExercise
 import com.example.ironpath.data.local.entity.PlannedWorkout
+import com.example.ironpath.data.local.entity.RestoreUndoChunk
+import com.example.ironpath.data.local.entity.RestoreUndoMetadata
 import com.example.ironpath.data.local.entity.WeeklyPlan
 import com.example.ironpath.data.local.entity.WorkoutLog
 import kotlinx.coroutines.flow.Flow
@@ -24,6 +26,21 @@ interface BackupDao {
     @Insert suspend fun insertBaselineChunks(chunks: List<BackupBaselineChunk>)
 
     @Query("DELETE FROM backup_baseline_chunks") suspend fun deleteBaselineChunks()
+
+    @Query("SELECT * FROM restore_undo_metadata WHERE id = 1")
+    suspend fun getRestoreUndoMetadata(): RestoreUndoMetadata?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertRestoreUndoMetadata(metadata: RestoreUndoMetadata)
+
+    @Query("SELECT * FROM restore_undo_chunks ORDER BY kind, chunkIndex")
+    suspend fun getRestoreUndoChunks(): List<RestoreUndoChunk>
+
+    @Insert suspend fun insertRestoreUndoChunks(chunks: List<RestoreUndoChunk>)
+
+    @Query("DELETE FROM restore_undo_chunks") suspend fun deleteRestoreUndoChunks()
+
+    @Query("DELETE FROM restore_undo_metadata") suspend fun deleteRestoreUndoMetadata()
 
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insertMetadataIfAbsent(metadata: AccountBackupMetadata)
