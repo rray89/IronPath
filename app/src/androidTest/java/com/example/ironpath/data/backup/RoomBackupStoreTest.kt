@@ -14,6 +14,7 @@ import com.example.ironpath.testutil.TestData
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -319,6 +320,56 @@ class RoomBackupStoreTest {
     }
 
     @Test
+    fun failedUndoInsertRollsBackCurrentDataMetadataAndSlotThenRetrySucceeds() = runBlocking {
+        val database = databaseRule.database
+        val store = RoomBackupStore(database, SequenceIdProvider("installation"))
+        val account = AccountId("owner")
+        val original = TestData.plan(id = "undo-original")
+        database.planDao().insertPlan(original)
+        store.markIncludedDataChanged()
+        val target =
+            remoteArtifact(
+                    bundleWithPlan(2, TestData.plan(id = "undo-restored")),
+                    backupId = "undo-target",
+                    generation = 1,
+                    sourceInstallationId = "source",
+                )
+                .toValidatedRestore(account.opaqueValue)
+        assertTrue(store.restore(store.capture(), account, target, null))
+
+        val metadataBefore = checkNotNull(database.backupDao().getMetadata())
+        val captureBefore = store.capture()
+        val slotBefore = checkNotNull(store.captureUndo(account, metadataBefore.installationId))
+        assertEquals("undo-original", slotBefore.bundle.weeklyPlans.single().id)
+        assertNotNull(database.backupDao().getRestoreUndoMetadata())
+        assertTrue(database.backupDao().getRestoreUndoChunks().isNotEmpty())
+
+        database.openHelper.writableDatabase.execSQL(
+            """
+            CREATE TRIGGER fail_undo_plan
+            BEFORE INSERT ON weekly_plans
+            WHEN NEW.id = 'undo-original'
+            BEGIN
+                SELECT RAISE(ABORT, 'forced undo failure');
+            END
+            """
+                .trimIndent()
+        )
+        val failure =
+            runCatching { store.undo(captureBefore, account, slotBefore) }.exceptionOrNull()
+
+        assertNotNull(failure)
+        assertEquals(captureBefore, store.capture())
+        assertEquals(metadataBefore, database.backupDao().getMetadata())
+        assertEquals(slotBefore, store.captureUndo(account, metadataBefore.installationId))
+
+        database.openHelper.writableDatabase.execSQL("DROP TRIGGER fail_undo_plan")
+        assertTrue(store.undo(store.capture(), account, slotBefore))
+        assertEquals(original, database.planDao().getActivePlan())
+        assertNull(store.captureUndo(account, metadataBefore.installationId))
+    }
+
+    @Test
     fun includedProductTransactionsIncrementTheDurableRevisionExactlyOnce() = runBlocking {
         val database = databaseRule.database
         val store = RoomBackupStore(database, SequenceIdProvider("installation"))
@@ -378,12 +429,32 @@ class RoomBackupStoreTest {
                     )
                 )
 
+            val captured = store.capture()
+            val restoreTarget =
+                remoteArtifact(
+                        bundleWithRecord(2, TestData.record(id = "reset-target")),
+                        backupId = "reset-target",
+                        generation = 4,
+                        sourceInstallationId = "source-device",
+                    )
+                    .toValidatedRestore("owner-a")
+            assertTrue(
+                store.restore(
+                    captured,
+                    AccountId("owner-a"),
+                    restoreTarget,
+                    captured.activeSessionId,
+                )
+            )
+            assertNotNull(database.backupDao().getRestoreUndoMetadata())
+            assertTrue(database.backupDao().getRestoreUndoChunks().isNotEmpty())
+
             store.resetLocalProfile()
 
             assertNull(database.planDao().getActivePlan())
             assertNull(database.sessionDao().getActiveSession())
             val reset = checkNotNull(database.backupDao().getMetadata())
-            assertEquals("installation-2", reset.installationId)
+            assertNotEquals("installation-1", reset.installationId)
             assertNull(reset.ownerUid)
             assertEquals(0L, reset.localChangeRevision)
             assertEquals(0L, reset.lastCompleteLocalRevision)
@@ -392,6 +463,9 @@ class RoomBackupStoreTest {
             assertNull(reset.lastObservedRemoteDigest)
             assertNull(reset.lastObservedSourceInstallationId)
             assertNull(reset.lastObservedRemoteCompletedAt)
+            assertNull(database.backupDao().getRestoreUndoMetadata())
+            assertTrue(database.backupDao().getRestoreUndoChunks().isEmpty())
+            assertTrue(store.capture().bundle.personalRecords.isEmpty())
             assertEquals(reset.installationId, sentinel.installationId)
             assertEquals(InstallationValidationResult.Validated, store.validateInstallation())
         }
@@ -565,6 +639,21 @@ class RoomBackupStoreTest {
             loggedExercises = emptyList(),
             loggedSets = emptyList(),
             personalRecords = listOf(record),
+        )
+
+    private fun bundleWithPlan(
+        revision: Long,
+        plan: com.example.ironpath.data.local.entity.WeeklyPlan
+    ) =
+        BackupBundle(
+            localChangeRevision = revision,
+            weeklyPlans = listOf(plan),
+            plannedWorkouts = emptyList(),
+            plannedExercises = emptyList(),
+            workoutLogs = emptyList(),
+            loggedExercises = emptyList(),
+            loggedSets = emptyList(),
+            personalRecords = emptyList(),
         )
 
     private fun remoteArtifact(

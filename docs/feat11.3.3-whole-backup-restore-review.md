@@ -37,15 +37,18 @@ the existing feat11.3.2 app data and account backup; do not clear it or sign out
 
 ## Automated evidence
 
-Focused JVM tests cover typed impacts, stale identity during a suspended remote read,
-the preserved shared baseline and explicit conflict choice, and the account/ViewModel
-state machine. The shared-base regression constructs a 50 → 60 local / 70 remote
-same-record conflict, then checks that restore/undo keeps the prior shared base and
-requires an explicit sync choice. The focused API 29 managed-emulator run passed 41
-tests covering the account screen, Home/History journey, Room restore and undo
-transactions, cold Room reopen, migration, and accessibility semantics. The API 36
-accessibility package passed 39 tests. Full lint/build, release-isolation, and
-JVM/core-coverage gates are still pending.
+Focused JVM tests cover typed impacts, account changes during a suspended remote read,
+same-route sign-in lookup, the preserved shared baseline and explicit conflict choice,
+and the account/ViewModel state machine. The shared-base regression constructs a 50 →
+60 local / 70 remote same-record conflict, then checks that restore/undo keeps the prior
+shared base and requires an explicit sync choice. The focused API 29 managed-emulator
+run passed 41 tests covering the account screen, Home/History journey, Room restore and
+undo transactions, cold Room reopen, migration, and accessibility semantics. A
+follow-up Room run passed 18/18 tests, including failed-undo rollback and retry plus
+populated undo-slot clearing during reset and installation transfer. The API 36
+accessibility package passed 39 tests. Final-source lint/build and JVM/core-coverage
+gates are still running; release assembly has passed, with release isolation to be
+checked from the artifact.
 
 Firebase protocol tests exercise corrupt or missing chunks of artifacts already marked
 COMPLETE under the emulator rules; their local 25-test run used bundled Node 24.19.0

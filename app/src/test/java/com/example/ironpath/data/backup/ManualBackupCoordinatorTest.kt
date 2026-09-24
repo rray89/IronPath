@@ -139,6 +139,25 @@ class ManualBackupCoordinatorTest {
     }
 
     @Test
+    fun latestCompleteLookupDisplaysUnownedBackupWithoutClaimingOrPublishingLocalData() = runTest {
+        val fixture = Fixture()
+        fixture.cloud.change(bundle(listOf(record("remote"))))
+        val originalLocal = fixture.local.value
+        assertNull(originalLocal.metadata.ownerUid)
+        assertNull(originalLocal.baseline)
+
+        assertEquals(
+            BackupLookupResult.Complete(fixture.cloud.artifact!!.summary),
+            fixture.coordinator.latestCompleteBackup(),
+        )
+
+        assertEquals(fixture.cloud.artifact!!.summary, fixture.coordinator.latestSummary.value)
+        assertEquals(originalLocal, fixture.local.value)
+        assertEquals(0, fixture.local.writes)
+        assertEquals(0, fixture.cloud.writes)
+    }
+
+    @Test
     fun restoreAndUndoPreserveOldSharedBaseAndRequireAnExplicitConflictChoice() = runTest {
         val fixture = Fixture()
         fixture.firstBackup()
@@ -230,6 +249,39 @@ class ManualBackupCoordinatorTest {
         assertEquals(0, fixture.local.writes)
         assertNull(fixture.local.captureUndo(AccountId("owner"), "installation"))
         assertEquals(0, fixture.cloud.writes)
+    }
+
+    @Test
+    fun accountSwitchWhileRestorePreviewWaitsOnRemoteDoesNotPublishOtherAccountsBackup() = runTest {
+        val fixture = Fixture()
+        fixture.cloud.change(bundle(listOf(record("account-a-backup"))))
+        assertTrue(fixture.coordinator.latestCompleteBackup() is BackupLookupResult.Complete)
+        assertEquals(fixture.cloud.artifact!!.summary, fixture.coordinator.latestSummary.value)
+
+        val readStarted = CompletableDeferred<Unit>()
+        val finishRead = CompletableDeferred<Unit>()
+        fixture.cloud.onRead = {
+            fixture.cloud.onRead = {}
+            readStarted.complete(Unit)
+            finishRead.await()
+        }
+
+        val preview = async { fixture.coordinator.previewRestore() }
+        readStarted.await()
+        fixture.session.profile = AccountProfile(AccountId("account-b"), "B", "b@example.invalid")
+        finishRead.complete(Unit)
+
+        assertEquals(
+            RestorePreviewResult.Failed(BackupFailureReason.ReauthenticationRequired),
+            preview.await(),
+        )
+        assertNull(fixture.coordinator.latestSummary.value)
+        assertEquals(BackupStatus.NeedsSignIn, fixture.coordinator.status.value)
+        assertEquals(0, fixture.local.writes)
+        assertEquals(
+            BackupActionResult.Failed(BackupFailureReason.StalePreview),
+            fixture.coordinator.confirmRestore("id-1"),
+        )
     }
 
     @Test

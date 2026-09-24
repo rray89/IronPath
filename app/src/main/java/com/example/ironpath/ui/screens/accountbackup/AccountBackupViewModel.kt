@@ -57,8 +57,9 @@ constructor(
     fun signIn() {
         if (manual.value.busy) return
         viewModelScope.launch {
-            accountGateway.startGoogleSignIn()
+            val result = accountGateway.startGoogleSignIn()
             backup.refreshStatus()
+            if (result == AccountActionResult.Completed) refreshLatestBackupIfEligible()
         }
     }
 
@@ -67,19 +68,24 @@ constructor(
         mutableManual.update { it.copy(feedback = null) }
         viewModelScope.launch {
             accountGateway.refresh()
-            if (
-                state.value is AccountState.SignedIn ||
-                    state.value is AccountState.AwaitingDataChoice
-            ) {
-                when (val result = backup.latestCompleteBackup()) {
-                    is BackupLookupResult.Failed -> showFailure(result.reason)
-                    else -> Unit
-                }
+            if (state.value.isEligibleForLatestBackupLookup()) {
+                refreshLatestBackupIfEligible()
             } else {
                 backup.refreshStatus()
             }
         }
     }
+
+    private suspend fun refreshLatestBackupIfEligible() {
+        if (!state.value.isEligibleForLatestBackupLookup()) return
+        when (val result = backup.latestCompleteBackup()) {
+            is BackupLookupResult.Failed -> showFailure(result.reason)
+            else -> Unit
+        }
+    }
+
+    private fun AccountState.isEligibleForLatestBackupLookup() =
+        this is AccountState.SignedIn || this is AccountState.AwaitingDataChoice
 
     fun previewBackup() = runManual {
         discardReview()

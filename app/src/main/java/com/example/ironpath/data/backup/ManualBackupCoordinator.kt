@@ -506,6 +506,9 @@ internal constructor(
 
     private suspend fun readRemote(account: AccountId): RemoteBackupRead {
         val observed = remote.latest(account)
+        // The account may change while the remote read is suspended. Do not publish an
+        // observation into another account's screen or reuse it as the active lineage.
+        requireSession(account)
         when (observed) {
             is RemoteBackupRead.Failed -> fail(observed.reason)
             is RemoteBackupRead.Complete -> {
