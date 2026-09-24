@@ -1,8 +1,8 @@
 # IronPath v5 Menu, Account, and Backup PRD
 
 Date: 2026-07-26
-Last updated: 2026-09-18
-Status: Feat11.3 Experience Direction merged in PR #53; feat11.3.1 First Usable Slice accepted by BOSS on September 18, 2026 (RRA-59, PR #55)
+Last updated: 2026-09-24
+Status: Feat11.3 Experience Direction merged in PR #53; feat11.3.1 First Usable Slice accepted by BOSS on September 18, 2026 (RRA-59, PR #55); feat11.3.3 functional First Usable Slice accepted by BOSS on September 24, 2026 (RRA-63)
 
 ## Purpose
 
@@ -762,6 +762,24 @@ If a same-account remote observation is newer than that restored baseline, the a
 keeps it available in the coordinator while preserving the older shared baseline for
 three-way conflict review. A fresh explicit latest lookup can refresh the displayed
 observation after process recreation.
+
+In the retained same-account acceptance walkthrough, undo leaves the account at
+`Local changes`, not `Up to date`, until an explicit manual backup or sync reestablishes
+current lineage. An unowned profile or an unobserved newer remote generation may require
+`Review required` in other scenarios; those conditions are outside that walkthrough.
+
+#### Functional acceptance checkpoint — September 24, 2026
+
+BOSS accepted the functional First Usable Slice after confirming that restore removed
+the newly added record B, one undo brought B back, the account reported `Local changes`,
+and Home and History showed records A and B. The walkthrough used the accepted local
+demo adapter; it does not establish live Google or Firebase backup.
+
+The later presentation-only change colors Restore and Undo hold guidance with the theme
+error color. Its isolated API 29 Compose screen test passed 15/15, and the theme error
+color `#CF6679` has 5.36:1 contrast on the review surface `#0E0E0E`. BOSS waived a
+personal retest of this polish. Affected code review and PR CI remain required before
+merge.
 
 ### Sign-in and manual data-choice matrix
 

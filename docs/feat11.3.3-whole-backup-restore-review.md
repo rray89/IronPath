@@ -4,7 +4,10 @@ This slice adds a read-only review of the latest complete backup, a held whole-b
 replacement, and one durable undo. It uses the accepted demo adapter stored inside this
 app on this device. It is not a live Google or Firebase backup and does not protect data
 from uninstall or device loss. Restore is latest-complete-only; there is no historical
-backup picker. Product acceptance remains pending BOSS's walkthrough.
+backup picker. BOSS accepted the functional walkthrough on September 24, 2026: restore
+removed record B, undo brought it back, the account reported **Local changes**, and Home
+and History showed records A and B. The small red hold-guidance polish uses automated
+checks; affected code review and PR CI remain pending.
 
 ## Walkthrough
 
@@ -61,5 +64,6 @@ Firebase protocol tests exercise corrupt or missing chunks of artifacts already 
 COMPLETE under the emulator rules; their local 25-test run used bundled Node 24.19.0
 because Node 22 was unavailable, so the pinned Node 22 runtime remains a CI check.
 
-This guide records behavior for review; it does not claim product acceptance, a Seeker
-test, or live Firebase integration.
+This guide records the accepted functional behavior and current automated evidence; it
+does not claim a Seeker test or live Firebase integration. Affected review and PR CI for
+the presentation-only color change remain pending.
