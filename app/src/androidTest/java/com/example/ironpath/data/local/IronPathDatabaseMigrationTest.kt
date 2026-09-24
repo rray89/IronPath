@@ -402,6 +402,25 @@ class IronPathDatabaseMigrationTest {
 
     @Test
     @Throws(IOException::class)
+    fun migrate5To6_addsEmptyPendingSignOutMarker() {
+        val name = "pending-sign-out-migration-5.db"
+        helper.createDatabase(name, 5).apply {
+            execSQL(
+                "INSERT INTO account_backup_metadata VALUES (1, 'owner', 'installation', 9, 8, 'backup', 2, 'digest', 'source', 100, 1)"
+            )
+            close()
+        }
+        helper.runMigrationsAndValidate(name, 6, true, IronPathDatabase.MIGRATION_5_6).use {
+            database ->
+            database.assertSingleRow("SELECT * FROM account_backup_metadata WHERE id = 1") {
+                assertEquals("owner", string("ownerUid"))
+                assertNull(nullableString("pendingSignOutUid"))
+            }
+        }
+    }
+
+    @Test
+    @Throws(IOException::class)
     fun allMigrations_openLatestSchemaAndAllDaosRemainUsable() {
         helper.createDatabase(ALL_MIGRATIONS_DATABASE, 1).apply {
             seedVersionOneData()
@@ -410,12 +429,13 @@ class IronPathDatabaseMigrationTest {
         helper
             .runMigrationsAndValidate(
                 ALL_MIGRATIONS_DATABASE,
-                5,
+                6,
                 true,
                 IronPathDatabase.MIGRATION_1_2,
                 IronPathDatabase.MIGRATION_2_3,
                 IronPathDatabase.MIGRATION_3_4,
                 IronPathDatabase.MIGRATION_4_5,
+                IronPathDatabase.MIGRATION_5_6,
             )
             .close()
 
@@ -426,7 +446,8 @@ class IronPathDatabaseMigrationTest {
                     IronPathDatabase.MIGRATION_1_2,
                     IronPathDatabase.MIGRATION_2_3,
                     IronPathDatabase.MIGRATION_3_4,
-                    IronPathDatabase.MIGRATION_4_5
+                    IronPathDatabase.MIGRATION_4_5,
+                    IronPathDatabase.MIGRATION_5_6
                 )
                 .build()
         try {

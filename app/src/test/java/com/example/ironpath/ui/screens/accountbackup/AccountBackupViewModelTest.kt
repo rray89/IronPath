@@ -110,6 +110,96 @@ class AccountBackupViewModelTest {
             assertEquals(2, gateway.cancellations)
         }
 
+    @Test
+    fun `sign out review defaults to keep and dismissal does not call gateway`() = runTest {
+        val profile = AccountProfile(AccountId("demo"), "Demo Athlete", "athlete@example.invalid")
+        val gateway =
+            Gateway().apply {
+                state.value = AccountState.SignedIn(profile.id, profile, sessionEpoch = 7)
+            }
+        val viewModel = viewModel(gateway)
+        advanceUntilIdle()
+
+        viewModel.openSignOutReview()
+        assertEquals(SignOutDataChoice.KeepData, viewModel.manual.value.signOutReview?.choice)
+        assertEquals(profile.id, viewModel.manual.value.signOutReview?.target?.accountId)
+        viewModel.dismissSignOutReview()
+
+        assertNull(viewModel.manual.value.signOutReview)
+        assertTrue(gateway.signOutRequests.isEmpty())
+    }
+
+    @Test
+    fun `remove data requires second confirmation and pending retry only clears session`() =
+        runTest {
+            val profile =
+                AccountProfile(AccountId("demo"), "Demo Athlete", "athlete@example.invalid")
+            val gateway =
+                Gateway().apply {
+                    state.value = AccountState.SignedIn(profile.id, profile, sessionEpoch = 7)
+                    signOutResult = AccountActionResult.Completed
+                }
+            val viewModel = viewModel(gateway)
+            advanceUntilIdle()
+
+            viewModel.openSignOutReview()
+            viewModel.chooseSignOutChoice(SignOutDataChoice.RemoveData)
+            viewModel.confirmSignOut(removeDataConfirmed = true)
+            assertTrue(gateway.signOutRequests.isEmpty())
+            viewModel.requestRemoveConfirmation()
+            viewModel.confirmSignOut(removeDataConfirmed = true)
+            advanceUntilIdle()
+
+            assertEquals(
+                listOf(SignOutRequest(profile.id, 7, SignOutDataChoice.RemoveData, true)),
+                gateway.signOutRequests,
+            )
+            assertNull(viewModel.manual.value.signOutReview)
+            assertFalse(viewModel.manual.value.signOutBusy)
+            assertTrue(
+                viewModel.manual.value.feedback?.contains("Training data was removed") == true
+            )
+
+            gateway.state.value = AccountState.SignOutPending(profile.id, profile, sessionEpoch = 8)
+            viewModel.retrySignOut()
+            advanceUntilIdle()
+            assertEquals(
+                SignOutRequest(profile.id, 8, SignOutDataChoice.KeepData),
+                gateway.signOutRequests.last(),
+            )
+            assertTrue(
+                viewModel.manual.value.feedback?.contains("Training data was removed") == true
+            )
+            assertFalse(viewModel.manual.value.feedback?.contains("remain on this device") == true)
+        }
+
+    @Test
+    fun `sign out failure does not claim data is still available when state is unknown`() =
+        runTest {
+            val profile =
+                AccountProfile(AccountId("demo"), "Demo Athlete", "athlete@example.invalid")
+            val gateway =
+                Gateway().apply {
+                    state.value = AccountState.SignedIn(profile.id, profile, sessionEpoch = 7)
+                    signOutResult =
+                        AccountActionResult.Failed(AccountFailureReason.LocalStateUnavailable)
+                    signOutStateAfterFailure =
+                        AccountState.RecoverableError(AccountFailureReason.LocalStateUnavailable)
+                }
+            val viewModel = viewModel(gateway)
+            advanceUntilIdle()
+
+            viewModel.openSignOutReview()
+            viewModel.chooseSignOutChoice(SignOutDataChoice.RemoveData)
+            viewModel.requestRemoveConfirmation()
+            viewModel.confirmSignOut(removeDataConfirmed = true)
+            advanceUntilIdle()
+
+            val feedback = viewModel.manual.value.feedback.orEmpty()
+            assertTrue(feedback.contains("Check account and training data status"))
+            assertFalse(feedback.contains("remain available"))
+        }
+
     private fun viewModel(
         gateway: Gateway,
         backup: BackupCoordinator =
@@ -137,7 +227,10 @@ class AccountBackupViewModelTest {
         var signIns = 0
         var cancellations = 0
         var cancelResult: AccountActionResult = AccountActionResult.Completed
+        var signOutResult: AccountActionResult = AccountActionResult.Unavailable
+        val signOutRequests = mutableListOf<SignOutRequest>()
         var signInStateAfterSuccess: AccountState? = null
+        var signOutStateAfterFailure: AccountState? = null
 
         override suspend fun refresh(): AccountActionResult {
             refreshes++
@@ -157,7 +250,13 @@ class AccountBackupViewModelTest {
 
         override suspend fun reauthenticate(): AccountActionResult = AccountActionResult.Unavailable
 
-        override suspend fun signOut(): AccountActionResult = AccountActionResult.Unavailable
+        override suspend fun signOut(request: SignOutRequest): AccountActionResult {
+            signOutRequests += request
+            if (signOutResult == AccountActionResult.Completed) state.value = AccountState.LocalOnly
+            if (signOutResult is AccountActionResult.Failed)
+                signOutStateAfterFailure?.let { state.value = it }
+            return signOutResult
+        }
 
         override suspend fun deleteAccount(): AccountActionResult = AccountActionResult.Unavailable
     }

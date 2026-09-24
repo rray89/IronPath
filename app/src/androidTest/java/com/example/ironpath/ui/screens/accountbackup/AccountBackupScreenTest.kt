@@ -8,6 +8,7 @@ import androidx.compose.ui.unit.dp
 import com.example.ironpath.domain.account.*
 import com.example.ironpath.ui.theme.IronPathTheme
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 
@@ -17,6 +18,10 @@ class AccountBackupScreenTest {
     private var retries = 0
     private var cancellations = 0
     private var previews = 0
+    private var signOutConfirmations = mutableListOf<Boolean>()
+    private var removeConfirmRequests = 0
+    private var removeConfirmationDismissals = 0
+    private var signOutDismissals = 0
 
     @Test
     fun localOnly_explainsDemoAndKeepsManualOperationsUnavailable() {
@@ -72,6 +77,108 @@ class AccountBackupScreenTest {
     }
 
     @Test
+    fun signOutReview_defaultsToKeepingData_andCancelDoesNotSubmit() {
+        val profile = AccountProfile(AccountId("demo"), "Demo Athlete", "athlete@example.invalid")
+        val manual =
+            ManualBackupUiState(
+                signOutReview = SignOutReviewUiState(SignOutTarget(profile.id, sessionEpoch = 4))
+            )
+        setScreen(
+            AccountState.SignedIn(profile.id, profile, sessionEpoch = 4),
+            manual = manual,
+            actions =
+                ManualBackupActions(
+                    confirmSignOut = { signOutConfirmations += it },
+                    dismissSignOutReview = { signOutDismissals++ },
+                ),
+        )
+
+        composeRule.onNodeWithText("Keep data on this device").assertIsSelected()
+        composeRule.onNodeWithText("Remove data from this device").assertIsNotSelected()
+        composeRule.onNodeWithText("CANCEL").performClick()
+        assertTrue(signOutConfirmations.isEmpty())
+        assertEquals(1, signOutDismissals)
+    }
+
+    @Test
+    fun keepDataCanBeSubmittedWithoutRemovalConfirmation() {
+        val profile = AccountProfile(AccountId("demo"), "Demo Athlete", "athlete@example.invalid")
+        val manual =
+            ManualBackupUiState(
+                signOutReview = SignOutReviewUiState(SignOutTarget(profile.id, sessionEpoch = 4))
+            )
+        setScreen(
+            AccountState.SignedIn(profile.id, profile, sessionEpoch = 4),
+            manual = manual,
+            actions = ManualBackupActions(confirmSignOut = { signOutConfirmations += it }),
+        )
+
+        composeRule.onNodeWithText("Keep data on this device").assertIsSelected()
+        composeRule.onAllNodesWithText("SIGN OUT").onLast().performClick()
+        assertEquals(listOf(false), signOutConfirmations)
+    }
+
+    @Test
+    fun removeDataRequiresASeparateConfirmationStep() {
+        val profile = AccountProfile(AccountId("demo"), "Demo Athlete", "athlete@example.invalid")
+        val target = SignOutTarget(profile.id, sessionEpoch = 4)
+        val manual =
+            ManualBackupUiState(
+                signOutReview =
+                    SignOutReviewUiState(
+                        target,
+                        choice = SignOutDataChoice.RemoveData,
+                    )
+            )
+        setScreen(
+            AccountState.SignedIn(profile.id, profile, sessionEpoch = 4),
+            manual = manual,
+            actions =
+                ManualBackupActions(
+                    requestRemoveConfirmation = { removeConfirmRequests++ },
+                    confirmSignOut = { signOutConfirmations += it },
+                ),
+        )
+
+        composeRule
+            .onNodeWithText("Your remote backup will not be deleted.", substring = true)
+            .assertDoesNotExist()
+        composeRule.onNodeWithText("CONTINUE").performClick()
+        assertEquals(1, removeConfirmRequests)
+        assertTrue(signOutConfirmations.isEmpty())
+    }
+
+    @Test
+    fun removalConfirmationNamesLocalScopeAndLeavesRemoteBackupAlone() {
+        val profile = AccountProfile(AccountId("demo"), "Demo Athlete", "athlete@example.invalid")
+        val manual =
+            ManualBackupUiState(
+                signOutReview =
+                    SignOutReviewUiState(
+                        SignOutTarget(profile.id, sessionEpoch = 4),
+                        choice = SignOutDataChoice.RemoveData,
+                        confirmingRemoval = true,
+                    )
+            )
+        setScreen(
+            AccountState.SignedIn(profile.id, profile, sessionEpoch = 4),
+            manual = manual,
+            actions =
+                ManualBackupActions(
+                    confirmSignOut = { signOutConfirmations += it },
+                    dismissRemoveConfirmation = { removeConfirmationDismissals++ },
+                ),
+        )
+        composeRule
+            .onNodeWithText("Your remote backup will not be deleted.", substring = true)
+            .assertIsDisplayed()
+        composeRule.onNodeWithText("BACK").assertIsDisplayed().performClick()
+        assertEquals(1, removeConfirmationDismissals)
+        composeRule.onNodeWithText("REMOVE DATA AND SIGN OUT").performClick()
+        assertEquals(listOf(true), signOutConfirmations)
+    }
+
+    @Test
     fun unclaimedAccount_canRequestAnExplicitBackupPreview() {
         setScreen(pending(LocalOwnership.Unclaimed))
         composeRule.onNodeWithText("BACK UP NOW").performScrollTo().assertIsEnabled()
@@ -103,7 +210,12 @@ class AccountBackupScreenTest {
             DataChoiceContext(owner, true, RemoteSnapshotPresence.Absent, null)
         )
 
-    private fun setScreen(state: AccountState, size: DpSize = DpSize(360.dp, 800.dp)) {
+    private fun setScreen(
+        state: AccountState,
+        size: DpSize = DpSize(360.dp, 800.dp),
+        manual: ManualBackupUiState = ManualBackupUiState(),
+        actions: ManualBackupActions = ManualBackupActions(),
+    ) {
         composeRule.setContent {
             DeviceConfigurationOverride(
                 DeviceConfigurationOverride.ForcedSize(size) then
@@ -116,7 +228,9 @@ class AccountBackupScreenTest {
                             { signIns++ },
                             { retries++ },
                             { cancellations++ },
-                            { previews++ }
+                            { previews++ },
+                            manual = manual,
+                            manualActions = actions,
                         )
                     }
                 }

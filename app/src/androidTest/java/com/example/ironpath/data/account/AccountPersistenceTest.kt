@@ -5,10 +5,12 @@ import androidx.room.Room
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.example.ironpath.data.backup.InstallationGuard
 import com.example.ironpath.data.backup.InstallationValidationResult
+import com.example.ironpath.data.backup.RoomBackupStore
 import com.example.ironpath.data.local.IronPathDatabase
 import com.example.ironpath.data.local.entity.AccountBackupMetadata
 import com.example.ironpath.domain.account.AccountActionResult
 import com.example.ironpath.domain.account.AccountState
+import com.example.ironpath.domain.identity.IdProvider
 import com.example.ironpath.testutil.IsolatedNoBackupDirectory
 import com.example.ironpath.testutil.TestData
 import java.io.File
@@ -119,7 +121,16 @@ class AccountPersistenceTest {
         PersistedAccountGateway(
             DeterministicAccountSessionAdapter(context, absentRemote),
             RoomAccountContextReader(database),
-            guard
+            guard,
+            RoomBackupStore(
+                database,
+                object : IdProvider {
+                    private var next = 0
+
+                    override fun newId() = "installation-${++next}"
+                },
+            ),
+            AccountSessionOperationGate(),
         )
 
     private fun openDatabase() =

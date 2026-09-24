@@ -1,5 +1,6 @@
 package com.example.ironpath.data.backup
 
+import com.example.ironpath.data.account.AccountSessionOperationGate
 import com.example.ironpath.domain.account.AccountId
 import com.example.ironpath.domain.account.AccountSessionAdapter
 import com.example.ironpath.domain.backup.*
@@ -21,6 +22,7 @@ internal constructor(
     private val sessions: AccountSessionAdapter,
     private val installationGuard: InstallationGuard,
     private val idProvider: IdProvider,
+    private val operationGate: AccountSessionOperationGate,
     private val dispatcher: CoroutineDispatcher,
 ) : BackupCoordinator {
     @Inject
@@ -30,7 +32,16 @@ internal constructor(
         sessions: AccountSessionAdapter,
         installationGuard: InstallationGuard,
         idProvider: IdProvider,
-    ) : this(localStore, remote, sessions, installationGuard, idProvider, Dispatchers.Default)
+        operationGate: AccountSessionOperationGate,
+    ) : this(
+        localStore,
+        remote,
+        sessions,
+        installationGuard,
+        idProvider,
+        operationGate,
+        Dispatchers.Default,
+    )
 
     override val status = MutableStateFlow<BackupStatus>(BackupStatus.LocalOnly)
     override val latestSummary = MutableStateFlow<RemoteBackupSummary?>(null)
@@ -40,6 +51,7 @@ internal constructor(
     private val localCodec = BackupSnapshotCodec(preserveDanglingProvenance = true)
     private var pending: Pending? = null
     private var lastRemoteObservation: Pair<AccountId, RemoteBackupRead>? = null
+    private var observedSessionEpoch: Long? = null
 
     private data class Pending(
         val id: String,
@@ -482,6 +494,8 @@ internal constructor(
         val account =
             sessions.readSession()?.id ?: fail(BackupFailureReason.ReauthenticationRequired)
         val captured = localStore.capture()
+        if (captured.metadata.pendingSignOutUid != null)
+            fail(BackupFailureReason.ReauthenticationRequired)
         requireOwner(captured, account)
         return account to captured
     }
@@ -568,6 +582,24 @@ internal constructor(
         failed: (BackupFailureReason) -> T,
         waitForTurn: Boolean = false,
         block: suspend () -> T
+    ): T =
+        operationGate.withManualOperation(waitForTurn, unavailable) { sessionEpoch ->
+            if (observedSessionEpoch != sessionEpoch) {
+                pending = null
+                lastRemoteObservation = null
+                latestSummary.value = null
+                undoAvailable.value = false
+                status.value = BackupStatus.LocalOnly
+                observedSessionEpoch = sessionEpoch
+            }
+            lockedWithinCoordinator(unavailable, failed, waitForTurn, block)
+        }
+
+    private suspend fun <T> lockedWithinCoordinator(
+        unavailable: T,
+        failed: (BackupFailureReason) -> T,
+        waitForTurn: Boolean,
+        block: suspend () -> T,
     ): T {
         // Preserve observed-state refreshes and preview revocation while another operation owns
         // the lock. Duplicate preview/confirmation commands still return without queuing.

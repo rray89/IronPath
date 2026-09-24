@@ -1,7 +1,10 @@
 package com.example.ironpath.data.account
 
 import com.example.ironpath.domain.account.AccountActionResult
+import com.example.ironpath.domain.account.AccountId
 import com.example.ironpath.domain.account.AccountState
+import com.example.ironpath.domain.account.SignOutDataChoice
+import com.example.ironpath.domain.account.SignOutRequest
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Test
@@ -16,7 +19,10 @@ class LocalOnlyAccountGatewayTest {
         assertEquals(AccountActionResult.Unavailable, gateway.cancelDataChoice())
         assertEquals(AccountActionResult.Unavailable, gateway.startGoogleSignIn())
         assertEquals(AccountActionResult.Unavailable, gateway.reauthenticate())
-        assertEquals(AccountActionResult.Unavailable, gateway.signOut())
+        assertEquals(
+            AccountActionResult.Unavailable,
+            gateway.signOut(SignOutRequest(AccountId("demo"), 0, SignOutDataChoice.KeepData))
+        )
         assertEquals(AccountActionResult.Unavailable, gateway.deleteAccount())
         assertEquals(AccountState.LocalOnly, gateway.state.value)
     }

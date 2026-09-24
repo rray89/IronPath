@@ -1,5 +1,7 @@
 package com.example.ironpath.data.backup
 
+import com.example.ironpath.data.account.AccountSessionOperationGate
+import com.example.ironpath.data.account.PersistedAccountGateway
 import com.example.ironpath.data.local.entity.AccountBackupMetadata
 import com.example.ironpath.data.local.entity.PersonalRecord
 import com.example.ironpath.data.local.entity.WorkoutLog
@@ -9,12 +11,101 @@ import com.example.ironpath.domain.identity.IdProvider
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.async
+import kotlinx.coroutines.flow.emptyFlow
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.*
 import org.junit.Test
 
+@OptIn(ExperimentalCoroutinesApi::class)
 class ManualBackupCoordinatorTest {
+    @Test
+    fun signOutWaitsForInFlightBackupAndRejectsQueuedManualWork() = runTest {
+        val fixture = Fixture()
+        var captures = 0
+        fixture.local.onCapture = { captures++ }
+        val gateway = signedInGateway(fixture)
+        val account = gateway.state.value as AccountState.SignedIn
+        val preview = (fixture.coordinator.previewBackup() as BackupPreviewResult.Ready).preview
+        val publishStarted = CompletableDeferred<Unit>()
+        val finishPublish = CompletableDeferred<Unit>()
+        val events = mutableListOf<String>()
+        fixture.cloud.onPublish = {
+            events += "publish-started"
+            publishStarted.complete(Unit)
+            finishPublish.await()
+            events += "publish-finished"
+        }
+        fixture.session.onClear = { events += "session-cleared" }
+
+        val confirmation =
+            async(start = CoroutineStart.UNDISPATCHED) {
+                fixture.coordinator.confirmBackup(preview.id)
+            }
+        publishStarted.await()
+        val captureCountBeforeQueuedRefresh = captures
+        val queuedRefresh =
+            async(start = CoroutineStart.UNDISPATCHED) { fixture.coordinator.refreshStatus() }
+        val signOut =
+            async(start = CoroutineStart.UNDISPATCHED) {
+                gateway.signOut(
+                    SignOutRequest(
+                        account.accountId,
+                        account.sessionEpoch,
+                        SignOutDataChoice.KeepData,
+                    )
+                )
+            }
+        runCurrent()
+
+        assertEquals(AccountState.SigningOut, gateway.state.value)
+        assertEquals(0, fixture.session.clearCalls)
+        assertEquals(captureCountBeforeQueuedRefresh, captures)
+        assertEquals(BackupPreviewResult.Unavailable, fixture.coordinator.previewBackup())
+
+        finishPublish.complete(Unit)
+        assertEquals(BackupActionResult.Completed, confirmation.await())
+        queuedRefresh.await()
+        assertEquals(AccountActionResult.Completed, signOut.await())
+
+        assertEquals(listOf("publish-started", "publish-finished", "session-cleared"), events)
+        assertEquals(1, fixture.session.clearCalls)
+        assertEquals(3, captures) // Preview, confirmation revalidation, and backup result refresh.
+        assertNull(fixture.session.profile)
+        assertEquals("owner", fixture.local.value.metadata.ownerUid)
+    }
+
+    @Test
+    fun sameAccountSignInAfterSignOutCannotReuseAnOldBackupPreview() = runTest {
+        val fixture = Fixture()
+        val gateway = signedInGateway(fixture)
+        val account = gateway.state.value as AccountState.SignedIn
+        val stalePreview =
+            (fixture.coordinator.previewBackup() as BackupPreviewResult.Ready).preview
+
+        assertEquals(
+            AccountActionResult.Completed,
+            gateway.signOut(
+                SignOutRequest(
+                    account.accountId,
+                    account.sessionEpoch,
+                    SignOutDataChoice.KeepData,
+                )
+            ),
+        )
+        assertEquals(AccountActionResult.Completed, gateway.startGoogleSignIn())
+        assertTrue(gateway.state.value is AccountState.SignedIn)
+
+        assertEquals(
+            BackupActionResult.Failed(BackupFailureReason.StalePreview),
+            fixture.coordinator.confirmBackup(stalePreview.id),
+        )
+        assertEquals(0, fixture.cloud.writes)
+        assertEquals("owner", fixture.local.value.metadata.ownerUid)
+    }
+
     @Test
     fun cancellationQueuedBehindRefreshRevokesThePreviewToken() = runTest {
         val fixture = Fixture()
@@ -634,7 +725,8 @@ class ManualBackupCoordinatorTest {
         guard: InstallationGuard =
             object : InstallationGuard {
                 override suspend fun validate() = InstallationValidationResult.Validated
-            }
+            },
+        val gate: AccountSessionOperationGate = AccountSessionOperationGate(),
     ) {
         val local = Local(empty)
         val cloud = Cloud()
@@ -650,6 +742,7 @@ class ManualBackupCoordinatorTest {
 
                     override fun newId() = "id-${++id}"
                 },
+                gate,
                 Dispatchers.Unconfined
             )
 
@@ -840,7 +933,7 @@ class ManualBackupCoordinatorTest {
         var failure: BackupFailureReason? = null
         var readFailure: BackupFailureReason? = null
         var throwOnRead = false
-        var onPublish: () -> Unit = {}
+        var onPublish: suspend () -> Unit = {}
         var onRead: suspend () -> Unit = {}
 
         fun change(bundle: BackupBundle) {
@@ -901,20 +994,86 @@ class ManualBackupCoordinatorTest {
     }
 
     private class Session : AccountSessionAdapter {
-        var profile: AccountProfile? =
+        private val defaultProfile =
             AccountProfile(AccountId("owner"), "Demo", "demo@example.invalid")
+        var profile: AccountProfile? = defaultProfile
+        var credentialProfile: AccountProfile = defaultProfile
+        var clearCalls = 0
+        var onClear: () -> Unit = {}
 
         override suspend fun readSession() = profile
 
         override suspend fun requestGoogleCredential() =
-            CredentialResult.Selected(checkNotNull(profile))
+            CredentialResult.Selected(credentialProfile)
 
-        override suspend fun saveSession(profile: AccountProfile) = true
+        override suspend fun saveSession(profile: AccountProfile): Boolean {
+            this.profile = profile
+            return true
+        }
 
-        override suspend fun clearSession() = true
+        override suspend fun clearSession(): Boolean {
+            clearCalls++
+            onClear()
+            profile = null
+            return true
+        }
 
         override suspend fun remoteSnapshot(accountId: AccountId) = RemoteSnapshotPresence.Absent
     }
+
+    private suspend fun signedInGateway(fixture: Fixture): PersistedAccountGateway {
+        val profile = fixture.session.credentialProfile
+        fixture.local.value =
+            fixture.local.value.copy(
+                metadata = fixture.local.value.metadata.copy(ownerUid = profile.id.opaqueValue)
+            )
+        val reader =
+            object : AccountContextReader {
+                override val changes = emptyFlow<Unit>()
+
+                override suspend fun read(): LocalAccountContext {
+                    val metadata = fixture.local.value.metadata
+                    return LocalAccountContext(
+                        ownerUid = metadata.ownerUid,
+                        localDataIsEmpty = false,
+                        conflict =
+                            PersistedConflictContext(
+                                lastObservedRemoteBackupId = metadata.lastObservedRemoteBackupId,
+                                lastObservedRemoteGeneration =
+                                    metadata.lastObservedRemoteGeneration,
+                                lastObservedRemoteDigest = metadata.lastObservedRemoteDigest,
+                                lastObservedSourceInstallationId =
+                                    metadata.lastObservedSourceInstallationId,
+                                currentInstallationId = metadata.installationId,
+                                localChangeRevision = metadata.localChangeRevision,
+                                lastCompleteLocalRevision = metadata.lastCompleteLocalRevision,
+                            ),
+                    )
+                }
+            }
+        val gateway =
+            PersistedAccountGateway(
+                fixture.session,
+                reader,
+                fixtureGuard(),
+                object : LocalProfileResetter {
+                    override suspend fun resetLocalProfile(
+                        pendingSignOutUid: String?
+                    ): LocalProfileResetResult =
+                        error("Keep-data sign-out must not reset local data")
+
+                    override suspend fun clearPendingSignOut(uid: String) = false
+                },
+                fixture.gate,
+            )
+        assertEquals(AccountActionResult.Completed, gateway.refreshLocal())
+        return gateway
+    }
+
+    private fun fixtureGuard() =
+        object : InstallationGuard {
+            override suspend fun validate() = InstallationValidationResult.Validated
+        }
 
     companion object {
         private fun record(id: String) =

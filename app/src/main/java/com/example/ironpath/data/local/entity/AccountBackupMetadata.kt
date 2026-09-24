@@ -16,6 +16,8 @@ data class AccountBackupMetadata(
     val lastObservedSourceInstallationId: String? = null,
     val lastObservedRemoteCompletedAt: Long? = null,
     val requiresLineageReviewAfterUndo: Boolean = false,
+    /** Account whose data removal committed before its persisted session was cleared. */
+    val pendingSignOutUid: String? = null,
 ) {
     companion object {
         const val SINGLETON_ID = 1

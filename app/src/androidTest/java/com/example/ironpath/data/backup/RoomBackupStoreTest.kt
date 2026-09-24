@@ -449,7 +449,10 @@ class RoomBackupStoreTest {
             assertNotNull(database.backupDao().getRestoreUndoMetadata())
             assertTrue(database.backupDao().getRestoreUndoChunks().isNotEmpty())
 
-            store.resetLocalProfile()
+            assertEquals(
+                LocalProfileResetResult.Committed(installationMarkerUpdated = true),
+                store.resetLocalProfile(pendingSignOutUid = "owner-a"),
+            )
 
             assertNull(database.planDao().getActivePlan())
             assertNull(database.sessionDao().getActiveSession())
@@ -463,10 +466,20 @@ class RoomBackupStoreTest {
             assertNull(reset.lastObservedRemoteDigest)
             assertNull(reset.lastObservedSourceInstallationId)
             assertNull(reset.lastObservedRemoteCompletedAt)
+            assertEquals("owner-a", reset.pendingSignOutUid)
             assertNull(database.backupDao().getRestoreUndoMetadata())
             assertTrue(database.backupDao().getRestoreUndoChunks().isEmpty())
-            assertTrue(store.capture().bundle.personalRecords.isEmpty())
+            val clearedBundle = store.capture().bundle
+            assertTrue(clearedBundle.weeklyPlans.isEmpty())
+            assertTrue(clearedBundle.plannedWorkouts.isEmpty())
+            assertTrue(clearedBundle.plannedExercises.isEmpty())
+            assertTrue(clearedBundle.workoutLogs.isEmpty())
+            assertTrue(clearedBundle.loggedExercises.isEmpty())
+            assertTrue(clearedBundle.loggedSets.isEmpty())
+            assertTrue(clearedBundle.personalRecords.isEmpty())
             assertEquals(reset.installationId, sentinel.installationId)
+            assertTrue(store.clearPendingSignOut("owner-a"))
+            assertNull(database.backupDao().getMetadata()?.pendingSignOutUid)
             assertEquals(InstallationValidationResult.Validated, store.validateInstallation())
         }
 

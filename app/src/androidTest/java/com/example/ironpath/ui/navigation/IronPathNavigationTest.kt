@@ -37,8 +37,10 @@ import androidx.test.espresso.Espresso
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.example.ironpath.IronPathApp
 import com.example.ironpath.MainActivity
+import com.example.ironpath.data.account.AccountSessionOperationGate
 import com.example.ironpath.data.account.PersistedAccountGateway
 import com.example.ironpath.data.backup.InstallationGuard
+import com.example.ironpath.data.backup.LocalProfileResetter
 import com.example.ironpath.data.local.dao.HistoryDao
 import com.example.ironpath.data.local.dao.PlanDao
 import com.example.ironpath.data.local.dao.SessionDao
@@ -87,6 +89,7 @@ class IronPathNavigationTest {
     @Inject lateinit var accountSession: FakeAccountSessionAdapter
     @Inject lateinit var accountContext: AccountContextReader
     @Inject lateinit var installationGuard: InstallationGuard
+    @Inject lateinit var localProfileResetter: LocalProfileResetter
 
     private lateinit var navController: TestNavHostController
 
@@ -170,7 +173,9 @@ class IronPathNavigationTest {
                                 PersistedAccountGateway(
                                     accountSession,
                                     gatedContext,
-                                    installationGuard
+                                    installationGuard,
+                                    localProfileResetter,
+                                    AccountSessionOperationGate(),
                                 ),
                                 gatedContext,
                                 com.example.ironpath.data.backup.LocalOnlyBackupCoordinator(

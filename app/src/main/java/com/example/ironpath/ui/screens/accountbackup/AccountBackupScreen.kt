@@ -9,16 +9,20 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
@@ -26,6 +30,7 @@ import androidx.compose.ui.unit.dp
 import com.example.ironpath.domain.account.AccountFailureReason
 import com.example.ironpath.domain.account.AccountState
 import com.example.ironpath.domain.account.LocalOwnership
+import com.example.ironpath.domain.account.SignOutDataChoice
 import com.example.ironpath.ui.testing.TestTags
 import com.example.ironpath.ui.theme.SurfaceContainerHigh
 import com.example.ironpath.ui.theme.SurfaceContainerLow
@@ -82,14 +87,32 @@ fun AccountBackupScreen(
                 }
             AccountState.Loading,
             AccountState.SigningIn,
-            AccountState.CancellingDataChoice -> {
+            AccountState.CancellingDataChoice,
+            AccountState.SigningOut -> {
                 Button(onClick = {}, enabled = false, modifier = Modifier.fillMaxWidth()) {
                     Text(accountStatusLabel(state))
                 }
             }
+            is AccountState.SignOutPending ->
+                Button(
+                    onClick = manualActions.retrySignOut,
+                    enabled = !manual.busy && !manual.signOutBusy,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text("FINISH SIGN OUT")
+                }
             is AccountState.RecoverableError ->
                 Button(onClick = onRetry, modifier = Modifier.fillMaxWidth()) { Text("TRY AGAIN") }
             else -> Unit
+        }
+        if (state is AccountState.SignedIn || state is AccountState.AwaitingDataChoice) {
+            TextButton(
+                onClick = manualActions.openSignOutReview,
+                enabled = !manual.busy && !manual.signOutBusy,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text("SIGN OUT")
+            }
         }
         Text(
             "Signing in identifies your account. Your training data stays local until you choose a manual backup or restore.",
@@ -117,6 +140,108 @@ fun AccountBackupScreen(
             Text("EXPLORE BACKUP PREVIEW")
         }
     }
+    manual.signOutReview?.let { review ->
+        if (review.confirmingRemoval) {
+            AlertDialog(
+                onDismissRequest = manualActions.dismissRemoveConfirmation,
+                title = { Text("Remove training data?") },
+                text = {
+                    Text(
+                        "This removes training data from this device, including an active workout. " +
+                            "Your remote backup will not be deleted."
+                    )
+                },
+                confirmButton = {
+                    TextButton(
+                        onClick = { manualActions.confirmSignOut(true) },
+                        enabled = !manual.signOutBusy,
+                    ) {
+                        Text("REMOVE DATA AND SIGN OUT")
+                    }
+                },
+                dismissButton = {
+                    TextButton(
+                        onClick = manualActions.dismissRemoveConfirmation,
+                        enabled = !manual.signOutBusy,
+                    ) {
+                        Text("BACK")
+                    }
+                },
+            )
+        } else {
+            AlertDialog(
+                onDismissRequest = manualActions.dismissSignOutReview,
+                title = { Text("Sign out?") },
+                text = {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("Choose what happens to training data on this device.")
+                        SignOutChoiceRow(
+                            label = "Keep data on this device",
+                            selected = review.choice == SignOutDataChoice.KeepData,
+                            enabled = !manual.signOutBusy,
+                            onClick = {
+                                manualActions.chooseSignOutChoice(SignOutDataChoice.KeepData)
+                            },
+                        )
+                        SignOutChoiceRow(
+                            label = "Remove data from this device",
+                            selected = review.choice == SignOutDataChoice.RemoveData,
+                            enabled = !manual.signOutBusy,
+                            onClick = {
+                                manualActions.chooseSignOutChoice(SignOutDataChoice.RemoveData)
+                            },
+                        )
+                    }
+                },
+                confirmButton = {
+                    TextButton(
+                        onClick = {
+                            if (review.choice == SignOutDataChoice.KeepData)
+                                manualActions.confirmSignOut(false)
+                            else manualActions.requestRemoveConfirmation()
+                        },
+                        enabled = !manual.signOutBusy,
+                    ) {
+                        Text(
+                            if (review.choice == SignOutDataChoice.KeepData) "SIGN OUT"
+                            else "CONTINUE"
+                        )
+                    }
+                },
+                dismissButton = {
+                    TextButton(
+                        onClick = manualActions.dismissSignOutReview,
+                        enabled = !manual.signOutBusy,
+                    ) {
+                        Text("CANCEL")
+                    }
+                },
+            )
+        }
+    }
+}
+
+@Composable
+private fun SignOutChoiceRow(
+    label: String,
+    selected: Boolean,
+    enabled: Boolean,
+    onClick: () -> Unit,
+) {
+    androidx.compose.foundation.layout.Row(
+        modifier =
+            Modifier.fillMaxWidth()
+                .selectable(
+                    selected = selected,
+                    onClick = onClick,
+                    enabled = enabled,
+                    role = Role.RadioButton,
+                ),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        RadioButton(selected = selected, onClick = null, enabled = enabled)
+        Text(label, modifier = Modifier.padding(start = 8.dp))
+    }
 }
 
 internal fun accountStatusLabel(state: AccountState): String =
@@ -129,7 +254,8 @@ internal fun accountStatusLabel(state: AccountState): String =
         is AccountState.SignedIn -> "Signed in"
         is AccountState.RecoverableError -> "Account needs attention"
         AccountState.NeedsReauthentication -> "Needs sign-in"
-        AccountState.SigningOut,
+        is AccountState.SignOutPending -> "Sign-out needs completion"
+        AccountState.SigningOut -> "Signing out"
         AccountState.DeletingAccount -> "Account unavailable"
     }
 
@@ -153,10 +279,12 @@ internal fun accountStatusDetail(state: AccountState): String =
             }
         is AccountState.SignedIn ->
             "This account matches the owner of the training data on this device."
+        is AccountState.SignOutPending ->
+            "Training data removal is complete. Finish sign-out to clear this account session."
         is AccountState.RecoverableError ->
             when (state.reason) {
                 AccountFailureReason.LocalStateUnavailable ->
-                    "Account state could not be saved or verified. Try again. Local workouts remain available."
+                    "Account and training data status could not be verified. Check again before continuing."
                 AccountFailureReason.Offline ->
                     "Sign-in is unavailable offline. Try again when connected; local workouts remain available."
                 AccountFailureReason.ReauthenticationRequired ->

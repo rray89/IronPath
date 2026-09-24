@@ -219,7 +219,7 @@ class DevToolsSeederTest {
         coEvery { backupStore.resetLocalProfile() } coAnswers
             {
                 operations += "room"
-                Unit
+                com.example.ironpath.data.backup.LocalProfileResetResult.Committed(true)
             }
 
         seeder().clearAllData()
@@ -255,6 +255,23 @@ class DevToolsSeederTest {
         }
 
         assertEquals("Room clear failed", thrown?.message)
+        coVerify(exactly = 1) { onboardingRepository.reset() }
+        coVerify(exactly = 1) { backupStore.resetLocalProfile() }
+    }
+
+    @Test
+    fun `clearAllData reports when Room reset did not commit`() = runTest {
+        coEvery { backupStore.resetLocalProfile() } returns
+            com.example.ironpath.data.backup.LocalProfileResetResult.NotCommitted
+
+        var thrown: IllegalStateException? = null
+        try {
+            seeder().clearAllData()
+        } catch (error: IllegalStateException) {
+            thrown = error
+        }
+
+        assertEquals("Failed to clear local training data", thrown?.message)
         coVerify(exactly = 1) { onboardingRepository.reset() }
         coVerify(exactly = 1) { backupStore.resetLocalProfile() }
     }

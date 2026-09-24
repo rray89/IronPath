@@ -187,7 +187,7 @@ class ManualBackupViewModelTest {
 
         override suspend fun reauthenticate() = AccountActionResult.Unavailable
 
-        override suspend fun signOut() = AccountActionResult.Unavailable
+        override suspend fun signOut(request: SignOutRequest) = AccountActionResult.Unavailable
 
         override suspend fun deleteAccount() = AccountActionResult.Unavailable
     }

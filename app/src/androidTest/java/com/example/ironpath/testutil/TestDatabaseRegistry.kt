@@ -50,7 +50,8 @@ object TestDatabaseRegistry {
                 IronPathDatabase.MIGRATION_1_2,
                 IronPathDatabase.MIGRATION_2_3,
                 IronPathDatabase.MIGRATION_3_4,
-                IronPathDatabase.MIGRATION_4_5
+                IronPathDatabase.MIGRATION_4_5,
+                IronPathDatabase.MIGRATION_5_6
             )
             .build()
             .also { database = it }

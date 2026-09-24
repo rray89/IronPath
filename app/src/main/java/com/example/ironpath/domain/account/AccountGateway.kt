@@ -16,7 +16,7 @@ interface AccountGateway {
 
     suspend fun reauthenticate(): AccountActionResult
 
-    suspend fun signOut(): AccountActionResult
+    suspend fun signOut(request: SignOutRequest): AccountActionResult
 
     suspend fun deleteAccount(): AccountActionResult
 }
@@ -34,10 +34,21 @@ sealed interface AccountState {
         val accountId: AccountId,
         val context: DataChoiceContext,
         val profile: AccountProfile? = null,
+        val sessionEpoch: Long = 0,
     ) : AccountState
 
-    data class SignedIn(val accountId: AccountId, val profile: AccountProfile? = null) :
-        AccountState
+    data class SignedIn(
+        val accountId: AccountId,
+        val profile: AccountProfile? = null,
+        val sessionEpoch: Long = 0,
+    ) : AccountState
+
+    /** Local removal committed; only clearing this same account's session may be retried. */
+    data class SignOutPending(
+        val accountId: AccountId,
+        val profile: AccountProfile? = null,
+        val sessionEpoch: Long = 0,
+    ) : AccountState
 
     data object NeedsReauthentication : AccountState
 
@@ -52,6 +63,18 @@ sealed interface AccountState {
 }
 
 data class AccountProfile(val id: AccountId, val displayName: String, val email: String)
+
+enum class SignOutDataChoice {
+    KeepData,
+    RemoveData,
+}
+
+data class SignOutRequest(
+    val accountId: AccountId,
+    val sessionEpoch: Long,
+    val choice: SignOutDataChoice,
+    val removeDataConfirmed: Boolean = false,
+)
 
 @JvmInline
 value class AccountId(val opaqueValue: String) {
