@@ -74,7 +74,7 @@ Every database version increment must export the new schema and add both a direc
 | Local feature work | Focused JVM or device tests first; Seeker is the default physical target |
 | Pull request | `Static & Build`, `Unit Tests & Coverage`, and `API 29 Hilt Smoke` |
 | Push to `main` | The same production PR workflow against the merge result |
-| Nightly or manual dispatch | API 29 and 36 compatibility matrix, API 36 accessibility, three fresh journey executions, release Baseline Profile generation, and API 36 benchmarks |
+| Weekly full regression or manual dispatch | API 29 and 36 compatibility matrix, API 36 accessibility, three fresh journey executions, release Baseline Profile generation, and API 36 benchmarks |
 | Release-sensitive performance change | Nightly emulator execution plus controlled physical-device evidence when setting a regression threshold |
 
 The principal local gates are:
@@ -131,6 +131,8 @@ CI adds `-Pandroid.testoptions.manageddevices.emulator.gpu=swiftshader_indirect`
 AGP 9.1 resolves managed-device coverage through the last registered device. The dedicated coverage property therefore registers only the managed API 29 target for that invocation; ordinary and nightly runs without the property retain the API 29 + 36 matrix.
 
 ## CI trigger policy
+
+The `Android Nightly` workflow runs once a week on Sunday at 10:00 UTC and remains available through manual dispatch. The historical workflow name and artifact names are retained. This replaces daily scheduling to reduce routine CI usage and failure-email frequency; it does not suppress failures or change the full regression suite.
 
 The production workflow runs for pull requests targeting `main` and pushes to `main`. Feature and bug branches are intentionally not also push-triggered: an earlier draft included `feat/**` and `bug/**`, but an open pull request then caused the same commit to run both push and pull-request workflows. The pull-request event supplies full branch validation, and the `main` push validates the merged result without duplicate paid CI work.
 
