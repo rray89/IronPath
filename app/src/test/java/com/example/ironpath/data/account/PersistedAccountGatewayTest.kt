@@ -260,6 +260,50 @@ class PersistedAccountGatewayTest {
     }
 
     @Test
+    fun `unreadable session refusal and write failure remain recoverable`() = runTest {
+        val source = Source().apply { unreadableSession = true }
+        val reader =
+            Reader().apply {
+                context = context.copy(ownerUid = profile.id.opaqueValue, localDataIsEmpty = false)
+            }
+        val localBefore = reader.context
+        val gateway = gateway(source, reader)
+
+        assertEquals(
+            AccountActionResult.Failed(AccountFailureReason.LocalStateUnavailable),
+            gateway.refresh(),
+        )
+        assertTrue(
+            (gateway.state.value as AccountState.RecoverableError).canRecoverUnreadableSession
+        )
+
+        source.clearUnreadableSucceeds = false
+        assertEquals(AccountActionResult.Unavailable, gateway.recoverUnreadableSession())
+        assertTrue(
+            (gateway.state.value as AccountState.RecoverableError).canRecoverUnreadableSession
+        )
+        assertTrue(source.unreadableSession)
+
+        source.clearUnreadableFailure = IllegalStateException("private write failure")
+        assertEquals(
+            AccountActionResult.Failed(AccountFailureReason.LocalStateUnavailable),
+            gateway.recoverUnreadableSession(),
+        )
+        assertTrue(
+            (gateway.state.value as AccountState.RecoverableError).canRecoverUnreadableSession
+        )
+        assertTrue(source.unreadableSession)
+        assertEquals(localBefore, reader.context)
+
+        source.clearUnreadableFailure = null
+        source.clearUnreadableSucceeds = true
+        assertEquals(AccountActionResult.Completed, gateway.recoverUnreadableSession())
+        assertEquals(AccountState.LocalOnly, gateway.state.value)
+        assertFalse(source.unreadableSession)
+        assertEquals(localBefore, reader.context)
+    }
+
+    @Test
     fun `cancellation during durable save finishes a reconstructable transition`() = runTest {
         val source =
             Source().apply {
@@ -865,6 +909,9 @@ class PersistedAccountGatewayTest {
 
     private class Source : AccountSessionAdapter {
         var session: AccountProfile? = null
+        var unreadableSession = false
+        var clearUnreadableSucceeds = true
+        var clearUnreadableFailure: Exception? = null
         var readFailure: Exception? = null
         var afterClear: (() -> Unit)? = null
         var result: CredentialResult = CredentialResult.Selected(profile)
@@ -889,6 +936,7 @@ class PersistedAccountGatewayTest {
         }
 
         override suspend fun readSession(): AccountProfile? {
+            if (unreadableSession) throw UnreadableAccountSessionException()
             readFailure?.let {
                 readFailure = null
                 throw it
@@ -912,6 +960,13 @@ class PersistedAccountGatewayTest {
                 afterClear?.invoke()
             }
             return clearSucceeds
+        }
+
+        override suspend fun clearUnreadableSession(): Boolean {
+            clearUnreadableFailure?.let { throw it }
+            if (!clearUnreadableSucceeds || !unreadableSession) return false
+            unreadableSession = false
+            return true
         }
 
         override suspend fun remoteSnapshot(accountId: AccountId): RemoteSnapshotPresence {

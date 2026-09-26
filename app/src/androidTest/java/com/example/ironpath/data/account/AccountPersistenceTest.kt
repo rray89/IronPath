@@ -153,6 +153,35 @@ class AccountPersistenceTest {
         )
     }
 
+    @Test
+    fun unreadableRecoveryRefusesToClearSessionThatBecameValidBeforeConfirmation() = runBlocking {
+        sessionFile().writeText("unsupported-fixture")
+        database.historyDao().insertLog(TestData.log(id = "retained-after-session-recovery"))
+        val metadataBefore = database.backupDao().getMetadata()
+        val gateway = gateway()
+        gateway.refresh()
+        assertTrue(
+            (gateway.state.value as AccountState.RecoverableError).canRecoverUnreadableSession
+        )
+
+        val acceptedSessionId = DeterministicAccountSessionAdapter.PROFILE.id.opaqueValue
+        sessionFile().writeText(acceptedSessionId)
+        assertEquals(AccountActionResult.Unavailable, gateway.recoverUnreadableSession())
+        assertTrue(
+            (gateway.state.value as AccountState.RecoverableError).canRecoverUnreadableSession
+        )
+        assertEquals(acceptedSessionId, sessionFile().readText())
+
+        assertEquals(AccountActionResult.Completed, gateway.refresh())
+        val account = gateway.state.value as AccountState.AwaitingDataChoice
+        assertEquals(DeterministicAccountSessionAdapter.PROFILE.id, account.accountId)
+        assertEquals(metadataBefore, database.backupDao().getMetadata())
+        assertEquals(
+            "retained-after-session-recovery",
+            database.backupDao().getWorkoutLogs().single().id,
+        )
+    }
+
     private val absentRemote =
         object : com.example.ironpath.data.backup.RemoteBackupStore {
             override suspend fun latest(accountId: com.example.ironpath.domain.account.AccountId) =

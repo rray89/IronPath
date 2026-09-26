@@ -551,6 +551,99 @@ class ManualBackupCoordinatorTest {
     }
 
     @Test
+    fun keepDeviceEmptyRevalidatesEachChoiceTokenFieldIndependently() = runTest {
+        suspend fun reviewedFixture(): Pair<Fixture, RemoteSnapshotPresence.Complete> {
+            val fixture = Fixture(empty = true)
+            fixture.cloud.change(bundle(listOf(record("remote-record"))))
+            assertTrue(fixture.coordinator.latestCompleteBackup() is BackupLookupResult.Complete)
+            return fixture to snapshotChoice(checkNotNull(fixture.cloud.artifact))
+        }
+
+        suspend fun assertRejectedWithoutMutation(
+            fixture: Fixture,
+            reviewed: RemoteSnapshotPresence.Complete,
+            expectedFailure: BackupFailureReason,
+            expectedInstallationId: String,
+            expectedLocalChangeRevision: Long,
+        ) {
+            val localBefore = fixture.local.value
+            val remoteBefore = fixture.cloud.artifact
+
+            assertEquals(
+                BackupActionResult.Failed(expectedFailure),
+                fixture.coordinator.associateEmptyProfile(
+                    AccountId("owner"),
+                    fixture.gate.sessionEpoch,
+                    expectedInstallationId,
+                    expectedLocalChangeRevision,
+                    reviewed,
+                ),
+            )
+            assertEquals(localBefore, fixture.local.value)
+            assertEquals(remoteBefore, fixture.cloud.artifact)
+            assertEquals(0, fixture.local.writes)
+            assertEquals(0, fixture.cloud.writes)
+        }
+
+        val (staleRevision, revisionChoice) = reviewedFixture()
+        assertRejectedWithoutMutation(
+            staleRevision,
+            revisionChoice,
+            BackupFailureReason.StalePreview,
+            staleRevision.local.value.metadata.installationId,
+            staleRevision.local.value.metadata.localChangeRevision + 1,
+        )
+
+        val (staleInstallation, installationChoice) = reviewedFixture()
+        assertRejectedWithoutMutation(
+            staleInstallation,
+            installationChoice,
+            BackupFailureReason.StalePreview,
+            "replacement-installation",
+            staleInstallation.local.value.metadata.localChangeRevision,
+        )
+
+        val (changedGeneration, generationChoice) = reviewedFixture()
+        val generationArtifact = checkNotNull(changedGeneration.cloud.artifact)
+        changedGeneration.cloud.artifact =
+            generationArtifact.copy(generation = generationArtifact.generation + 1)
+        assertRejectedWithoutMutation(
+            changedGeneration,
+            generationChoice,
+            BackupFailureReason.ConcurrentRemoteChange,
+            changedGeneration.local.value.metadata.installationId,
+            changedGeneration.local.value.metadata.localChangeRevision,
+        )
+
+        val (changedSource, sourceChoice) = reviewedFixture()
+        val sourceArtifact = checkNotNull(changedSource.cloud.artifact)
+        changedSource.cloud.artifact =
+            sourceArtifact.copy(
+                summary = sourceArtifact.summary.copy(sourceInstallationId = "new-source")
+            )
+        assertRejectedWithoutMutation(
+            changedSource,
+            sourceChoice,
+            BackupFailureReason.ConcurrentRemoteChange,
+            changedSource.local.value.metadata.installationId,
+            changedSource.local.value.metadata.localChangeRevision,
+        )
+
+        val (changedDigest, digestChoice) = reviewedFixture()
+        val digestArtifact = checkNotNull(changedDigest.cloud.artifact)
+        val changedSnapshot =
+            BackupSnapshotCodec().encode(bundle(listOf(record("different-remote-record"))))
+        changedDigest.cloud.artifact = digestArtifact.copy(snapshot = changedSnapshot)
+        assertRejectedWithoutMutation(
+            changedDigest,
+            digestChoice,
+            BackupFailureReason.ConcurrentRemoteChange,
+            changedDigest.local.value.metadata.installationId,
+            changedDigest.local.value.metadata.localChangeRevision,
+        )
+    }
+
+    @Test
     fun keepDeviceEmptyRejectsInstallationTransferDetectedAtAdmission() = runTest {
         val fixture = Fixture(empty = true)
         fixture.cloud.change(bundle(listOf(record("remote-record"))))
