@@ -10,8 +10,15 @@ interface AccountSessionAdapter {
 
     suspend fun clearSession(): Boolean
 
+    /**
+     * Explicitly clear only an unreadable local demo-session record, if the adapter can verify it.
+     */
+    suspend fun clearUnreadableSession(): Boolean = false
+
     suspend fun remoteSnapshot(accountId: AccountId): RemoteSnapshotPresence
 }
+
+class UnreadableAccountSessionException : Exception()
 
 sealed interface CredentialResult {
     data class Selected(val profile: AccountProfile) : CredentialResult

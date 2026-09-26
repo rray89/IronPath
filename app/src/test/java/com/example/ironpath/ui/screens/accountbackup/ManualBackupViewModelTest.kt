@@ -43,24 +43,25 @@ class ManualBackupViewModelTest {
     }
 
     @Test
-    fun `back from preview invalidates it without cancelling account or leaving`() = runTest {
-        val f = Fixture()
-        advanceUntilIdle()
-        f.vm.previewBackup()
-        advanceUntilIdle()
-        var exits = 0
-        f.vm.leave { exits++ }
-        advanceUntilIdle()
-        assertNull(f.vm.manual.value.review)
-        assertEquals(listOf("backup"), f.backup.discarded)
-        assertEquals(0, f.account.cancels)
-        assertEquals(0, exits)
-        assertEquals(0, f.backup.confirmations)
-        f.vm.leave { exits++ }
-        advanceUntilIdle()
-        assertEquals(1, f.account.cancels)
-        assertEquals(1, exits)
-    }
+    fun `back from preview invalidates it and awaiting account leaves without cancellation`() =
+        runTest {
+            val f = Fixture()
+            advanceUntilIdle()
+            f.vm.previewBackup()
+            advanceUntilIdle()
+            var exits = 0
+            f.vm.leave { exits++ }
+            advanceUntilIdle()
+            assertNull(f.vm.manual.value.review)
+            assertEquals(listOf("backup"), f.backup.discarded)
+            assertEquals(0, f.account.cancels)
+            assertEquals(0, exits)
+            assertEquals(0, f.backup.confirmations)
+            f.vm.leave { exits++ }
+            advanceUntilIdle()
+            assertEquals(0, f.account.cancels)
+            assertEquals(1, exits)
+        }
 
     @Test
     fun `conflict choice is explicit exclusive and reset for the next preview`() = runTest {
@@ -187,7 +188,7 @@ class ManualBackupViewModelTest {
 
         override suspend fun reauthenticate() = AccountActionResult.Unavailable
 
-        override suspend fun signOut() = AccountActionResult.Unavailable
+        override suspend fun signOut(request: SignOutRequest) = AccountActionResult.Unavailable
 
         override suspend fun deleteAccount() = AccountActionResult.Unavailable
     }

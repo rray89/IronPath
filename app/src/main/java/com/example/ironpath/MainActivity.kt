@@ -127,6 +127,21 @@ class MainActivity : ComponentActivity() {
                                 },
                                 holdGuidance = { accountViewModel?.holdGuidance() },
                                 confirm = { accountViewModel?.confirm() },
+                                keepDeviceEmpty = { accountViewModel?.keepDeviceEmpty() },
+                                recoverUnreadableSession = {
+                                    accountViewModel?.recoverUnreadableSession()
+                                },
+                                openSignOutReview = { accountViewModel?.openSignOutReview() },
+                                dismissSignOutReview = { accountViewModel?.dismissSignOutReview() },
+                                chooseSignOutChoice = { accountViewModel?.chooseSignOutChoice(it) },
+                                requestRemoveConfirmation = {
+                                    accountViewModel?.requestRemoveConfirmation()
+                                },
+                                dismissRemoveConfirmation = {
+                                    accountViewModel?.dismissRemoveConfirmation()
+                                },
+                                confirmSignOut = { accountViewModel?.confirmSignOut(it) },
+                                retrySignOut = { accountViewModel?.retrySignOut() },
                             ),
                         onAccountSignIn = { accountViewModel?.signIn() },
                         onAccountRetry = { accountViewModel?.refresh() },

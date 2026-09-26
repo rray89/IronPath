@@ -1,5 +1,7 @@
 package com.example.ironpath.domain.backup
 
+import com.example.ironpath.domain.account.AccountId
+import com.example.ironpath.domain.account.RemoteSnapshotPresence
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 
@@ -21,6 +23,18 @@ interface BackupCoordinator {
     suspend fun confirmBackup(
         previewId: String,
         destructiveConfirmed: Boolean = false
+    ): BackupActionResult = BackupActionResult.Unavailable
+
+    /**
+     * Associate an empty profile only if the selected account, epoch, and remote snapshot remain
+     * current.
+     */
+    suspend fun associateEmptyProfile(
+        accountId: AccountId,
+        sessionEpoch: Long,
+        expectedInstallationId: String,
+        expectedLocalChangeRevision: Long,
+        expectedRemoteSnapshot: RemoteSnapshotPresence.Complete,
     ): BackupActionResult = BackupActionResult.Unavailable
 
     suspend fun previewSync(): SyncPreviewResult = SyncPreviewResult.Unavailable

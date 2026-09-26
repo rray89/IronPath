@@ -42,7 +42,7 @@ import com.example.ironpath.data.local.entity.WorkoutLog
             RestoreUndoMetadata::class,
             RestoreUndoChunk::class,
         ],
-    version = 5,
+    version = 6,
     exportSchema = true,
 )
 abstract class IronPathDatabase : RoomDatabase() {
@@ -139,6 +139,15 @@ abstract class IronPathDatabase : RoomDatabase() {
                         )
                         """
                             .trimIndent()
+                    )
+                }
+            }
+
+        val MIGRATION_5_6 =
+            object : Migration(5, 6) {
+                override fun migrate(db: SupportSQLiteDatabase) {
+                    db.execSQL(
+                        "ALTER TABLE `account_backup_metadata` ADD COLUMN `pendingSignOutUid` TEXT"
                     )
                 }
             }

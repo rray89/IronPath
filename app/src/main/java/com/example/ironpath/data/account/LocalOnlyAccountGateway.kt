@@ -3,6 +3,7 @@ package com.example.ironpath.data.account
 import com.example.ironpath.domain.account.AccountActionResult
 import com.example.ironpath.domain.account.AccountGateway
 import com.example.ironpath.domain.account.AccountState
+import com.example.ironpath.domain.account.SignOutRequest
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -20,7 +21,8 @@ class LocalOnlyAccountGateway @Inject constructor() : AccountGateway {
 
     override suspend fun reauthenticate(): AccountActionResult = AccountActionResult.Unavailable
 
-    override suspend fun signOut(): AccountActionResult = AccountActionResult.Unavailable
+    override suspend fun signOut(request: SignOutRequest): AccountActionResult =
+        AccountActionResult.Unavailable
 
     override suspend fun deleteAccount(): AccountActionResult = AccountActionResult.Unavailable
 }

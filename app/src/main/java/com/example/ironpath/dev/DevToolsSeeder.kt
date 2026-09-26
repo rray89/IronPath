@@ -1,6 +1,7 @@
 package com.example.ironpath.dev
 
 import androidx.room.withTransaction
+import com.example.ironpath.data.backup.LocalProfileResetResult
 import com.example.ironpath.data.backup.RoomBackupStore
 import com.example.ironpath.data.local.IronPathDatabase
 import com.example.ironpath.data.local.entity.LoggedExercise
@@ -139,7 +140,9 @@ constructor(
     /** Wipe all local data. */
     suspend fun clearAllData() {
         check(onboardingRepository.reset()) { "Failed to reset onboarding" }
-        backupStore.resetLocalProfile()
+        check(backupStore.resetLocalProfile() is LocalProfileResetResult.Committed) {
+            "Failed to clear local training data"
+        }
     }
 
     // -- Helpers --

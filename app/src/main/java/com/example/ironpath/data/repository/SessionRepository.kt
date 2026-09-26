@@ -52,7 +52,7 @@ constructor(
     suspend fun startSession(
         session: ActiveSession,
         exercises: List<SessionExercise>,
-    ) = sessionDao.startNewSession(session, exercises)
+    ) = sessionDao.startPlannedSession(session, exercises)
 
     suspend fun updateSession(session: ActiveSession) = sessionDao.updateSession(session)
 

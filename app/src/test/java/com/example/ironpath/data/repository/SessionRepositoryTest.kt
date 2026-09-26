@@ -88,7 +88,7 @@ class SessionRepositoryTest {
         backupChangeTracker = mockk()
         every { performanceTracer.beginAsyncSection(any()) } returns 1
 
-        coEvery { sessionDao.startNewSession(any(), any()) } returns Unit
+        coEvery { sessionDao.startPlannedSession(any(), any()) } returns Unit
         coEvery { sessionDao.updateSet(any()) } returns Unit
         coEvery { sessionDao.insertSet(any()) } returns Unit
         coEvery { sessionDao.getExercisesForSession(any()) } returns emptyList()
@@ -133,7 +133,7 @@ class SessionRepositoryTest {
     @Test
     fun `startSession delegates to sessionDao startNewSession`() = runTest {
         repository.startSession(session, listOf(sessionExercise))
-        coVerify(exactly = 1) { sessionDao.startNewSession(session, listOf(sessionExercise)) }
+        coVerify(exactly = 1) { sessionDao.startPlannedSession(session, listOf(sessionExercise)) }
     }
 
     @Test

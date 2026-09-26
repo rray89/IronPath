@@ -1,5 +1,7 @@
 package com.example.ironpath.data.backup
 
+import com.example.ironpath.data.account.AccountSessionOperationGate
+import com.example.ironpath.data.account.PersistedAccountGateway
 import com.example.ironpath.data.local.entity.AccountBackupMetadata
 import com.example.ironpath.data.local.entity.PersonalRecord
 import com.example.ironpath.data.local.entity.WorkoutLog
@@ -9,12 +11,101 @@ import com.example.ironpath.domain.identity.IdProvider
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.async
+import kotlinx.coroutines.flow.emptyFlow
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.*
 import org.junit.Test
 
+@OptIn(ExperimentalCoroutinesApi::class)
 class ManualBackupCoordinatorTest {
+    @Test
+    fun signOutWaitsForInFlightBackupAndRejectsQueuedManualWork() = runTest {
+        val fixture = Fixture()
+        var captures = 0
+        fixture.local.onCapture = { captures++ }
+        val gateway = signedInGateway(fixture)
+        val account = gateway.state.value as AccountState.SignedIn
+        val preview = (fixture.coordinator.previewBackup() as BackupPreviewResult.Ready).preview
+        val publishStarted = CompletableDeferred<Unit>()
+        val finishPublish = CompletableDeferred<Unit>()
+        val events = mutableListOf<String>()
+        fixture.cloud.onPublish = {
+            events += "publish-started"
+            publishStarted.complete(Unit)
+            finishPublish.await()
+            events += "publish-finished"
+        }
+        fixture.session.onClear = { events += "session-cleared" }
+
+        val confirmation =
+            async(start = CoroutineStart.UNDISPATCHED) {
+                fixture.coordinator.confirmBackup(preview.id)
+            }
+        publishStarted.await()
+        val captureCountBeforeQueuedRefresh = captures
+        val queuedRefresh =
+            async(start = CoroutineStart.UNDISPATCHED) { fixture.coordinator.refreshStatus() }
+        val signOut =
+            async(start = CoroutineStart.UNDISPATCHED) {
+                gateway.signOut(
+                    SignOutRequest(
+                        account.accountId,
+                        account.sessionEpoch,
+                        SignOutDataChoice.KeepData,
+                    )
+                )
+            }
+        runCurrent()
+
+        assertEquals(AccountState.SigningOut, gateway.state.value)
+        assertEquals(0, fixture.session.clearCalls)
+        assertEquals(captureCountBeforeQueuedRefresh, captures)
+        assertEquals(BackupPreviewResult.Unavailable, fixture.coordinator.previewBackup())
+
+        finishPublish.complete(Unit)
+        assertEquals(BackupActionResult.Completed, confirmation.await())
+        queuedRefresh.await()
+        assertEquals(AccountActionResult.Completed, signOut.await())
+
+        assertEquals(listOf("publish-started", "publish-finished", "session-cleared"), events)
+        assertEquals(1, fixture.session.clearCalls)
+        assertEquals(3, captures) // Preview, confirmation revalidation, and backup result refresh.
+        assertNull(fixture.session.profile)
+        assertEquals("owner", fixture.local.value.metadata.ownerUid)
+    }
+
+    @Test
+    fun sameAccountSignInAfterSignOutCannotReuseAnOldBackupPreview() = runTest {
+        val fixture = Fixture()
+        val gateway = signedInGateway(fixture)
+        val account = gateway.state.value as AccountState.SignedIn
+        val stalePreview =
+            (fixture.coordinator.previewBackup() as BackupPreviewResult.Ready).preview
+
+        assertEquals(
+            AccountActionResult.Completed,
+            gateway.signOut(
+                SignOutRequest(
+                    account.accountId,
+                    account.sessionEpoch,
+                    SignOutDataChoice.KeepData,
+                )
+            ),
+        )
+        assertEquals(AccountActionResult.Completed, gateway.startGoogleSignIn())
+        assertTrue(gateway.state.value is AccountState.SignedIn)
+
+        assertEquals(
+            BackupActionResult.Failed(BackupFailureReason.StalePreview),
+            fixture.coordinator.confirmBackup(stalePreview.id),
+        )
+        assertEquals(0, fixture.cloud.writes)
+        assertEquals("owner", fixture.local.value.metadata.ownerUid)
+    }
+
     @Test
     fun cancellationQueuedBehindRefreshRevokesThePreviewToken() = runTest {
         val fixture = Fixture()
@@ -330,6 +421,259 @@ class ManualBackupCoordinatorTest {
     }
 
     @Test
+    fun keepDeviceEmptyAssociatesOnlyOwnerAndPreservesCompleteRemoteAndLocalLineage() = runTest {
+        val fixture = Fixture(empty = true)
+        fixture.cloud.change(bundle(listOf(record("remote-record"))))
+        val original = fixture.local.value
+        val remoteBefore = fixture.cloud.artifact
+        assertTrue(fixture.coordinator.latestCompleteBackup() is BackupLookupResult.Complete)
+
+        assertEquals(
+            BackupActionResult.Completed,
+            fixture.coordinator.associateEmptyProfile(
+                AccountId("owner"),
+                fixture.gate.sessionEpoch,
+                fixture.local.value.metadata.installationId,
+                fixture.local.value.metadata.localChangeRevision,
+                snapshotChoice(checkNotNull(remoteBefore)),
+            ),
+        )
+
+        val associated = fixture.local.value
+        assertEquals(original.metadata.copy(ownerUid = "owner"), associated.metadata)
+        assertEquals(original.bundle, associated.bundle)
+        assertEquals(original.baseline, associated.baseline)
+        assertEquals(remoteBefore, fixture.cloud.artifact)
+        assertEquals(0, fixture.cloud.writes)
+        assertEquals(BackupStatus.ReviewRequired, fixture.coordinator.status.value)
+    }
+
+    @Test
+    fun keepDeviceEmptyRejectsActiveWorkoutAndForeignOwnerWithoutMutatingAnything() = runTest {
+        val active = Fixture(empty = true)
+        active.cloud.change(bundle(emptyList()))
+        active.local.value = active.local.value.copy(activeSessionId = "active-workout")
+        val activeBefore = active.local.value
+        assertEquals(
+            BackupActionResult.Failed(BackupFailureReason.ActiveSessionPresent),
+            active.coordinator.associateEmptyProfile(
+                AccountId("owner"),
+                active.gate.sessionEpoch,
+                active.local.value.metadata.installationId,
+                active.local.value.metadata.localChangeRevision,
+                snapshotChoice(checkNotNull(active.cloud.artifact)),
+            ),
+        )
+        assertEquals(activeBefore, active.local.value)
+        assertEquals(0, active.local.writes)
+
+        val foreign = Fixture(empty = true)
+        foreign.cloud.change(bundle(emptyList()))
+        foreign.local.value =
+            foreign.local.value.copy(
+                metadata = foreign.local.value.metadata.copy(ownerUid = "another-account")
+            )
+        val foreignBefore = foreign.local.value
+        assertEquals(
+            BackupActionResult.Failed(BackupFailureReason.OwnershipMismatch),
+            foreign.coordinator.associateEmptyProfile(
+                AccountId("owner"),
+                foreign.gate.sessionEpoch,
+                foreign.local.value.metadata.installationId,
+                foreign.local.value.metadata.localChangeRevision,
+                snapshotChoice(checkNotNull(foreign.cloud.artifact)),
+            ),
+        )
+        assertEquals(foreignBefore, foreign.local.value)
+        assertEquals(0, foreign.local.writes)
+    }
+
+    @Test
+    fun keepDeviceEmptyRejectsChangedOrMissingRemoteAndStaleSessionEpoch() = runTest {
+        val changed = Fixture(empty = true)
+        changed.cloud.change(bundle(listOf(record("first"))))
+        val reviewed = snapshotChoice(checkNotNull(changed.cloud.artifact))
+        assertTrue(changed.coordinator.latestCompleteBackup() is BackupLookupResult.Complete)
+        val localBeforeChange = changed.local.value
+        changed.cloud.change(bundle(listOf(record("second"))))
+        assertEquals(
+            BackupActionResult.Failed(BackupFailureReason.ConcurrentRemoteChange),
+            changed.coordinator.associateEmptyProfile(
+                AccountId("owner"),
+                changed.gate.sessionEpoch,
+                changed.local.value.metadata.installationId,
+                changed.local.value.metadata.localChangeRevision,
+                reviewed,
+            ),
+        )
+        assertEquals(localBeforeChange, changed.local.value)
+        assertEquals(0, changed.local.writes)
+
+        val missing = Fixture(empty = true)
+        missing.cloud.change(bundle(listOf(record("first"))))
+        val present = snapshotChoice(checkNotNull(missing.cloud.artifact))
+        assertTrue(missing.coordinator.latestCompleteBackup() is BackupLookupResult.Complete)
+        val localBeforeDelete = missing.local.value
+        missing.cloud.artifact = null
+        missing.cloud.generation++
+        assertEquals(
+            BackupActionResult.Failed(BackupFailureReason.ConcurrentRemoteChange),
+            missing.coordinator.associateEmptyProfile(
+                AccountId("owner"),
+                missing.gate.sessionEpoch,
+                missing.local.value.metadata.installationId,
+                missing.local.value.metadata.localChangeRevision,
+                present,
+            ),
+        )
+        assertEquals(localBeforeDelete, missing.local.value)
+        assertEquals(0, missing.local.writes)
+
+        val staleSession = Fixture(empty = true)
+        staleSession.cloud.change(bundle(listOf(record("first"))))
+        val expected = snapshotChoice(checkNotNull(staleSession.cloud.artifact))
+        val reviewedEpoch = staleSession.gate.sessionEpoch
+        staleSession.gate.withSessionMutation { _, _ ->
+            AccountSessionOperationGate.MutationResult(Unit, reopenAdmission = true)
+        }
+        assertEquals(
+            BackupActionResult.Failed(BackupFailureReason.ReauthenticationRequired),
+            staleSession.coordinator.associateEmptyProfile(
+                AccountId("owner"),
+                reviewedEpoch,
+                staleSession.local.value.metadata.installationId,
+                staleSession.local.value.metadata.localChangeRevision,
+                expected,
+            ),
+        )
+        assertEquals(0, staleSession.cloud.reads)
+        assertEquals(0, staleSession.local.writes)
+    }
+
+    @Test
+    fun keepDeviceEmptyRevalidatesEachChoiceTokenFieldIndependently() = runTest {
+        suspend fun reviewedFixture(): Pair<Fixture, RemoteSnapshotPresence.Complete> {
+            val fixture = Fixture(empty = true)
+            fixture.cloud.change(bundle(listOf(record("remote-record"))))
+            assertTrue(fixture.coordinator.latestCompleteBackup() is BackupLookupResult.Complete)
+            return fixture to snapshotChoice(checkNotNull(fixture.cloud.artifact))
+        }
+
+        suspend fun assertRejectedWithoutMutation(
+            fixture: Fixture,
+            reviewed: RemoteSnapshotPresence.Complete,
+            expectedFailure: BackupFailureReason,
+            expectedInstallationId: String,
+            expectedLocalChangeRevision: Long,
+        ) {
+            val localBefore = fixture.local.value
+            val remoteBefore = fixture.cloud.artifact
+
+            assertEquals(
+                BackupActionResult.Failed(expectedFailure),
+                fixture.coordinator.associateEmptyProfile(
+                    AccountId("owner"),
+                    fixture.gate.sessionEpoch,
+                    expectedInstallationId,
+                    expectedLocalChangeRevision,
+                    reviewed,
+                ),
+            )
+            assertEquals(localBefore, fixture.local.value)
+            assertEquals(remoteBefore, fixture.cloud.artifact)
+            assertEquals(0, fixture.local.writes)
+            assertEquals(0, fixture.cloud.writes)
+        }
+
+        val (staleRevision, revisionChoice) = reviewedFixture()
+        assertRejectedWithoutMutation(
+            staleRevision,
+            revisionChoice,
+            BackupFailureReason.StalePreview,
+            staleRevision.local.value.metadata.installationId,
+            staleRevision.local.value.metadata.localChangeRevision + 1,
+        )
+
+        val (staleInstallation, installationChoice) = reviewedFixture()
+        assertRejectedWithoutMutation(
+            staleInstallation,
+            installationChoice,
+            BackupFailureReason.StalePreview,
+            "replacement-installation",
+            staleInstallation.local.value.metadata.localChangeRevision,
+        )
+
+        val (changedGeneration, generationChoice) = reviewedFixture()
+        val generationArtifact = checkNotNull(changedGeneration.cloud.artifact)
+        changedGeneration.cloud.artifact =
+            generationArtifact.copy(generation = generationArtifact.generation + 1)
+        assertRejectedWithoutMutation(
+            changedGeneration,
+            generationChoice,
+            BackupFailureReason.ConcurrentRemoteChange,
+            changedGeneration.local.value.metadata.installationId,
+            changedGeneration.local.value.metadata.localChangeRevision,
+        )
+
+        val (changedSource, sourceChoice) = reviewedFixture()
+        val sourceArtifact = checkNotNull(changedSource.cloud.artifact)
+        changedSource.cloud.artifact =
+            sourceArtifact.copy(
+                summary = sourceArtifact.summary.copy(sourceInstallationId = "new-source")
+            )
+        assertRejectedWithoutMutation(
+            changedSource,
+            sourceChoice,
+            BackupFailureReason.ConcurrentRemoteChange,
+            changedSource.local.value.metadata.installationId,
+            changedSource.local.value.metadata.localChangeRevision,
+        )
+
+        val (changedDigest, digestChoice) = reviewedFixture()
+        val digestArtifact = checkNotNull(changedDigest.cloud.artifact)
+        val changedSnapshot =
+            BackupSnapshotCodec().encode(bundle(listOf(record("different-remote-record"))))
+        changedDigest.cloud.artifact = digestArtifact.copy(snapshot = changedSnapshot)
+        assertRejectedWithoutMutation(
+            changedDigest,
+            digestChoice,
+            BackupFailureReason.ConcurrentRemoteChange,
+            changedDigest.local.value.metadata.installationId,
+            changedDigest.local.value.metadata.localChangeRevision,
+        )
+    }
+
+    @Test
+    fun keepDeviceEmptyRejectsInstallationTransferDetectedAtAdmission() = runTest {
+        val fixture = Fixture(empty = true)
+        fixture.cloud.change(bundle(listOf(record("remote-record"))))
+        val reviewedRemote = snapshotChoice(checkNotNull(fixture.cloud.artifact))
+        val reviewedMetadata = fixture.local.value.metadata
+        assertTrue(fixture.coordinator.latestCompleteBackup() is BackupLookupResult.Complete)
+        fixture.transferOnNextValidation = true
+
+        assertEquals(
+            BackupActionResult.Failed(BackupFailureReason.StalePreview),
+            fixture.coordinator.associateEmptyProfile(
+                AccountId("owner"),
+                fixture.gate.sessionEpoch,
+                reviewedMetadata.installationId,
+                reviewedMetadata.localChangeRevision,
+                reviewedRemote,
+            ),
+        )
+
+        val transferred = fixture.local.value
+        assertEquals("transferred-installation", transferred.metadata.installationId)
+        assertNull(transferred.metadata.ownerUid)
+        assertNull(transferred.metadata.lastObservedRemoteBackupId)
+        assertEquals(0, transferred.metadata.lastObservedRemoteGeneration)
+        assertNull(transferred.baseline)
+        assertEquals(0, fixture.local.writes)
+        assertEquals(1, fixture.cloud.reads)
+    }
+
+    @Test
     fun staleLocalOrRemotePreviewCannotMutateEitherSide() = runTest {
         val fixture = Fixture()
         val preview = (fixture.coordinator.previewBackup() as BackupPreviewResult.Ready).preview
@@ -631,25 +975,49 @@ class ManualBackupCoordinatorTest {
 
     private class Fixture(
         empty: Boolean = false,
-        guard: InstallationGuard =
-            object : InstallationGuard {
-                override suspend fun validate() = InstallationValidationResult.Validated
-            }
+        guard: InstallationGuard? = null,
+        val gate: AccountSessionOperationGate = AccountSessionOperationGate(),
     ) {
         val local = Local(empty)
         val cloud = Cloud()
         val session = Session()
+        var transferOnNextValidation = false
+        private val defaultGuard =
+            object : InstallationGuard {
+                override suspend fun validate(): InstallationValidationResult {
+                    if (!transferOnNextValidation) return InstallationValidationResult.Validated
+                    transferOnNextValidation = false
+                    val current = local.value
+                    local.value =
+                        current.copy(
+                            metadata =
+                                current.metadata.copy(
+                                    ownerUid = null,
+                                    installationId = "transferred-installation",
+                                    lastCompleteLocalRevision = 0,
+                                    lastObservedRemoteBackupId = null,
+                                    lastObservedRemoteGeneration = 0,
+                                    lastObservedRemoteDigest = null,
+                                    lastObservedSourceInstallationId = null,
+                                    lastObservedRemoteCompletedAt = null,
+                                ),
+                            baseline = null,
+                        )
+                    return InstallationValidationResult.Transferred
+                }
+            }
         val coordinator =
             ManualBackupCoordinator(
                 local,
                 cloud,
                 session,
-                guard,
+                guard ?: defaultGuard,
                 object : IdProvider {
                     private var id = 0
 
                     override fun newId() = "id-${++id}"
                 },
+                gate,
                 Dispatchers.Unconfined
             )
 
@@ -840,7 +1208,7 @@ class ManualBackupCoordinatorTest {
         var failure: BackupFailureReason? = null
         var readFailure: BackupFailureReason? = null
         var throwOnRead = false
-        var onPublish: () -> Unit = {}
+        var onPublish: suspend () -> Unit = {}
         var onRead: suspend () -> Unit = {}
 
         fun change(bundle: BackupBundle) {
@@ -901,22 +1269,96 @@ class ManualBackupCoordinatorTest {
     }
 
     private class Session : AccountSessionAdapter {
-        var profile: AccountProfile? =
+        private val defaultProfile =
             AccountProfile(AccountId("owner"), "Demo", "demo@example.invalid")
+        var profile: AccountProfile? = defaultProfile
+        var credentialProfile: AccountProfile = defaultProfile
+        var clearCalls = 0
+        var onClear: () -> Unit = {}
 
         override suspend fun readSession() = profile
 
         override suspend fun requestGoogleCredential() =
-            CredentialResult.Selected(checkNotNull(profile))
+            CredentialResult.Selected(credentialProfile)
 
-        override suspend fun saveSession(profile: AccountProfile) = true
+        override suspend fun saveSession(profile: AccountProfile): Boolean {
+            this.profile = profile
+            return true
+        }
 
-        override suspend fun clearSession() = true
+        override suspend fun clearSession(): Boolean {
+            clearCalls++
+            onClear()
+            profile = null
+            return true
+        }
 
         override suspend fun remoteSnapshot(accountId: AccountId) = RemoteSnapshotPresence.Absent
     }
 
+    private suspend fun signedInGateway(fixture: Fixture): PersistedAccountGateway {
+        val profile = fixture.session.credentialProfile
+        fixture.local.value =
+            fixture.local.value.copy(
+                metadata = fixture.local.value.metadata.copy(ownerUid = profile.id.opaqueValue)
+            )
+        val reader =
+            object : AccountContextReader {
+                override val changes = emptyFlow<Unit>()
+
+                override suspend fun read(): LocalAccountContext {
+                    val metadata = fixture.local.value.metadata
+                    return LocalAccountContext(
+                        ownerUid = metadata.ownerUid,
+                        localDataIsEmpty = false,
+                        conflict =
+                            PersistedConflictContext(
+                                lastObservedRemoteBackupId = metadata.lastObservedRemoteBackupId,
+                                lastObservedRemoteGeneration =
+                                    metadata.lastObservedRemoteGeneration,
+                                lastObservedRemoteDigest = metadata.lastObservedRemoteDigest,
+                                lastObservedSourceInstallationId =
+                                    metadata.lastObservedSourceInstallationId,
+                                currentInstallationId = metadata.installationId,
+                                localChangeRevision = metadata.localChangeRevision,
+                                lastCompleteLocalRevision = metadata.lastCompleteLocalRevision,
+                            ),
+                    )
+                }
+            }
+        val gateway =
+            PersistedAccountGateway(
+                fixture.session,
+                reader,
+                fixtureGuard(),
+                object : LocalProfileResetter {
+                    override suspend fun resetLocalProfile(
+                        pendingSignOutUid: String?
+                    ): LocalProfileResetResult =
+                        error("Keep-data sign-out must not reset local data")
+
+                    override suspend fun clearPendingSignOut(uid: String) = false
+                },
+                fixture.gate,
+            )
+        assertEquals(AccountActionResult.Completed, gateway.refreshLocal())
+        return gateway
+    }
+
+    private fun fixtureGuard() =
+        object : InstallationGuard {
+            override suspend fun validate() = InstallationValidationResult.Validated
+        }
+
     companion object {
+        private fun snapshotChoice(artifact: RemoteBackupArtifact) =
+            RemoteSnapshotPresence.Complete(
+                artifact.summary.backupId,
+                artifact.generation,
+                artifact.summary.sourceInstallationId,
+                artifact.snapshot.contentDigest,
+            )
+
         private fun record(id: String) =
             PersonalRecord(id, id, id, 50.0, "2026-09-18", createdAt = 1)
 
