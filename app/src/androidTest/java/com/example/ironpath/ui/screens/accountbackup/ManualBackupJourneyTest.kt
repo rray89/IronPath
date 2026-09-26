@@ -292,7 +292,10 @@ class ManualBackupJourneyTest {
         assertTrue(undone.metadata.localChangeRevision > undone.metadata.lastCompleteLocalRevision)
         assertEquals(remoteBeforeRestore, latest(accountId))
 
+        // Feedback is published before the manual action clears busy; Back is ignored while busy.
+        waitForEnabledText("BACK UP NOW")
         Espresso.pressBack()
+        waitForTag(TestTags.bottomNav(Route.HOME))
         composeRule.onNodeWithTag(TestTags.bottomNav(Route.HOME)).performClick()
         waitForText("No workout plan yet")
         composeRule.onNodeWithTag(TestTags.bottomNav(Route.HISTORY)).performClick()
@@ -418,6 +421,20 @@ class ManualBackupJourneyTest {
             composeRule.onAllNodesWithText(text).fetchSemanticsNodes().isNotEmpty()
         }
         composeRule.onNodeWithText(text).performScrollTo().assertIsDisplayed()
+    }
+
+    private fun waitForEnabledText(text: String) {
+        composeRule.waitUntil(5_000) {
+            composeRule.onAllNodesWithText(text).fetchSemanticsNodes().singleOrNull()?.let {
+                !it.config.contains(SemanticsProperties.Disabled)
+            } == true
+        }
+    }
+
+    private fun waitForTag(tag: String) {
+        composeRule.waitUntil(5_000) {
+            composeRule.onAllNodesWithTag(tag).fetchSemanticsNodes().isNotEmpty()
+        }
     }
 
     private fun waitForAccountStatus(status: String) {
