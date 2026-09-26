@@ -6,6 +6,7 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
 import com.example.ironpath.domain.account.*
+import com.example.ironpath.domain.backup.RemoteBackupSummary
 import com.example.ironpath.ui.theme.IronPathTheme
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -18,6 +19,8 @@ class AccountBackupScreenTest {
     private var retries = 0
     private var cancellations = 0
     private var previews = 0
+    private var restorePreviews = 0
+    private var emptyAssociations = 0
     private var signOutConfirmations = mutableListOf<Boolean>()
     private var removeConfirmRequests = 0
     private var removeConfirmationDismissals = 0
@@ -37,7 +40,7 @@ class AccountBackupScreenTest {
     }
 
     @Test
-    fun pendingOtherOwner_explainsBlockAndAllowsCancelAtTwoHundredPercent() {
+    fun pendingOtherOwner_explainsBlockAndAllowsDecideLaterAtTwoHundredPercent() {
         setScreen(pending(LocalOwnership.Account(AccountId("other"))), DpSize(320.dp, 640.dp))
         composeRule.onNodeWithText("Data choice required").assertIsDisplayed()
         composeRule
@@ -47,8 +50,9 @@ class AccountBackupScreenTest {
             .performScrollTo()
             .assertIsDisplayed()
         assertManualOperationsUnavailable()
-        composeRule.onNodeWithText("CANCEL ACCOUNT SETUP").performScrollTo().performClick()
+        composeRule.onNodeWithText("DECIDE LATER").performScrollTo().performClick()
         assertEquals(1, cancellations)
+        composeRule.onNodeWithText("CANCEL ACCOUNT SETUP").assertDoesNotExist()
     }
 
     @Test
@@ -61,6 +65,25 @@ class AccountBackupScreenTest {
         composeRule.onNodeWithText("CANCEL ACCOUNT SETUP").performScrollTo().performClick()
         assertEquals(1, retries)
         assertEquals(1, cancellations)
+    }
+
+    @Test
+    fun unreadableDemoSessionOffersExplicitRecoveryThatKeepsTrainingData() {
+        var recoveries = 0
+        setScreen(
+            AccountState.RecoverableError(
+                AccountFailureReason.LocalStateUnavailable,
+                canRecoverUnreadableSession = true,
+            ),
+            actions = ManualBackupActions(recoverUnreadableSession = { recoveries++ }),
+        )
+
+        composeRule
+            .onNodeWithText("The stored demo session is unreadable.", substring = true)
+            .assertIsDisplayed()
+        composeRule.onNodeWithText("CLEAR INVALID DEMO SESSION").performScrollTo().performClick()
+        assertEquals(1, recoveries)
+        assertEquals(0, cancellations)
     }
 
     @Test
@@ -183,6 +206,72 @@ class AccountBackupScreenTest {
         setScreen(pending(LocalOwnership.Unclaimed))
         composeRule.onNodeWithText("BACK UP NOW").performScrollTo().assertIsEnabled()
         composeRule.onNodeWithText("PREVIEW WHOLE-BACKUP RESTORE").assertIsNotEnabled()
+    }
+
+    @Test
+    fun emptyUnclaimedAccountWithCompleteBackup_offersRestoreKeepEmptyAndDecideLater() {
+        val state =
+            AccountState.AwaitingDataChoice(
+                AccountId("demo"),
+                DataChoiceContext(
+                    LocalOwnership.Unclaimed,
+                    localDataIsEmpty = true,
+                    remoteSnapshot = RemoteSnapshotPresence.Complete("backup", 2, "other-device"),
+                    conflict = PersistedConflictContext(null, 0, null, null, "installation", 1, 0),
+                ),
+            )
+        val manual =
+            ManualBackupUiState(
+                latest = RemoteBackupSummary("backup", 100, "other-device", mapOf("Record" to 2))
+            )
+        setScreen(
+            state,
+            size = DpSize(320.dp, 640.dp),
+            manual = manual,
+            actions =
+                ManualBackupActions(
+                    previewRestore = { restorePreviews++ },
+                    keepDeviceEmpty = { emptyAssociations++ },
+                ),
+        )
+
+        composeRule
+            .onNodeWithText("A complete backup is available.", substring = true)
+            .performScrollTo()
+            .assertIsDisplayed()
+        composeRule.onNodeWithText("RESTORE BACKUP").performScrollTo().performClick()
+        composeRule.onNodeWithText("KEEP THIS DEVICE EMPTY").performScrollTo().performClick()
+        composeRule.onNodeWithText("DECIDE LATER").performScrollTo().performClick()
+        assertEquals(1, restorePreviews)
+        assertEquals(1, emptyAssociations)
+        assertEquals(1, cancellations)
+        composeRule.onNodeWithText("BACK UP NOW").assertDoesNotExist()
+        composeRule.onNodeWithText("REVIEW MANUAL SYNC").assertDoesNotExist()
+    }
+
+    @Test
+    fun emptyUnclaimedAccountWithActiveWorkout_doesNotOfferKeepEmptyAssociation() {
+        val state =
+            AccountState.AwaitingDataChoice(
+                AccountId("demo"),
+                DataChoiceContext(
+                    LocalOwnership.Unclaimed,
+                    localDataIsEmpty = true,
+                    remoteSnapshot = RemoteSnapshotPresence.Complete("backup", 2, "other-device"),
+                    conflict = null,
+                    activeWorkoutPresent = true,
+                ),
+            )
+        setScreen(
+            state,
+            manual =
+                ManualBackupUiState(
+                    latest =
+                        RemoteBackupSummary("backup", 100, "other-device", mapOf("Record" to 2))
+                ),
+        )
+        composeRule.onNodeWithText("KEEP THIS DEVICE EMPTY").assertDoesNotExist()
+        composeRule.onNodeWithText("PREVIEW WHOLE-BACKUP RESTORE").assertIsEnabled()
     }
 
     @Test

@@ -14,7 +14,10 @@ import com.example.ironpath.domain.identity.IdProvider
 import com.example.ironpath.testutil.IsolatedNoBackupDirectory
 import com.example.ironpath.testutil.TestData
 import java.io.File
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import org.junit.After
 import org.junit.Assert.*
 import org.junit.Before
@@ -53,7 +56,7 @@ class AccountPersistenceTest {
     }
 
     @Test
-    fun freshStoresAndControllers_reconstructThenDurablyCancelPendingChoice() = runBlocking {
+    fun freshStoresAndControllers_reconstructChoiceUntilExplicitSignOut() = runBlocking {
         val before = database.backupDao().getMetadata()
         val first = gateway()
         assertEquals(AccountActionResult.Completed, first.startGoogleSignIn())
@@ -67,7 +70,22 @@ class AccountPersistenceTest {
         recreated.refresh()
         assertTrue(recreated.state.value is AccountState.AwaitingDataChoice)
         assertEquals(before, database.backupDao().getMetadata())
-        assertEquals(AccountActionResult.Completed, recreated.cancelDataChoice())
+        assertEquals(AccountActionResult.Unavailable, recreated.cancelDataChoice())
+        assertEquals(
+            DeterministicAccountSessionAdapter.PROFILE.id.opaqueValue,
+            sessionFile().readText()
+        )
+        val awaiting = recreated.state.value as AccountState.AwaitingDataChoice
+        assertEquals(
+            AccountActionResult.Completed,
+            recreated.signOut(
+                com.example.ironpath.domain.account.SignOutRequest(
+                    awaiting.accountId,
+                    awaiting.sessionEpoch,
+                    com.example.ironpath.domain.account.SignOutDataChoice.KeepData,
+                )
+            ),
+        )
         assertEquals("", sessionFile().readText())
         val afterCancel = gateway()
         afterCancel.refresh()
@@ -80,8 +98,10 @@ class AccountPersistenceTest {
         val reader = RoomAccountContextReader(database)
         val before = database.backupDao().getMetadata()
         assertTrue(reader.read().localDataIsEmpty)
+        assertFalse(reader.read().activeWorkoutPresent)
         database.sessionDao().startNewSession(TestData.session(), emptyList())
         assertTrue(reader.read().localDataIsEmpty)
+        assertTrue(reader.read().activeWorkoutPresent)
         database.historyDao().insertLog(TestData.log(id = "log-account-context"))
         val result = reader.read()
         assertFalse(result.localDataIsEmpty)
@@ -94,13 +114,43 @@ class AccountPersistenceTest {
     }
 
     @Test
-    fun unknownStoredFixture_isRecoverableAndCanBeCleared() = runBlocking {
-        sessionFile().writeText("unsupported-fixture")
+    fun roomReader_emitsWhenActiveWorkoutChangesWithoutMetadataWrite() = runBlocking {
+        val reader = RoomAccountContextReader(database)
+        val metadataBefore = database.backupDao().getMetadata()
+        val emissions = Channel<Unit>(Channel.UNLIMITED)
+        val observer = launch { reader.changes.collect { emissions.send(it) } }
+        withTimeout(5_000) { emissions.receive() }
+
+        database.sessionDao().startNewSession(TestData.session(), emptyList())
+        withTimeout(5_000) { emissions.receive() }
+        observer.cancel()
+
+        assertEquals(metadataBefore, database.backupDao().getMetadata())
+        assertTrue(reader.read().activeWorkoutPresent)
+    }
+
+    @Test
+    fun unknownStoredFixture_requiresExplicitRecoveryAndPreservesTrainingData() = runBlocking {
+        val invalidFixture = "unsupported-fixture"
+        sessionFile().writeText(invalidFixture)
+        database.historyDao().insertLog(TestData.log(id = "retained-after-session-recovery"))
+        val metadataBefore = database.backupDao().getMetadata()
         val gateway = gateway()
         gateway.refresh()
+        val recoverable = gateway.state.value as AccountState.RecoverableError
+        assertTrue(recoverable.canRecoverUnreadableSession)
+        assertEquals(AccountActionResult.Unavailable, gateway.cancelDataChoice())
         assertTrue(gateway.state.value is AccountState.RecoverableError)
-        assertEquals(AccountActionResult.Completed, gateway.cancelDataChoice())
+        assertEquals(invalidFixture, sessionFile().readText())
+
+        assertEquals(AccountActionResult.Completed, gateway.recoverUnreadableSession())
         assertEquals(AccountState.LocalOnly, gateway.state.value)
+        assertEquals("", sessionFile().readText())
+        assertEquals(metadataBefore, database.backupDao().getMetadata())
+        assertEquals(
+            "retained-after-session-recovery",
+            database.backupDao().getWorkoutLogs().single().id,
+        )
     }
 
     private val absentRemote =

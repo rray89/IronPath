@@ -12,6 +12,8 @@ interface AccountGateway {
 
     suspend fun cancelDataChoice(): AccountActionResult
 
+    suspend fun recoverUnreadableSession(): AccountActionResult = AccountActionResult.Unavailable
+
     suspend fun startGoogleSignIn(): AccountActionResult
 
     suspend fun reauthenticate(): AccountActionResult
@@ -27,6 +29,9 @@ sealed interface AccountState {
     data object LocalOnly : AccountState
 
     data object SigningIn : AccountState
+
+    /** A credential was selected and the durable demo session is being saved. */
+    data object SavingSignIn : AccountState
 
     data object CancellingDataChoice : AccountState
 
@@ -59,6 +64,7 @@ sealed interface AccountState {
     data class RecoverableError(
         val reason: AccountFailureReason,
         val canCancelDataChoice: Boolean = false,
+        val canRecoverUnreadableSession: Boolean = false,
     ) : AccountState
 }
 
@@ -88,6 +94,7 @@ data class DataChoiceContext(
     val localDataIsEmpty: Boolean,
     val remoteSnapshot: RemoteSnapshotPresence,
     val conflict: PersistedConflictContext?,
+    val activeWorkoutPresent: Boolean = false,
 )
 
 sealed interface LocalOwnership {
@@ -103,6 +110,7 @@ sealed interface RemoteSnapshotPresence {
         val backupId: String,
         val generation: Long,
         val sourceInstallationId: String,
+        val contentDigest: String? = null,
     ) : RemoteSnapshotPresence
 }
 
@@ -141,6 +149,7 @@ object AccountStateResolver {
         localDataIsEmpty: Boolean = false,
         remoteSnapshot: RemoteSnapshotPresence = RemoteSnapshotPresence.Absent,
         conflict: PersistedConflictContext? = null,
+        activeWorkoutPresent: Boolean = false,
     ): AccountState =
         when {
             authenticatedUid == null -> AccountState.LocalOnly
@@ -158,6 +167,7 @@ object AccountStateResolver {
                             localDataIsEmpty = localDataIsEmpty,
                             remoteSnapshot = remoteSnapshot,
                             conflict = conflict,
+                            activeWorkoutPresent = activeWorkoutPresent,
                         ),
                 )
         }

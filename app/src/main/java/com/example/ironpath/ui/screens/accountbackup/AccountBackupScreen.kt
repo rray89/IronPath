@@ -87,6 +87,7 @@ fun AccountBackupScreen(
                 }
             AccountState.Loading,
             AccountState.SigningIn,
+            AccountState.SavingSignIn,
             AccountState.CancellingDataChoice,
             AccountState.SigningOut -> {
                 Button(onClick = {}, enabled = false, modifier = Modifier.fillMaxWidth()) {
@@ -105,6 +106,15 @@ fun AccountBackupScreen(
                 Button(onClick = onRetry, modifier = Modifier.fillMaxWidth()) { Text("TRY AGAIN") }
             else -> Unit
         }
+        if (state is AccountState.RecoverableError && state.canRecoverUnreadableSession) {
+            TextButton(
+                onClick = manualActions.recoverUnreadableSession,
+                enabled = !manual.busy && !manual.signOutBusy,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text("CLEAR INVALID DEMO SESSION")
+            }
+        }
         if (state is AccountState.SignedIn || state is AccountState.AwaitingDataChoice) {
             TextButton(
                 onClick = manualActions.openSignOutReview,
@@ -118,10 +128,15 @@ fun AccountBackupScreen(
             "Signing in identifies your account. Your training data stays local until you choose a manual backup or restore.",
             style = MaterialTheme.typography.bodyMedium
         )
-        ManualBackupOverview(state, manual, manualActions, onRetry)
+        ManualBackupOverview(
+            state,
+            manual,
+            manualActions,
+            onRetry,
+            onDecideLater = onCancel,
+        )
         if (
             state == AccountState.SigningIn ||
-                state is AccountState.AwaitingDataChoice ||
                 (state is AccountState.RecoverableError && state.canCancelDataChoice)
         ) {
             TextButton(
@@ -130,6 +145,16 @@ fun AccountBackupScreen(
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Text("CANCEL ACCOUNT SETUP")
+            }
+        } else if (
+            state is AccountState.AwaitingDataChoice && !shouldOfferEmptyBackupChoice(state)
+        ) {
+            TextButton(
+                onClick = onCancel,
+                enabled = !manual.busy && !manual.signOutBusy,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text("DECIDE LATER")
             }
         }
         TextButton(
@@ -249,8 +274,15 @@ internal fun accountStatusLabel(state: AccountState): String =
         AccountState.Loading -> "Checking account"
         AccountState.LocalOnly -> "Local only"
         AccountState.SigningIn -> "Signing in"
+        AccountState.SavingSignIn -> "Finishing sign in"
         AccountState.CancellingDataChoice -> "Cancelling account setup"
-        is AccountState.AwaitingDataChoice -> "Data choice required"
+        is AccountState.AwaitingDataChoice ->
+            if (
+                state.context.ownership is LocalOwnership.Account &&
+                    state.context.ownership.accountId == state.accountId
+            )
+                "Backup review required"
+            else "Data choice required"
         is AccountState.SignedIn -> "Signed in"
         is AccountState.RecoverableError -> "Account needs attention"
         AccountState.NeedsReauthentication -> "Needs sign-in"
@@ -265,6 +297,8 @@ internal fun accountStatusDetail(state: AccountState): String =
         AccountState.LocalOnly ->
             "Your training data is stored on this device. No account is connected."
         AccountState.SigningIn -> "Selecting the demo account. No training data moves."
+        AccountState.SavingSignIn ->
+            "The demo account is selected. Saving the signed-in session; no training data moves."
         AccountState.CancellingDataChoice ->
             "Removing the pending demo session. Your training data stays unchanged."
         is AccountState.AwaitingDataChoice ->
@@ -272,19 +306,31 @@ internal fun accountStatusDetail(state: AccountState): String =
                 state.context.ownership is LocalOwnership.Account &&
                     state.context.ownership.accountId != state.accountId ->
                     "This device is linked to another account. Backup, sync, and restore are unavailable for this account."
+                state.context.ownership is LocalOwnership.Account &&
+                    state.context.ownership.accountId == state.accountId &&
+                    state.context.activeWorkoutPresent ->
+                    "This local profile is associated with the signed-in demo account. An active workout is present, and backup lineage still needs review."
+                state.context.ownership is LocalOwnership.Account &&
+                    state.context.ownership.accountId == state.accountId ->
+                    "This local profile is associated with the signed-in demo account. Its backup lineage still needs review; no training data was uploaded or replaced."
+                state.context.activeWorkoutPresent ->
+                    "An active workout is present. Keep this device empty is unavailable until the workout is finished or discarded."
                 state.context.localDataIsEmpty ->
-                    "No training data is saved here yet. Sign-in has not linked local data or created a backup."
+                    "The demo account is signed in. This empty device stays unlinked until you choose an option; no backup is changed."
                 else ->
-                    "Your training data remains local. Sign-in has not linked, uploaded, merged, or replaced it."
+                    "The demo account is signed in. Training data remains local; sign-in has not linked, uploaded, merged, or replaced it."
             }
         is AccountState.SignedIn ->
-            "This account matches the owner of the training data on this device."
+            "This local profile is associated with the signed-in demo account. Training data remains on this device; sign-in does not imply a shared backup."
         is AccountState.SignOutPending ->
             "Training data removal is complete. Finish sign-out to clear this account session."
         is AccountState.RecoverableError ->
             when (state.reason) {
                 AccountFailureReason.LocalStateUnavailable ->
-                    "Account and training data status could not be verified. Check again before continuing."
+                    if (state.canRecoverUnreadableSession)
+                        "The stored demo session is unreadable. Clear this invalid session record to return to local-only; training data stays unchanged."
+                    else
+                        "Account and training data status could not be verified. Check again before continuing."
                 AccountFailureReason.Offline ->
                     "Sign-in is unavailable offline. Try again when connected; local workouts remain available."
                 AccountFailureReason.ReauthenticationRequired ->

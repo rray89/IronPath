@@ -421,6 +421,166 @@ class ManualBackupCoordinatorTest {
     }
 
     @Test
+    fun keepDeviceEmptyAssociatesOnlyOwnerAndPreservesCompleteRemoteAndLocalLineage() = runTest {
+        val fixture = Fixture(empty = true)
+        fixture.cloud.change(bundle(listOf(record("remote-record"))))
+        val original = fixture.local.value
+        val remoteBefore = fixture.cloud.artifact
+        assertTrue(fixture.coordinator.latestCompleteBackup() is BackupLookupResult.Complete)
+
+        assertEquals(
+            BackupActionResult.Completed,
+            fixture.coordinator.associateEmptyProfile(
+                AccountId("owner"),
+                fixture.gate.sessionEpoch,
+                fixture.local.value.metadata.installationId,
+                fixture.local.value.metadata.localChangeRevision,
+                snapshotChoice(checkNotNull(remoteBefore)),
+            ),
+        )
+
+        val associated = fixture.local.value
+        assertEquals(original.metadata.copy(ownerUid = "owner"), associated.metadata)
+        assertEquals(original.bundle, associated.bundle)
+        assertEquals(original.baseline, associated.baseline)
+        assertEquals(remoteBefore, fixture.cloud.artifact)
+        assertEquals(0, fixture.cloud.writes)
+        assertEquals(BackupStatus.ReviewRequired, fixture.coordinator.status.value)
+    }
+
+    @Test
+    fun keepDeviceEmptyRejectsActiveWorkoutAndForeignOwnerWithoutMutatingAnything() = runTest {
+        val active = Fixture(empty = true)
+        active.cloud.change(bundle(emptyList()))
+        active.local.value = active.local.value.copy(activeSessionId = "active-workout")
+        val activeBefore = active.local.value
+        assertEquals(
+            BackupActionResult.Failed(BackupFailureReason.ActiveSessionPresent),
+            active.coordinator.associateEmptyProfile(
+                AccountId("owner"),
+                active.gate.sessionEpoch,
+                active.local.value.metadata.installationId,
+                active.local.value.metadata.localChangeRevision,
+                snapshotChoice(checkNotNull(active.cloud.artifact)),
+            ),
+        )
+        assertEquals(activeBefore, active.local.value)
+        assertEquals(0, active.local.writes)
+
+        val foreign = Fixture(empty = true)
+        foreign.cloud.change(bundle(emptyList()))
+        foreign.local.value =
+            foreign.local.value.copy(
+                metadata = foreign.local.value.metadata.copy(ownerUid = "another-account")
+            )
+        val foreignBefore = foreign.local.value
+        assertEquals(
+            BackupActionResult.Failed(BackupFailureReason.OwnershipMismatch),
+            foreign.coordinator.associateEmptyProfile(
+                AccountId("owner"),
+                foreign.gate.sessionEpoch,
+                foreign.local.value.metadata.installationId,
+                foreign.local.value.metadata.localChangeRevision,
+                snapshotChoice(checkNotNull(foreign.cloud.artifact)),
+            ),
+        )
+        assertEquals(foreignBefore, foreign.local.value)
+        assertEquals(0, foreign.local.writes)
+    }
+
+    @Test
+    fun keepDeviceEmptyRejectsChangedOrMissingRemoteAndStaleSessionEpoch() = runTest {
+        val changed = Fixture(empty = true)
+        changed.cloud.change(bundle(listOf(record("first"))))
+        val reviewed = snapshotChoice(checkNotNull(changed.cloud.artifact))
+        assertTrue(changed.coordinator.latestCompleteBackup() is BackupLookupResult.Complete)
+        val localBeforeChange = changed.local.value
+        changed.cloud.change(bundle(listOf(record("second"))))
+        assertEquals(
+            BackupActionResult.Failed(BackupFailureReason.ConcurrentRemoteChange),
+            changed.coordinator.associateEmptyProfile(
+                AccountId("owner"),
+                changed.gate.sessionEpoch,
+                changed.local.value.metadata.installationId,
+                changed.local.value.metadata.localChangeRevision,
+                reviewed,
+            ),
+        )
+        assertEquals(localBeforeChange, changed.local.value)
+        assertEquals(0, changed.local.writes)
+
+        val missing = Fixture(empty = true)
+        missing.cloud.change(bundle(listOf(record("first"))))
+        val present = snapshotChoice(checkNotNull(missing.cloud.artifact))
+        assertTrue(missing.coordinator.latestCompleteBackup() is BackupLookupResult.Complete)
+        val localBeforeDelete = missing.local.value
+        missing.cloud.artifact = null
+        missing.cloud.generation++
+        assertEquals(
+            BackupActionResult.Failed(BackupFailureReason.ConcurrentRemoteChange),
+            missing.coordinator.associateEmptyProfile(
+                AccountId("owner"),
+                missing.gate.sessionEpoch,
+                missing.local.value.metadata.installationId,
+                missing.local.value.metadata.localChangeRevision,
+                present,
+            ),
+        )
+        assertEquals(localBeforeDelete, missing.local.value)
+        assertEquals(0, missing.local.writes)
+
+        val staleSession = Fixture(empty = true)
+        staleSession.cloud.change(bundle(listOf(record("first"))))
+        val expected = snapshotChoice(checkNotNull(staleSession.cloud.artifact))
+        val reviewedEpoch = staleSession.gate.sessionEpoch
+        staleSession.gate.withSessionMutation { _, _ ->
+            AccountSessionOperationGate.MutationResult(Unit, reopenAdmission = true)
+        }
+        assertEquals(
+            BackupActionResult.Failed(BackupFailureReason.ReauthenticationRequired),
+            staleSession.coordinator.associateEmptyProfile(
+                AccountId("owner"),
+                reviewedEpoch,
+                staleSession.local.value.metadata.installationId,
+                staleSession.local.value.metadata.localChangeRevision,
+                expected,
+            ),
+        )
+        assertEquals(0, staleSession.cloud.reads)
+        assertEquals(0, staleSession.local.writes)
+    }
+
+    @Test
+    fun keepDeviceEmptyRejectsInstallationTransferDetectedAtAdmission() = runTest {
+        val fixture = Fixture(empty = true)
+        fixture.cloud.change(bundle(listOf(record("remote-record"))))
+        val reviewedRemote = snapshotChoice(checkNotNull(fixture.cloud.artifact))
+        val reviewedMetadata = fixture.local.value.metadata
+        assertTrue(fixture.coordinator.latestCompleteBackup() is BackupLookupResult.Complete)
+        fixture.transferOnNextValidation = true
+
+        assertEquals(
+            BackupActionResult.Failed(BackupFailureReason.StalePreview),
+            fixture.coordinator.associateEmptyProfile(
+                AccountId("owner"),
+                fixture.gate.sessionEpoch,
+                reviewedMetadata.installationId,
+                reviewedMetadata.localChangeRevision,
+                reviewedRemote,
+            ),
+        )
+
+        val transferred = fixture.local.value
+        assertEquals("transferred-installation", transferred.metadata.installationId)
+        assertNull(transferred.metadata.ownerUid)
+        assertNull(transferred.metadata.lastObservedRemoteBackupId)
+        assertEquals(0, transferred.metadata.lastObservedRemoteGeneration)
+        assertNull(transferred.baseline)
+        assertEquals(0, fixture.local.writes)
+        assertEquals(1, fixture.cloud.reads)
+    }
+
+    @Test
     fun staleLocalOrRemotePreviewCannotMutateEitherSide() = runTest {
         val fixture = Fixture()
         val preview = (fixture.coordinator.previewBackup() as BackupPreviewResult.Ready).preview
@@ -722,21 +882,43 @@ class ManualBackupCoordinatorTest {
 
     private class Fixture(
         empty: Boolean = false,
-        guard: InstallationGuard =
-            object : InstallationGuard {
-                override suspend fun validate() = InstallationValidationResult.Validated
-            },
+        guard: InstallationGuard? = null,
         val gate: AccountSessionOperationGate = AccountSessionOperationGate(),
     ) {
         val local = Local(empty)
         val cloud = Cloud()
         val session = Session()
+        var transferOnNextValidation = false
+        private val defaultGuard =
+            object : InstallationGuard {
+                override suspend fun validate(): InstallationValidationResult {
+                    if (!transferOnNextValidation) return InstallationValidationResult.Validated
+                    transferOnNextValidation = false
+                    val current = local.value
+                    local.value =
+                        current.copy(
+                            metadata =
+                                current.metadata.copy(
+                                    ownerUid = null,
+                                    installationId = "transferred-installation",
+                                    lastCompleteLocalRevision = 0,
+                                    lastObservedRemoteBackupId = null,
+                                    lastObservedRemoteGeneration = 0,
+                                    lastObservedRemoteDigest = null,
+                                    lastObservedSourceInstallationId = null,
+                                    lastObservedRemoteCompletedAt = null,
+                                ),
+                            baseline = null,
+                        )
+                    return InstallationValidationResult.Transferred
+                }
+            }
         val coordinator =
             ManualBackupCoordinator(
                 local,
                 cloud,
                 session,
-                guard,
+                guard ?: defaultGuard,
                 object : IdProvider {
                     private var id = 0
 
@@ -1076,6 +1258,14 @@ class ManualBackupCoordinatorTest {
         }
 
     companion object {
+        private fun snapshotChoice(artifact: RemoteBackupArtifact) =
+            RemoteSnapshotPresence.Complete(
+                artifact.summary.backupId,
+                artifact.generation,
+                artifact.summary.sourceInstallationId,
+                artifact.snapshot.contentDigest,
+            )
+
         private fun record(id: String) =
             PersonalRecord(id, id, id, 50.0, "2026-09-18", createdAt = 1)
 

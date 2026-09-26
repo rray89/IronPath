@@ -82,9 +82,10 @@ class PersistedAccountGatewayTest {
         gateway.refreshLocal()
         assertEquals(1, source.remoteReads)
         assertTrue(gateway.state.value is AccountState.AwaitingDataChoice)
-        gateway.cancelDataChoice()
+        assertEquals(AccountActionResult.Unavailable, gateway.cancelDataChoice())
+        assertEquals(profile, source.session)
         gateway.refreshLocal()
-        assertEquals(AccountState.LocalOnly, gateway.state.value)
+        assertTrue(gateway.state.value is AccountState.AwaitingDataChoice)
         assertEquals(1, source.remoteReads)
     }
 
@@ -115,18 +116,28 @@ class PersistedAccountGatewayTest {
     }
 
     @Test
-    fun `a fresh controller reconstructs pending choice and cancellation persists`() = runTest {
-        val source = Source()
-        gateway(source).startGoogleSignIn()
-        val recreated = gateway(source)
-        recreated.refresh()
-        assertTrue(recreated.state.value is AccountState.AwaitingDataChoice)
-        assertEquals(AccountActionResult.Completed, recreated.cancelDataChoice())
-        assertNull(source.session)
-        val afterCancel = gateway(source)
-        afterCancel.refresh()
-        assertEquals(AccountState.LocalOnly, afterCancel.state.value)
-    }
+    fun `a fresh controller reconstructs data choice and only explicit sign out clears session`() =
+        runTest {
+            val source = Source()
+            gateway(source).startGoogleSignIn()
+            val recreated = gateway(source)
+            recreated.refresh()
+            val awaiting = recreated.state.value as AccountState.AwaitingDataChoice
+            assertEquals(AccountActionResult.Unavailable, recreated.cancelDataChoice())
+            assertEquals(profile, source.session)
+            assertEquals(
+                AccountActionResult.Completed,
+                recreated.signOut(
+                    SignOutRequest(
+                        awaiting.accountId,
+                        awaiting.sessionEpoch,
+                        SignOutDataChoice.KeepData
+                    )
+                ),
+            )
+            assertNull(source.session)
+            assertEquals(AccountState.LocalOnly, recreated.state.value)
+        }
 
     @Test
     fun `same owner resumes and different owner remains blocked even when empty`() = runTest {
@@ -179,26 +190,38 @@ class PersistedAccountGatewayTest {
     }
 
     @Test
-    fun `failed save never reports signed in and failed clear remains retryable`() = runTest {
-        val source = Source().apply { writeSucceeds = false }
-        val gateway = gateway(source)
-        assertEquals(
-            AccountActionResult.Failed(AccountFailureReason.LocalStateUnavailable),
+    fun `failed save never reports signed in and only explicit sign out clears a saved session`() =
+        runTest {
+            val source = Source().apply { writeSucceeds = false }
+            val gateway = gateway(source)
+            assertEquals(
+                AccountActionResult.Failed(AccountFailureReason.LocalStateUnavailable),
+                gateway.startGoogleSignIn()
+            )
+            assertNull(source.session)
+            source.writeSucceeds = true
             gateway.startGoogleSignIn()
-        )
-        assertNull(source.session)
-        source.writeSucceeds = true
-        gateway.startGoogleSignIn()
-        source.clearSucceeds = false
-        assertEquals(
-            AccountActionResult.Failed(AccountFailureReason.LocalStateUnavailable),
-            gateway.cancelDataChoice()
-        )
-        assertNotNull(source.session)
-        source.clearSucceeds = true
-        assertEquals(AccountActionResult.Completed, gateway.cancelDataChoice())
-        assertEquals(AccountState.LocalOnly, gateway.state.value)
-    }
+            source.clearSucceeds = false
+            val state = gateway.state.value as AccountState.AwaitingDataChoice
+            assertEquals(AccountActionResult.Unavailable, gateway.cancelDataChoice())
+            assertNotNull(source.session)
+            assertEquals(
+                AccountActionResult.Failed(AccountFailureReason.LocalStateUnavailable),
+                gateway.signOut(
+                    SignOutRequest(state.accountId, state.sessionEpoch, SignOutDataChoice.KeepData)
+                ),
+            )
+            assertNotNull(source.session)
+            source.clearSucceeds = true
+            val retry = gateway.state.value as AccountState.AwaitingDataChoice
+            assertEquals(
+                AccountActionResult.Completed,
+                gateway.signOut(
+                    SignOutRequest(retry.accountId, retry.sessionEpoch, SignOutDataChoice.KeepData)
+                ),
+            )
+            assertEquals(AccountState.LocalOnly, gateway.state.value)
+        }
 
     @Test
     fun `installation or local reads fail closed before requesting credentials`() = runTest {
@@ -256,6 +279,35 @@ class PersistedAccountGatewayTest {
     }
 
     @Test
+    fun `selected credential finishes durable sign in when caller leaves while waiting for gate`() =
+        runTest {
+            val gate = AccountSessionOperationGate()
+            val source = Source()
+            val gateway = gateway(source, gate = gate)
+            val operationStarted = CompletableDeferred<Unit>()
+            val finishOperation = CompletableDeferred<Unit>()
+            val holder = launch {
+                gate.withManualOperation(waitForTurn = true, unavailable = Unit) {
+                    operationStarted.complete(Unit)
+                    finishOperation.await()
+                }
+            }
+            operationStarted.await()
+
+            val signIn = launch { gateway.startGoogleSignIn() }
+            runCurrent()
+            assertEquals(AccountState.SavingSignIn, gateway.state.value)
+
+            signIn.cancel()
+            finishOperation.complete(Unit)
+            holder.join()
+            signIn.join()
+
+            assertEquals(profile, source.session)
+            assertTrue(gateway.state.value is AccountState.AwaitingDataChoice)
+        }
+
+    @Test
     fun `a cancellation ignoring chooser cannot persist its late result`() = runTest {
         val source =
             Source().apply {
@@ -274,13 +326,22 @@ class PersistedAccountGatewayTest {
     }
 
     @Test
-    fun `cancellation during durable clear never leaves cancellation busy`() = runTest {
+    fun `cancellation during explicit sign out never leaves signing out busy`() = runTest {
         val source = Source()
         val gateway = gateway(source)
         gateway.startGoogleSignIn()
+        val account = gateway.state.value as AccountState.AwaitingDataChoice
         source.clearStarted = CompletableDeferred()
         source.finishClear = CompletableDeferred()
-        val operation = launch { gateway.cancelDataChoice() }
+        val operation = launch {
+            gateway.signOut(
+                SignOutRequest(
+                    account.accountId,
+                    account.sessionEpoch,
+                    SignOutDataChoice.KeepData,
+                )
+            )
+        }
         runCurrent()
         assertTrue(source.clearStarted!!.isCompleted)
         operation.cancel()
@@ -292,18 +353,18 @@ class PersistedAccountGatewayTest {
     }
 
     @Test
-    fun `persisted session can be cancelled when local context cannot be reconstructed`() =
+    fun `ordinary cancellation cannot clear persisted session when local context cannot be reconstructed`() =
         runTest {
             val source = Source().apply { session = profile }
             val reader = Reader().apply { failure = IllegalStateException("private") }
             val gateway = gateway(source, reader)
             gateway.refresh()
             assertEquals(
-                AccountState.RecoverableError(AccountFailureReason.LocalStateUnavailable, true),
+                AccountState.RecoverableError(AccountFailureReason.LocalStateUnavailable),
                 gateway.state.value
             )
-            assertEquals(AccountActionResult.Completed, gateway.cancelDataChoice())
-            assertNull(source.session)
+            assertEquals(AccountActionResult.Unavailable, gateway.cancelDataChoice())
+            assertEquals(profile, source.session)
         }
 
     @Test

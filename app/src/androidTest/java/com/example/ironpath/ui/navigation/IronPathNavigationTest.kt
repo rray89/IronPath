@@ -61,6 +61,7 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -140,7 +141,7 @@ class IronPathNavigationTest {
     }
 
     @Test
-    fun accountShell_signsInFromEntryWithoutCompletingOnboardingAndBackCancels() {
+    fun accountShell_signsInFromEntryWithoutCompletingOnboardingAndBackPreservesSession() {
         waitForEnabledText("SIGN IN WITH GOOGLE")
         composeRule.onNodeWithText("SIGN IN WITH GOOGLE").assertIsEnabled().performClick()
 
@@ -151,7 +152,7 @@ class IronPathNavigationTest {
         assertFalse(onboardingRepository.completed)
         composeRule.onNodeWithContentDescription("Back").performClick()
         waitForRoute(Route.ENTRY)
-        assertNull(accountSession.session)
+        assertNotNull(accountSession.session)
     }
 
     @Test
@@ -201,7 +202,7 @@ class IronPathNavigationTest {
             assertFalse(onboardingRepository.completed)
             composeRule.onNodeWithContentDescription("Back").performClick()
             waitForRoute(Route.ENTRY)
-            assertNull(accountSession.session)
+            assertNotNull(accountSession.session)
         } finally {
             releaseContext.complete(Unit)
         }
@@ -226,7 +227,7 @@ class IronPathNavigationTest {
     }
 
     @Test
-    fun systemBackFromPendingChoice_clearsSessionAndPreservesLocalWorkoutData() {
+    fun systemBackFromPendingChoicePreservesSessionAndLocalWorkoutData() {
         seedActivePlan("account-back-workout", "Account Back Safety")
         enterApp()
         composeRule.onNodeWithContentDescription("Menu").performClick()
@@ -241,7 +242,7 @@ class IronPathNavigationTest {
         waitForPendingAccountChoice()
         Espresso.pressBack()
         waitForRoute(Route.HOME)
-        assertNull(accountSession.session)
+        assertNotNull(accountSession.session)
         runBlocking {
             assertEquals(
                 "Account Back Safety",

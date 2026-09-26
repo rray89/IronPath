@@ -6,6 +6,8 @@ import com.example.ironpath.domain.account.AccountActionResult
 import com.example.ironpath.domain.account.AccountContextReader
 import com.example.ironpath.domain.account.AccountGateway
 import com.example.ironpath.domain.account.AccountState
+import com.example.ironpath.domain.account.LocalOwnership
+import com.example.ironpath.domain.account.RemoteSnapshotPresence
 import com.example.ironpath.domain.account.SignOutDataChoice
 import com.example.ironpath.domain.account.SignOutRequest
 import com.example.ironpath.domain.backup.*
@@ -65,6 +67,35 @@ constructor(
         }
     }
 
+    fun recoverUnreadableSession() {
+        val recoverable = state.value as? AccountState.RecoverableError ?: return
+        if (
+            !recoverable.canRecoverUnreadableSession ||
+                manual.value.busy ||
+                manual.value.signOutBusy
+        )
+            return
+        viewModelScope.launch {
+            mutableManual.update { it.copy(signOutBusy = true, feedback = null) }
+            val result = accountGateway.recoverUnreadableSession()
+            backup.refreshStatus()
+            mutableManual.update {
+                it.copy(
+                    signOutBusy = false,
+                    feedback =
+                        when (result) {
+                            AccountActionResult.Completed ->
+                                "The unreadable demo session was cleared. Training data remains on this device."
+                            AccountActionResult.Cancelled,
+                            AccountActionResult.Unavailable,
+                            is AccountActionResult.Failed ->
+                                "The unreadable demo session could not be cleared. Try again."
+                        },
+                )
+            }
+        }
+    }
+
     fun refresh() {
         if (manual.value.busy || manual.value.signOutBusy) return
         mutableManual.update { it.copy(feedback = null) }
@@ -88,6 +119,54 @@ constructor(
 
     private fun AccountState.isEligibleForLatestBackupLookup() =
         this is AccountState.SignedIn || this is AccountState.AwaitingDataChoice
+
+    fun keepDeviceEmpty() {
+        val pending = state.value as? AccountState.AwaitingDataChoice ?: return
+        val reviewedProfile = pending.context.conflict ?: return
+        val expectedRemoteSnapshot =
+            pending.context.remoteSnapshot as? RemoteSnapshotPresence.Complete ?: return
+        if (
+            pending.context.ownership !is LocalOwnership.Unclaimed ||
+                !pending.context.localDataIsEmpty ||
+                pending.context.activeWorkoutPresent ||
+                manual.value.busy ||
+                manual.value.signOutBusy
+        )
+            return
+        runManual {
+            when (
+                val result =
+                    backup.associateEmptyProfile(
+                        pending.accountId,
+                        pending.sessionEpoch,
+                        reviewedProfile.currentInstallationId,
+                        reviewedProfile.localChangeRevision,
+                        expectedRemoteSnapshot,
+                    )
+            ) {
+                BackupActionResult.Completed -> {
+                    accountGateway.refreshLocal()
+                    backup.refreshStatus()
+                    mutableManual.update {
+                        it.copy(
+                            feedback =
+                                "This device will stay empty. The complete demo backup remains available to restore."
+                        )
+                    }
+                }
+                is BackupActionResult.Failed -> showFailure(result.reason)
+                BackupActionResult.Cancelled ->
+                    mutableManual.update {
+                        it.copy(
+                            feedback = "The account changed before this device could be associated."
+                        )
+                    }
+                BackupActionResult.Unavailable -> unavailable()
+                is BackupActionResult.ActiveSessionRequiresConfirmation ->
+                    showFailure(BackupFailureReason.ActiveSessionPresent)
+            }
+        }
+    }
 
     fun openSignOutReview() {
         if (manual.value.busy || manual.value.signOutBusy) return
@@ -429,7 +508,6 @@ constructor(
             val current = state.value
             val cancellationRequired =
                 current == AccountState.SigningIn ||
-                    current is AccountState.AwaitingDataChoice ||
                     (current is AccountState.RecoverableError && current.canCancelDataChoice)
             if (current == AccountState.CancellingDataChoice) return@launch
             if (

@@ -6,11 +6,19 @@ import com.example.ironpath.domain.account.AccountContextReader
 import com.example.ironpath.domain.account.LocalAccountContext
 import com.example.ironpath.domain.account.PersistedConflictContext
 import javax.inject.Inject
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 
 class RoomAccountContextReader @Inject constructor(private val database: IronPathDatabase) :
     AccountContextReader {
-    override val changes = database.backupDao().observeMetadata().map { Unit }
+    override val changes =
+        combine(
+                database.backupDao().observeMetadata(),
+                database.sessionDao().observeActiveSession()
+            ) { _, _ ->
+                Unit
+            }
+            .map { Unit }
 
     override suspend fun read(): LocalAccountContext =
         database.withTransaction {
@@ -20,6 +28,7 @@ class RoomAccountContextReader @Inject constructor(private val database: IronPat
                 ownerUid = metadata.ownerUid,
                 localDataIsEmpty = !dao.hasIncludedData(),
                 pendingSignOutUid = metadata.pendingSignOutUid,
+                activeWorkoutPresent = database.sessionDao().getActiveSession() != null,
                 conflict =
                     PersistedConflictContext(
                         metadata.lastObservedRemoteBackupId,

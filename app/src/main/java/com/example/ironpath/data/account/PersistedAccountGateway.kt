@@ -32,7 +32,7 @@ constructor(
     override val state: StateFlow<AccountState> = mutableState
     private val mutex = Mutex()
     private var generation = 0L
-    private var canCancel = false
+    @Volatile private var canCancel = false
     private var observedRemote: Pair<AccountId, RemoteSnapshotPresence>? = null
 
     override suspend fun refresh(): AccountActionResult = refreshContext(inspectRemote = true)
@@ -51,7 +51,7 @@ constructor(
                     } catch (cancelled: CancellationException) {
                         throw cancelled
                     } catch (_: Exception) {
-                        canCancel = profile != null
+                        canCancel = false
                         return@safely fail(AccountFailureReason.LocalStateUnavailable)
                     }
                 val pending = local.pendingSignOutUid
@@ -158,14 +158,28 @@ constructor(
             }
         }
 
+        val accepted =
+            withContext(NonCancellable) {
+                mutex.withLock {
+                    if (generation != request || mutableState.value != AccountState.SigningIn) {
+                        false
+                    } else {
+                        canCancel = false
+                        mutableState.value = AccountState.SavingSignIn
+                        true
+                    }
+                }
+            }
+        if (!accepted) return AccountActionResult.Cancelled
+
         return try {
-            operationGate.withSessionMutation { previousEpoch, mutationEpoch ->
-                val result =
-                    withContext(NonCancellable) {
+            withContext(NonCancellable) {
+                operationGate.withSessionMutation { previousEpoch, _ ->
+                    val result =
                         mutex.withLock {
                             if (
                                 generation != request ||
-                                    mutableState.value != AccountState.SigningIn
+                                    mutableState.value != AccountState.SavingSignIn
                             )
                                 return@withLock AccountActionResult.Cancelled
                             if (previousEpoch != expectedEpoch) {
@@ -183,18 +197,25 @@ constructor(
                                 AccountActionResult.Completed
                             }
                         }
-                    }
-                AccountSessionOperationGate.MutationResult(result, reopenAdmission = true)
+                    AccountSessionOperationGate.MutationResult(result, reopenAdmission = true)
+                }
             }
         } catch (cancelled: CancellationException) {
             withContext(NonCancellable) {
                 mutex.withLock {
-                    if (generation == request && mutableState.value == AccountState.SigningIn) {
-                        generation++
-                        canCancel = false
-                        mutableState.value = AccountState.LocalOnly
+                    if (generation == request && mutableState.value == AccountState.SavingSignIn) {
+                        try {
+                            publishSession(
+                                readSession(),
+                                inspectRemote = false,
+                                local = localContext.read(),
+                            )
+                        } catch (_: Exception) {
+                            fail(AccountFailureReason.LocalStateUnavailable)
+                        }
                     }
                 }
+                reopenAdmissionIfStable()
             }
             throw cancelled
         }
@@ -224,20 +245,31 @@ constructor(
                             )
                                 return@withLock AccountActionResult.Cancelled
                             safely {
-                                canCancel = true
+                                val persisted = readSession()
+                                if (persisted != null) {
+                                    publishSession(
+                                        persisted,
+                                        inspectRemote = false,
+                                        local = localContext.read(),
+                                    )
+                                    return@safely AccountActionResult.Unavailable
+                                }
                                 try {
                                     sessions.clearSession()
                                 } catch (cancelled: CancellationException) {
                                     throw cancelled
                                 } catch (_: Exception) {
-                                    // Verify the durable session below; a failed AtomicFile write
-                                    // can still have committed. This also clears an unreadable
-                                    // persisted demo fixture without touching training data.
+                                    // Verify durable state below; a failed write may have
+                                    // committed.
                                 }
                                 val remaining = readSession()
                                 if (remaining != null) {
-                                    canCancel = true
-                                    return@safely fail(AccountFailureReason.LocalStateUnavailable)
+                                    publishSession(
+                                        remaining,
+                                        inspectRemote = false,
+                                        local = localContext.read(),
+                                    )
+                                    return@safely AccountActionResult.Unavailable
                                 }
                                 observedRemote = null
                                 canCancel = false
@@ -285,11 +317,44 @@ constructor(
         }
     }
 
+    override suspend fun recoverUnreadableSession(): AccountActionResult =
+        operationGate.withSessionMutation { _, _ ->
+            val result =
+                withContext(NonCancellable) {
+                    mutex.withLock {
+                        val current = mutableState.value as? AccountState.RecoverableError
+                        if (current?.canRecoverUnreadableSession != true)
+                            return@withLock AccountActionResult.Unavailable
+                        try {
+                            if (!sessions.clearUnreadableSession())
+                                return@withLock AccountActionResult.Unavailable
+                            check(sessions.readSession() == null)
+                            observedRemote = null
+                            canCancel = false
+                            mutableState.value = AccountState.LocalOnly
+                            AccountActionResult.Completed
+                        } catch (cancelled: CancellationException) {
+                            throw cancelled
+                        } catch (_: Exception) {
+                            canCancel = false
+                            mutableState.value =
+                                AccountState.RecoverableError(
+                                    AccountFailureReason.LocalStateUnavailable,
+                                    canRecoverUnreadableSession = true,
+                                )
+                            AccountActionResult.Failed(AccountFailureReason.LocalStateUnavailable)
+                        }
+                    }
+                }
+            AccountSessionOperationGate.MutationResult(result, reopenAdmission = true)
+        }
+
     override suspend fun signOut(request: SignOutRequest): AccountActionResult {
         val plan =
             mutex.withLock {
                 when (val current = mutableState.value) {
                     AccountState.SigningIn,
+                    AccountState.SavingSignIn,
                     AccountState.CancellingDataChoice,
                     AccountState.SigningOut,
                     AccountState.DeletingAccount -> return AccountActionResult.Unavailable
@@ -755,6 +820,7 @@ constructor(
 
     private fun AccountState.isTransitioning(): Boolean =
         this == AccountState.SigningIn ||
+            this == AccountState.SavingSignIn ||
             this == AccountState.CancellingDataChoice ||
             this == AccountState.SigningOut ||
             this == AccountState.DeletingAccount
@@ -769,7 +835,7 @@ constructor(
         local: LocalAccountContext,
     ) {
         // Until local ownership has been verified, a persisted identity is a pending setup.
-        canCancel = profile != null
+        canCancel = false
         val pending = local.pendingSignOutUid
         if (pending != null) {
             if (profile?.id?.opaqueValue == pending) {
@@ -801,7 +867,8 @@ constructor(
                         RemoteSnapshotPresence.Complete(
                             id,
                             lineage.lastObservedRemoteGeneration,
-                            source
+                            source,
+                            lineage.lastObservedRemoteDigest,
                         )
                     else null
                 }
@@ -825,8 +892,9 @@ constructor(
                 localDataIsEmpty = local.localDataIsEmpty,
                 remoteSnapshot = remotePresence,
                 conflict = local.conflict,
+                activeWorkoutPresent = local.activeWorkoutPresent,
             )
-        canCancel = resolved is AccountState.AwaitingDataChoice
+        canCancel = false
         val sessionEpoch = operationGate.sessionEpoch
         mutableState.value =
             when (resolved) {
@@ -844,7 +912,7 @@ constructor(
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (failure: Exception) {
-            canCancel = true
+            canCancel = false
             throw failure
         }
 
@@ -853,6 +921,14 @@ constructor(
             block()
         } catch (cancelled: CancellationException) {
             throw cancelled
+        } catch (_: UnreadableAccountSessionException) {
+            canCancel = false
+            mutableState.value =
+                AccountState.RecoverableError(
+                    AccountFailureReason.LocalStateUnavailable,
+                    canRecoverUnreadableSession = true,
+                )
+            AccountActionResult.Failed(AccountFailureReason.LocalStateUnavailable)
         } catch (_: Exception) {
             fail(AccountFailureReason.LocalStateUnavailable)
         }

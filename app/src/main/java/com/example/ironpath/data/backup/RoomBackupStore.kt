@@ -52,9 +52,12 @@ constructor(
         database.withTransaction {
             val current = checkNotNull(database.backupDao().getMetadata())
             if (
-                !sameAuthority(current, captured, accountId) ||
+                captured.activeSessionId != null ||
+                    current.pendingSignOutUid != null ||
+                    !sameAuthority(current, captured, accountId) ||
                     !sameContent(current, captured) ||
-                    database.backupDao().hasIncludedData()
+                    database.backupDao().hasIncludedData() ||
+                    database.sessionDao().getActiveSession() != null
             )
                 return@withTransaction false
             database.backupDao().updateMetadata(current.copy(ownerUid = accountId.opaqueValue))

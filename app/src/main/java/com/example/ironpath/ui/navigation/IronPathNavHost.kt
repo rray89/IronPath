@@ -80,6 +80,7 @@ fun IronPathNavHost(
                 accountBusy =
                     accountState == AccountState.Loading ||
                         accountState == AccountState.SigningIn ||
+                        accountState == AccountState.SavingSignIn ||
                         accountState == AccountState.CancellingDataChoice,
                 onSignIn = {
                     navController.openAccountExperiencePreview()

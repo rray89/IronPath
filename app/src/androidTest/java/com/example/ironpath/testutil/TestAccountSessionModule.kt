@@ -42,7 +42,8 @@ constructor(private val remote: com.example.ironpath.data.backup.RemoteBackupSto
                 RemoteSnapshotPresence.Complete(
                     result.backup.summary.backupId,
                     result.backup.generation,
-                    result.backup.summary.sourceInstallationId
+                    result.backup.summary.sourceInstallationId,
+                    result.backup.snapshot.contentDigest,
                 )
             is com.example.ironpath.data.backup.RemoteBackupRead.Failed ->
                 error("Isolated test remote unavailable")

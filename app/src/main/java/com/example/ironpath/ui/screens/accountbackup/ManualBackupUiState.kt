@@ -56,6 +56,8 @@ data class ManualBackupActions(
     val confirmActiveWorkoutDiscard: (Boolean) -> Unit = {},
     val holdGuidance: () -> Unit = {},
     val confirm: () -> Unit = {},
+    val keepDeviceEmpty: () -> Unit = {},
+    val recoverUnreadableSession: () -> Unit = {},
     val openSignOutReview: () -> Unit = {},
     val dismissSignOutReview: () -> Unit = {},
     val chooseSignOutChoice: (SignOutDataChoice) -> Unit = {},

@@ -19,16 +19,41 @@ class AccountBackupViewModelTest {
     @Test
     fun `initialization and retry refresh without starting sign in`() = runTest {
         val gateway = Gateway()
-        val viewModel = viewModel(gateway)
+        val backup = Backup()
+        val viewModel = viewModel(gateway, backup)
         advanceUntilIdle()
         assertEquals(1, gateway.refreshes)
         assertEquals(0, gateway.signIns)
+        assertEquals(0, backup.lookups)
         viewModel.refresh()
         viewModel.signIn()
         advanceUntilIdle()
         assertEquals(2, gateway.refreshes)
         assertEquals(1, gateway.signIns)
     }
+
+    @Test
+    fun `explicit invalid session recovery preserves account boundary and training state`() =
+        runTest {
+            val gateway =
+                Gateway().apply {
+                    state.value =
+                        AccountState.RecoverableError(
+                            AccountFailureReason.LocalStateUnavailable,
+                            canRecoverUnreadableSession = true,
+                        )
+                }
+            val viewModel = viewModel(gateway)
+            advanceUntilIdle()
+
+            viewModel.recoverUnreadableSession()
+            advanceUntilIdle()
+
+            assertEquals(1, gateway.sessionRecoveries)
+            assertEquals(AccountState.LocalOnly, gateway.state.value)
+            assertTrue(viewModel.manual.value.feedback!!.contains("Training data remains"))
+            assertFalse(viewModel.manual.value.signOutBusy)
+        }
 
     @Test
     fun `successful same-route sign in looks up latest backup and enables restore review`() =
@@ -56,6 +81,97 @@ class AccountBackupViewModelTest {
         }
 
     @Test
+    fun `recreated signed-in account looks up backup when account screen refreshes`() = runTest {
+        val gateway =
+            Gateway().apply {
+                state.value =
+                    AccountState.AwaitingDataChoice(
+                        AccountId("owner"),
+                        DataChoiceContext(
+                            LocalOwnership.Unclaimed,
+                            localDataIsEmpty = true,
+                            remoteSnapshot =
+                                RemoteSnapshotPresence.Complete(
+                                    "latest",
+                                    1,
+                                    "other-device",
+                                    "digest"
+                                ),
+                            conflict =
+                                PersistedConflictContext(
+                                    null,
+                                    0,
+                                    null,
+                                    null,
+                                    "installation",
+                                    1,
+                                    0,
+                                ),
+                        ),
+                    )
+            }
+        val backup = Backup()
+
+        val viewModel = viewModel(gateway, backup)
+        advanceUntilIdle()
+
+        assertEquals(0, backup.lookups)
+        viewModel.refresh()
+        advanceUntilIdle()
+        assertEquals(1, backup.lookups)
+        assertEquals(backup.summary, viewModel.manual.value.latest)
+    }
+
+    @Test
+    fun `keep empty explicitly associates without starting another backup operation`() = runTest {
+        val gateway =
+            Gateway().apply {
+                state.value =
+                    AccountState.AwaitingDataChoice(
+                        AccountId("owner"),
+                        DataChoiceContext(
+                            LocalOwnership.Unclaimed,
+                            localDataIsEmpty = true,
+                            remoteSnapshot =
+                                RemoteSnapshotPresence.Complete(
+                                    "latest",
+                                    1,
+                                    "other-device",
+                                    "digest"
+                                ),
+                            conflict =
+                                PersistedConflictContext(
+                                    null,
+                                    0,
+                                    null,
+                                    null,
+                                    "installation",
+                                    1,
+                                    0,
+                                ),
+                        ),
+                        sessionEpoch = 7,
+                    )
+            }
+        val backup = Backup()
+        val viewModel = viewModel(gateway, backup)
+        advanceUntilIdle()
+
+        viewModel.keepDeviceEmpty()
+        advanceUntilIdle()
+
+        assertEquals(1, backup.associations)
+        assertEquals(AccountId("owner"), backup.associatedAccount)
+        assertEquals(7L, backup.associatedSessionEpoch)
+        assertEquals("installation", backup.associatedInstallationId)
+        assertEquals(1L, backup.associatedLocalChangeRevision)
+        assertEquals("latest", backup.associatedRemote?.backupId)
+        assertEquals(BackupActionResult.Completed, backup.associationResult)
+        assertTrue(viewModel.manual.value.feedback!!.contains("device will stay empty"))
+        assertEquals(2, backup.statusRefreshes)
+    }
+
+    @Test
     fun `back waits for successful cancellation and failure stays on screen`() = runTest {
         val gateway = Gateway()
         val viewModel = viewModel(gateway)
@@ -75,30 +191,33 @@ class AccountBackupViewModelTest {
     }
 
     @Test
-    fun `pending choice and cancellation failure both require cancellation but local navigation does not`() =
+    fun `data choice back preserves session while credential cancellation remains explicit`() =
         runTest {
             val gateway = Gateway()
             val viewModel = viewModel(gateway)
             advanceUntilIdle()
             var exits = 0
-            listOf(
-                    AccountState.AwaitingDataChoice(
-                        AccountId("a"),
-                        DataChoiceContext(
-                            LocalOwnership.Unclaimed,
-                            true,
-                            RemoteSnapshotPresence.Absent,
-                            null
-                        )
-                    ),
-                    AccountState.RecoverableError(AccountFailureReason.LocalStateUnavailable, true),
+            gateway.state.value =
+                AccountState.AwaitingDataChoice(
+                    AccountId("a"),
+                    DataChoiceContext(
+                        LocalOwnership.Unclaimed,
+                        true,
+                        RemoteSnapshotPresence.Absent,
+                        null
+                    )
                 )
-                .forEach { state ->
-                    gateway.state.value = state
-                    viewModel.leave { exits++ }
-                    advanceUntilIdle()
-                }
-            assertEquals(2, gateway.cancellations)
+            viewModel.leave { exits++ }
+            advanceUntilIdle()
+            assertEquals(1, exits)
+            assertEquals(0, gateway.cancellations)
+
+            gateway.state.value =
+                AccountState.RecoverableError(AccountFailureReason.LocalStateUnavailable)
+            viewModel.leave { exits++ }
+            advanceUntilIdle()
+            assertEquals(2, exits)
+            assertEquals(0, gateway.cancellations)
             gateway.state.value = AccountState.CancellingDataChoice
             viewModel.leave { exits++ }
             advanceUntilIdle()
@@ -107,7 +226,7 @@ class AccountBackupViewModelTest {
             viewModel.leave { exits++ }
             advanceUntilIdle()
             assertEquals(3, exits)
-            assertEquals(2, gateway.cancellations)
+            assertEquals(0, gateway.cancellations)
         }
 
     @Test
@@ -226,6 +345,8 @@ class AccountBackupViewModelTest {
         var refreshes = 0
         var signIns = 0
         var cancellations = 0
+        var sessionRecoveries = 0
+        var recoveryResult: AccountActionResult = AccountActionResult.Completed
         var cancelResult: AccountActionResult = AccountActionResult.Completed
         var signOutResult: AccountActionResult = AccountActionResult.Unavailable
         val signOutRequests = mutableListOf<SignOutRequest>()
@@ -248,6 +369,13 @@ class AccountBackupViewModelTest {
             return cancelResult
         }
 
+        override suspend fun recoverUnreadableSession(): AccountActionResult {
+            sessionRecoveries++
+            if (recoveryResult == AccountActionResult.Completed)
+                state.value = AccountState.LocalOnly
+            return recoveryResult
+        }
+
         override suspend fun reauthenticate(): AccountActionResult = AccountActionResult.Unavailable
 
         override suspend fun signOut(request: SignOutRequest): AccountActionResult {
@@ -268,6 +396,13 @@ class AccountBackupViewModelTest {
         val summary = RemoteBackupSummary("latest", 100, "other-device", mapOf("Record" to 1))
         var statusRefreshes = 0
         var lookups = 0
+        var associations = 0
+        var associatedAccount: AccountId? = null
+        var associatedSessionEpoch: Long? = null
+        var associatedInstallationId: String? = null
+        var associatedLocalChangeRevision: Long? = null
+        var associatedRemote: RemoteSnapshotPresence.Complete? = null
+        var associationResult: BackupActionResult = BackupActionResult.Completed
 
         override suspend fun refreshStatus() {
             statusRefreshes++
@@ -278,6 +413,22 @@ class AccountBackupViewModelTest {
             latestSummary.value = summary
             status.value = BackupStatus.ReviewRequired
             return BackupLookupResult.Complete(summary)
+        }
+
+        override suspend fun associateEmptyProfile(
+            accountId: AccountId,
+            sessionEpoch: Long,
+            expectedInstallationId: String,
+            expectedLocalChangeRevision: Long,
+            expectedRemoteSnapshot: RemoteSnapshotPresence.Complete,
+        ): BackupActionResult {
+            associations++
+            associatedAccount = accountId
+            associatedSessionEpoch = sessionEpoch
+            associatedInstallationId = expectedInstallationId
+            associatedLocalChangeRevision = expectedLocalChangeRevision
+            associatedRemote = expectedRemoteSnapshot
+            return associationResult
         }
 
         override suspend fun previewRestore() =

@@ -80,6 +80,20 @@ class AccountStateResolverTest {
     }
 
     @Test
+    fun resolveCarriesActiveWorkoutIntoUnclaimedEmptyChoiceContext() {
+        val state =
+            AccountStateResolver.resolve(
+                authenticatedUid = "owner-a",
+                localOwnerUid = null,
+                localDataIsEmpty = true,
+                activeWorkoutPresent = true,
+            ) as AccountState.AwaitingDataChoice
+
+        assertTrue(state.context.localDataIsEmpty)
+        assertTrue(state.context.activeWorkoutPresent)
+    }
+
+    @Test
     fun resolve_requiresADataChoiceWhenSameOwnerHasAnUnresolvedRemoteSnapshot() {
         val remote = RemoteSnapshotPresence.Complete("backup-b", 2, "other-installation")
         val conflict =

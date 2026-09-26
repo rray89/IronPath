@@ -254,6 +254,10 @@ beyond the accepted deterministic first slice. The next product slice is
 explicit manual backup and revision-aware sync (feat11.3.2), followed
 by whole-backup restore and undo (feat11.3.3).
 
+The original cancellation behavior in this September 18 review packet was superseded
+by the approved Feat11.4.1 correction below: only Back before credential acceptance
+cancels sign-in; post-acceptance Back preserves the authenticated session.
+
 ### Feat11.3.2 implementation contract
 
 BOSS authorized the next manual backup/sync slice on September 18, 2026. The accepted
@@ -470,11 +474,11 @@ ViewModels and workout repositories do not depend directly on Firebase classes.
 
 ### Account state
 
-At minimum, the domain distinguishes:
+Authentication state and local-data association are separate facts. At minimum, the
+domain distinguishes:
 
 - `LocalOnly`
 - `SigningIn`
-- `AwaitingDataChoice`
 - `SignedIn`
 - `NeedsReauthentication`
 - `SigningOut`
@@ -482,13 +486,46 @@ At minimum, the domain distinguishes:
 - recoverable error with a sanitized reason
 
 Repeated sign-in, sign-out, restore, backup, and delete actions are serialized.
-Late credential or network results cannot replace a newer account operation.
-`AwaitingDataChoice` is derived from the authenticated Firebase session plus persisted
-local ownership/lineage metadata; it is never an in-memory-only state. Cancelling the
-choice signs out of Firebase and returns deterministically to `LocalOnly`, including
-after process death.
+Late credential or network results cannot replace a newer account operation. Once a
+credential has been accepted and the session is durably saved, the account remains
+`SignedIn` even when the local profile has not been associated. Local ownership,
+remote-backup availability, and any required data choice are separate persisted or
+derived context; they do not turn an authenticated account into an unsigned setup.
+Cancelling the credential chooser before a credential is accepted returns to
+`LocalOnly`. After acceptance, ordinary Back and choosing to decide later preserve the
+session. Only explicit sign-out clears it during ordinary navigation.
 
----
+#### Approved Feat11.4.1 account-choice correction — September 25, 2026
+
+BOSS approved separating successful demo sign-in from the decision to associate local
+training data. The deterministic demo adapter remains debug-only and contacts no live
+Google or cloud service.
+
+- Returning Home, using toolbar/system Back, or restarting after credential selection
+  preserves the signed-in session. Back cancels sign-in only while credential selection
+  is still pending. Authentication invalidation and explicit sign-out retain their
+  existing security behavior.
+- If the deterministic local session record is unreadable, ordinary Back preserves it.
+  An explicit recovery action may clear only a record verified as invalid by the demo
+  adapter; it returns to local-only and preserves all training data and Room lineage.
+- If the included local training data is empty, the profile is unclaimed, and the
+  signed-in account has a complete demo backup, Account & Backup presents three clear
+  actions: `Restore backup`, `Keep this device empty`, and `Decide later`.
+- `Decide later` preserves the session and leaves local ownership, training rows,
+  backup lineage, and the remote snapshot unchanged. It performs no restore, upload,
+  association, or overwrite. The choice can be revisited from Account & Backup.
+- `Keep this device empty` explicitly associates the empty local profile with the
+  signed-in account. It changes only local ownership metadata; it does not publish an
+  empty snapshot, alter shared-backup lineage, or change/delete the existing remote
+  backup. It is unavailable while an active workout exists or when local ownership
+  belongs to another account, even if the included training tables are empty.
+- `Restore backup` opens the existing whole-backup preview and retains validation,
+  impact review, active-workout acknowledgement, hold confirmation, atomic replacement,
+  and undo protections.
+- A stale account epoch, changed local profile, installation mismatch, pending sign-out,
+  foreign owner, or changed remote snapshot cannot reuse an earlier choice. A later
+  remote generation remains subject to explicit backup/sync/restore review; keeping an
+  empty profile grants no overwrite consent.
 
 ## Feature 3: Free Firebase backup foundation
 
@@ -1059,8 +1096,9 @@ Cover:
 - first-run local continuation and remembered onboarding
 - returning local user startup while offline
 - successful, cancelled, failed, repeated, and recreated sign-in
-- process death during `AwaitingDataChoice`, plus cancellation that leaves no Firebase
-  session
+- process recreation during `AwaitingDataChoice`; cancellation before credential
+  acceptance leaves no demo session, while post-acceptance Back and `Decide later`
+  preserve it
 - same-account return after sign-out with retained local data
 - different-account attempt against retained owned data
 - local-only mutation during offline account state

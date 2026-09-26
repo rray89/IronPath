@@ -3,6 +3,7 @@ package com.example.ironpath.data.backup
 import com.example.ironpath.data.account.AccountSessionOperationGate
 import com.example.ironpath.domain.account.AccountId
 import com.example.ironpath.domain.account.AccountSessionAdapter
+import com.example.ironpath.domain.account.RemoteSnapshotPresence
 import com.example.ironpath.domain.backup.*
 import com.example.ironpath.domain.identity.IdProvider
 import javax.inject.Inject
@@ -158,6 +159,53 @@ internal constructor(
                     fail(BackupFailureReason.StalePreview)
                 updateStatus(localStore.capture(), RemoteBackupRead.Complete(completed))
             }
+            BackupActionResult.Completed
+        }
+
+    override suspend fun associateEmptyProfile(
+        accountId: AccountId,
+        sessionEpoch: Long,
+        expectedInstallationId: String,
+        expectedLocalChangeRevision: Long,
+        expectedRemoteSnapshot: RemoteSnapshotPresence.Complete,
+    ): BackupActionResult =
+        locked(
+            BackupActionResult.Unavailable,
+            { BackupActionResult.Failed(it) },
+            expectedSessionEpoch = sessionEpoch,
+        ) {
+            val (account, captured) = authorizedCapture()
+            if (account != accountId) fail(BackupFailureReason.ReauthenticationRequired)
+            if (
+                captured.metadata.installationId != expectedInstallationId ||
+                    captured.metadata.localChangeRevision != expectedLocalChangeRevision
+            )
+                fail(BackupFailureReason.StalePreview)
+            if (captured.activeSessionId != null) fail(BackupFailureReason.ActiveSessionPresent)
+            if (codec.encode(captured.bundle).entityCounts.values.any { it > 0 })
+                fail(BackupFailureReason.StalePreview)
+            requireSession(account)
+            val currentRemote =
+                readRemote(account) as? RemoteBackupRead.Complete
+                    ?: fail(BackupFailureReason.ConcurrentRemoteChange)
+            val currentArtifact = currentRemote.backup
+            if (
+                currentArtifact.summary.backupId != expectedRemoteSnapshot.backupId ||
+                    currentArtifact.generation != expectedRemoteSnapshot.generation ||
+                    currentArtifact.summary.sourceInstallationId !=
+                        expectedRemoteSnapshot.sourceInstallationId ||
+                    (expectedRemoteSnapshot.contentDigest != null &&
+                        currentArtifact.snapshot.contentDigest !=
+                            expectedRemoteSnapshot.contentDigest)
+            )
+                fail(BackupFailureReason.ConcurrentRemoteChange)
+            if (!localStore.associateEmpty(captured, account))
+                fail(BackupFailureReason.StalePreview)
+
+            val associated = localStore.capture()
+            if (associated.metadata.ownerUid != account.opaqueValue)
+                fail(BackupFailureReason.OwnershipMismatch)
+            updateStatus(associated, lastObservationFor(account, associated))
             BackupActionResult.Completed
         }
 
@@ -581,6 +629,7 @@ internal constructor(
         unavailable: T,
         failed: (BackupFailureReason) -> T,
         waitForTurn: Boolean = false,
+        expectedSessionEpoch: Long? = null,
         block: suspend () -> T
     ): T =
         operationGate.withManualOperation(waitForTurn, unavailable) { sessionEpoch ->
@@ -592,7 +641,11 @@ internal constructor(
                 status.value = BackupStatus.LocalOnly
                 observedSessionEpoch = sessionEpoch
             }
-            lockedWithinCoordinator(unavailable, failed, waitForTurn, block)
+            lockedWithinCoordinator(unavailable, failed, waitForTurn) {
+                if (expectedSessionEpoch != null && expectedSessionEpoch != sessionEpoch)
+                    fail(BackupFailureReason.ReauthenticationRequired)
+                block()
+            }
         }
 
     private suspend fun <T> lockedWithinCoordinator(
