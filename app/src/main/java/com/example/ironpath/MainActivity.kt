@@ -65,6 +65,7 @@ import com.example.ironpath.data.onboarding.OnboardingRepository
 import com.example.ironpath.domain.account.AccountDeletionManager
 import com.example.ironpath.domain.account.AccountDeletionProgress
 import com.example.ironpath.domain.account.AccountDeletionResult
+import com.example.ironpath.domain.account.AccountGateway
 import com.example.ironpath.domain.account.AccountState
 import com.example.ironpath.domain.time.TimeProvider
 import com.example.ironpath.ui.navigation.BottomNavItem
@@ -97,6 +98,8 @@ class MainActivity : ComponentActivity() {
 
     @Inject lateinit var accountDeletionManager: AccountDeletionManager
 
+    @Inject lateinit var accountGateway: AccountGateway
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
@@ -116,6 +119,29 @@ class MainActivity : ComponentActivity() {
                     return when (deletion) {
                         AccountDeletionResult.Idle,
                         AccountDeletionResult.Completed -> {
+                            try {
+                                accountGateway.reconcileAfterDeletionRecovery()
+                            } catch (cancelled: CancellationException) {
+                                throw cancelled
+                            } catch (_: Exception) {
+                                // Keep the existing recoverable account state available to the UI.
+                            }
+                            when (val accountState = accountGateway.state.value) {
+                                is AccountState.AccountDeletionPending ->
+                                    return StartupState.DeletionPending(accountState.progress)
+                                AccountState.DeletingAccount -> {
+                                    val pending =
+                                        try {
+                                            accountDeletionManager.pending()
+                                        } catch (cancelled: CancellationException) {
+                                            throw cancelled
+                                        } catch (_: Exception) {
+                                            null
+                                        }
+                                    return StartupState.DeletionPending(pending)
+                                }
+                                else -> Unit
+                            }
                             runCatching { installationGuard.validate() }
                             StartupState.Ready(
                                 runCatching { onboardingRepository.isCompleted() }

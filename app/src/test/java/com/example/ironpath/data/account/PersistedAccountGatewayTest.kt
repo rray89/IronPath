@@ -206,6 +206,111 @@ class PersistedAccountGatewayTest {
         }
 
     @Test
+    fun `cancellation while waiting for the operation gate restores signed-in state`() = runTest {
+        val source = Source().apply { session = profile }
+        val reader = Reader().apply { context = context.copy(ownerUid = profile.id.opaqueValue) }
+        val gate = AccountSessionOperationGate()
+        val deletion = RecordingDeletionManager()
+        val gateway = gateway(source, reader, gate = gate, deletionManager = deletion)
+        gateway.refreshLocal()
+        val signedIn = gateway.state.value as AccountState.SignedIn
+
+        val entered = CompletableDeferred<Unit>()
+        val release = CompletableDeferred<Unit>()
+        val activeBackup = async {
+            gate.withManualOperation(waitForTurn = true, unavailable = false) {
+                entered.complete(Unit)
+                release.await()
+                true
+            }
+        }
+        entered.await()
+
+        val request =
+            AccountDeletionRequest(
+                signedIn.accountId,
+                signedIn.sessionEpoch,
+                signedIn.profileGeneration,
+            )
+        val deletionJob = async { gateway.deleteAccount(request) }
+        runCurrent()
+        assertEquals(AccountState.DeletingAccount, gateway.state.value)
+
+        deletionJob.cancel()
+        deletionJob.join()
+
+        assertEquals(signedIn, gateway.state.value)
+        assertEquals(0, deletion.deleteCalls)
+        release.complete(Unit)
+        assertTrue(activeBackup.await())
+        assertTrue(gate.withManualOperation(waitForTurn = false, unavailable = false) { true })
+        assertEquals(AccountActionResult.Completed, gateway.refreshLocal())
+        assertEquals(signedIn, gateway.state.value)
+    }
+
+    @Test
+    fun `startup reconciliation clears stale in-memory pending deletion after recovery`() =
+        runTest {
+            val deletion =
+                RecordingDeletionManager().apply {
+                    pendingProgress =
+                        AccountDeletionProgress(
+                            operationId = "delete-operation",
+                            accountId = profile.id,
+                            sessionEpoch = 0,
+                            profileGeneration = 0,
+                            stage = AccountDeletionStage.PREPARED,
+                        )
+                }
+            val gate = AccountSessionOperationGate()
+            val gateway = gateway(Source(), Reader(), gate = gate, deletionManager = deletion)
+
+            assertEquals(AccountActionResult.Completed, gateway.refreshLocal())
+            assertTrue(gateway.state.value is AccountState.AccountDeletionPending)
+            deletion.pendingProgress = null
+
+            assertEquals(
+                AccountActionResult.Completed,
+                gateway.reconcileAfterDeletionRecovery(),
+            )
+            assertEquals(AccountState.LocalOnly, gateway.state.value)
+            assertTrue(gate.withManualOperation(waitForTurn = false, unavailable = false) { true })
+        }
+
+    @Test
+    fun `cancellation after a retry completes reconciles gateway and reopens writes`() = runTest {
+        val source = Source().apply { session = profile }
+        val reader = Reader().apply { context = context.copy(ownerUid = profile.id.opaqueValue) }
+        val gate = AccountSessionOperationGate()
+        val deletion =
+            RecordingDeletionManager().apply {
+                pendingProgress =
+                    AccountDeletionProgress(
+                        operationId = "delete-operation",
+                        accountId = profile.id,
+                        sessionEpoch = 0,
+                        profileGeneration = 0,
+                        stage = AccountDeletionStage.PREPARED,
+                    )
+            }
+        val gateway = gateway(source, reader, gate = gate, deletionManager = deletion)
+        gateway.refreshLocal()
+        lateinit var retryJob: kotlinx.coroutines.Deferred<AccountActionResult>
+        deletion.retryAction = {
+            deletion.pendingProgress = null
+            retryJob.cancel()
+            AccountDeletionResult.Completed
+        }
+
+        retryJob = async { gateway.retryAccountDeletion() }
+        retryJob.join()
+
+        assertTrue(retryJob.isCancelled)
+        assertEquals(AccountState.LocalOnly, gateway.state.value)
+        assertTrue(gate.withManualOperation(waitForTurn = false, unavailable = false) { true })
+    }
+
+    @Test
     fun `a fresh controller reconstructs data choice and only explicit sign out clears session`() =
         runTest {
             val source = Source()
@@ -476,6 +581,7 @@ class PersistedAccountGatewayTest {
                 )
             )
         }
+
         runCurrent()
         assertTrue(source.clearStarted!!.isCompleted)
         operation.cancel()
@@ -941,6 +1047,8 @@ class PersistedAccountGatewayTest {
     private class RecordingDeletionManager : AccountDeletionManager {
         var deleteCalls = 0
         var result: AccountDeletionResult = AccountDeletionResult.Unavailable
+        var pendingProgress: AccountDeletionProgress? = null
+        var retryAction: suspend () -> AccountDeletionResult = { AccountDeletionResult.Idle }
 
         override suspend fun recoverAtStartup() = AccountDeletionResult.Idle
 
@@ -949,9 +1057,9 @@ class PersistedAccountGatewayTest {
             return result
         }
 
-        override suspend fun retry() = AccountDeletionResult.Idle
+        override suspend fun retry() = retryAction()
 
-        override suspend fun pending(): AccountDeletionProgress? = null
+        override suspend fun pending(): AccountDeletionProgress? = pendingProgress
     }
 
     private class Reader : AccountContextReader {

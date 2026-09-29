@@ -70,7 +70,19 @@ constructor(
                         }
                     is AccountState.AccountDeletionPending ->
                         showDeletionRetry(accountState.progress)
-                    else -> Unit
+                    else ->
+                        mutableManual.update {
+                            if (
+                                it.accountDeletion.progress != null ||
+                                    it.accountDeletion.retryAvailable
+                            )
+                                it.copy(
+                                    busy = false,
+                                    feedback = null,
+                                    accountDeletion = AccountDeletionUiState(),
+                                )
+                            else it
+                        }
                 }
             }
         }

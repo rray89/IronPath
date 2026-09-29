@@ -10,6 +10,9 @@ interface AccountGateway {
     /** Reconstruct local identity/lineage without inspecting remote storage. */
     suspend fun refreshLocal(): AccountActionResult = refresh()
 
+    /** Reconcile in-memory account state after startup has recovered the deletion journal. */
+    suspend fun reconcileAfterDeletionRecovery(): AccountActionResult = refreshLocal()
+
     suspend fun cancelDataChoice(): AccountActionResult
 
     suspend fun recoverUnreadableSession(): AccountActionResult = AccountActionResult.Unavailable

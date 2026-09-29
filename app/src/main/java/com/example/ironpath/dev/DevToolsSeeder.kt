@@ -1,6 +1,7 @@
 package com.example.ironpath.dev
 
 import androidx.room.withTransaction
+import com.example.ironpath.data.account.AccountSessionOperationGate
 import com.example.ironpath.data.backup.LocalProfileResetResult
 import com.example.ironpath.data.backup.RoomBackupStore
 import com.example.ironpath.data.local.IronPathDatabase
@@ -35,6 +36,7 @@ constructor(
     private val recordRepository: RecordRepository,
     private val timeProvider: TimeProvider,
     private val idProvider: IdProvider,
+    private val operationGate: AccountSessionOperationGate,
 ) {
 
     /** Seed a 3-day Strength plan where today is one of the workout days. */
@@ -143,13 +145,20 @@ constructor(
 
     /** Wipe all local data. */
     suspend fun clearAllData(expectedProfileGeneration: Long? = null) {
-        check(onboardingRepository.reset()) { "Failed to reset onboarding" }
-        check(
-            backupStore.resetLocalProfile(expectedProfileGeneration = expectedProfileGeneration)
-                is LocalProfileResetResult.Committed
-        ) {
-            "Failed to clear local training data"
-        }
+        val cleared =
+            operationGate.withManualOperation(waitForTurn = false, unavailable = false) {
+                backupStore.verifyProfileWritable(expectedProfileGeneration)
+                check(onboardingRepository.reset()) { "Failed to reset onboarding" }
+                check(
+                    backupStore.resetLocalProfile(
+                        expectedProfileGeneration = expectedProfileGeneration
+                    ) is LocalProfileResetResult.Committed
+                ) {
+                    "Failed to clear local training data"
+                }
+                true
+            }
+        check(cleared) { "An account operation is in progress or the signed-in profile changed" }
     }
 
     // -- Helpers --

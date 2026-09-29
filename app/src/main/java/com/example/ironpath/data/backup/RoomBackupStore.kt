@@ -32,6 +32,11 @@ constructor(
     private val codec = BackupSnapshotCodec()
     private val undoCodec = BackupSnapshotCodec(preserveDanglingProvenance = true)
 
+    /** Validate the captured profile before a caller changes state outside Room. */
+    suspend fun verifyProfileWritable(expectedProfileGeneration: Long?) {
+        database.withTransaction { database.requireWritesAllowed(expectedProfileGeneration) }
+    }
+
     override suspend fun capture(): ManualBackupCapture =
         database.withTransaction {
             val bundle = export()

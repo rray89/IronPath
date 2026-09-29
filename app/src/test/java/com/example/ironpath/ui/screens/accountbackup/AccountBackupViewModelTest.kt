@@ -504,6 +504,29 @@ class AccountBackupViewModelTest {
             assertNull(viewModel.manual.value.accountDeletion.progress)
         }
 
+    @Test
+    fun `startup recovery clears stale deletion retry from the recreated screen`() = runTest {
+        val progress =
+            AccountDeletionProgress(
+                operationId = "operation-1",
+                accountId = AccountId("demo-incarnation-4"),
+                sessionEpoch = 9,
+                profileGeneration = 12,
+                stage = AccountDeletionStage.PREPARED,
+            )
+        val gateway =
+            Gateway().apply { state.value = AccountState.AccountDeletionPending(progress) }
+        val viewModel = viewModel(gateway)
+        advanceUntilIdle()
+        assertTrue(viewModel.manual.value.accountDeletion.retryAvailable)
+
+        gateway.state.value = AccountState.LocalOnly
+        advanceUntilIdle()
+
+        assertEquals(AccountDeletionUiState(), viewModel.manual.value.accountDeletion)
+        assertFalse(viewModel.manual.value.busy)
+    }
+
     private fun viewModel(
         gateway: Gateway,
         backup: BackupCoordinator =
