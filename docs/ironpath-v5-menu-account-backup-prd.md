@@ -958,21 +958,28 @@ local file-backed backup store and a persisted demo identity registry. It does n
 Google, Firebase Authentication, Firestore, or any network service. Release binds an
 unavailable deletion manager, so production UI cannot claim deletion succeeded.
 
-The deletion screen is available only for a matching `SignedIn` demo owner. It displays
-the current demo identity, explains the complete deletion scope and irreversibility, and
-requires a second confirmation whose final action says `DELETE ACCOUNT AND ALL DATA`.
-Canceling before the first destructive write has no effect. Once PREPARED is durable,
-there is no cancellation action.
+The deletion screen is available for a matching `SignedIn` demo owner and while account
+setup is unresolved only when this authenticated demo identity faces an unclaimed local
+profile. The latter confirmation binds the request and journal to a null local owner plus
+the captured profile generation, and clearly says that all unclaimed local training data
+will be removed. A profile owned by another UID cannot be deleted through this path. The
+screen displays the current demo identity, explains the complete deletion scope and
+irreversibility, and requires a second confirmation whose final action says
+`DELETE ACCOUNT AND ALL DATA`. Canceling before the first destructive write has no
+effect. Once PREPARED is durable, there is no cancellation action.
 
 The debug flow persists a deletion journal before ordinary session, installation, and
-navigation recovery. It purges and verifies all per-account backup state, writes a
-permanent account-incarnation tombstone, then atomically clears Room training data,
-account ownership, backup lineage, and restore/undo state while advancing the local
-profile generation. Only after those steps does it clear the demo session and mark the
-journal COMPLETE. A retry or startup recovery resumes from the recorded stage. If remote
-backup purge has not completed, the session remains available for retry; pending cleanup
-keeps training and profile writes blocked. Old generation requests are rejected after
-the local profile is reset.
+navigation recovery. It purges and verifies all per-account backup state even when the
+existing index is malformed or uses an unsupported version, writes a permanent
+account-incarnation tombstone, then atomically clears Room training data, account
+ownership, backup lineage, and restore/undo state while advancing the local profile
+generation. Only after those steps does it clear the demo session and mark the journal
+COMPLETE. A retry or startup recovery resumes from the recorded stage. If remote backup
+purge has not completed, the session remains available for retry; pending cleanup keeps
+training and profile writes blocked. Old generation requests are rejected after the
+local profile is reset. Restore undo preserves the current profile generation, and a
+successful ordinary `Remove data from this device` sign-out recreates navigation-scoped
+ViewModels before new profile writes can begin.
 
 Ordinary sign-out remains separate: it still offers Keep or Remove local data and never
 deletes a remote backup.

@@ -417,6 +417,7 @@ constructor(
             dao.updateMetadata(
                 priorMetadata.copy(
                     installationId = currentMetadata.installationId,
+                    profileGeneration = currentMetadata.profileGeneration,
                     localChangeRevision = restoredRevision,
                     // Keep the old marker exactly: it is strictly older than this revision and
                     // cannot claim that the restored pre-restore state is current remotely.

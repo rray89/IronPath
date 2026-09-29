@@ -134,6 +134,51 @@ class AccountDeletionRecoveryTest {
             )
         }
 
+    @Test
+    fun authenticatedDeletionCanClearAProfileThatWasStillUnclaimed() = runBlocking {
+        val database = databaseRule.database
+        database
+            .backupDao()
+            .insertMetadataIfAbsent(
+                AccountBackupMetadata(
+                    installationId = "installation-unclaimed",
+                    ownerUid = null,
+                    localChangeRevision = 2,
+                    profileGeneration = 0,
+                )
+            )
+        database.backupDao().insertWorkoutLogs(listOf(TestData.log(id = "unclaimed-log")))
+        val sessions = FakeSessions(account)
+        val remote = FakeRemote(RemoteAccountPurge.Completed)
+        val gate = AccountSessionOperationGate()
+        val deletion = manager(database, remote, sessions, gate)
+
+        assertEquals(
+            AccountDeletionResult.Completed,
+            deletion.delete(
+                AccountDeletionRequest(
+                    account,
+                    sessionEpoch = 7,
+                    profileGeneration = 0,
+                    expectedLocalOwnerUid = null,
+                )
+            ),
+        )
+
+        assertEquals(1, remote.purgeCalls)
+        assertNull(sessions.readSession())
+        assertTrue(database.backupDao().getWorkoutLogs().isEmpty())
+        val metadata = checkNotNull(database.backupDao().getMetadata())
+        assertNull(metadata.ownerUid)
+        assertEquals(1L, metadata.profileGeneration)
+        assertNull(database.backupDao().getMetadata()?.pendingSignOutUid)
+        assertEquals(
+            AccountDeletionStage.COMPLETE.name,
+            database.accountDeletionDao().getJournal()?.stage,
+        )
+        assertNull(database.accountDeletionDao().getJournal()?.expectedLocalOwnerUid)
+    }
+
     private suspend fun populateOwnedProfile(
         database: com.example.ironpath.data.local.IronPathDatabase
     ) {

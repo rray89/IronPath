@@ -3,6 +3,8 @@ package com.example.ironpath.e2e
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.test.onFirst
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
@@ -58,6 +60,7 @@ class AccountDeletionJourneyTest {
         val accountId = AccountId("test-athlete")
         val profile = AccountProfile(accountId, "Test Athlete", "test@example.invalid")
         session.session = profile
+        session.failDemoAccountDeletion = true
         val initialMetadata = runBlocking { requireNotNull(database.backupDao().getMetadata()) }
         runBlocking {
             database
@@ -96,9 +99,54 @@ class AccountDeletionJourneyTest {
             listOf("pending-deletion-journey-log"),
             runBlocking { database.backupDao().getWorkoutLogs().map { it.id } },
         )
+        assertTrue(runBlocking { remote.latest(accountId) is RemoteBackupRead.Absent })
 
-        assertTrue(corruptRemoteState.delete())
+        session.failDemoAccountDeletion = false
         composeRule.onNodeWithText("RETRY DELETION").performClick()
+        waitForText("No workout plan yet", timeoutMillis = 10_000)
+
+        runBlocking {
+            assertNull(session.readSession())
+            assertTrue(database.backupDao().getWorkoutLogs().isEmpty())
+            assertNull(database.backupDao().getMetadata()?.ownerUid)
+            assertEquals(1L, database.backupDao().getMetadata()?.profileGeneration)
+            assertEquals(
+                AccountDeletionStage.COMPLETE.name,
+                database.accountDeletionDao().getJournal()?.stage,
+            )
+        }
+        assertTrue(runBlocking { remote.latest(accountId) is RemoteBackupRead.Absent })
+    }
+
+    @Test
+    fun signedInDemoCanDeleteUnclaimedLocalTrainingData() {
+        waitForText("CONTINUE ON THIS DEVICE")
+        composeRule.onNodeWithText("CONTINUE ON THIS DEVICE").performScrollTo().performClick()
+        waitForText("No workout plan yet")
+
+        val accountId = AccountId("test-athlete")
+        val profile = AccountProfile(accountId, "Test Athlete", "test@example.invalid")
+        runBlocking {
+            database
+                .backupDao()
+                .insertWorkoutLogs(listOf(TestData.log(id = "unclaimed-deletion-log")))
+        }
+        assertNull(runBlocking { database.backupDao().getMetadata()?.ownerUid })
+
+        composeRule.onNodeWithContentDescription("Menu").performClick()
+        composeRule.onNodeWithText("Back up your training data").performClick()
+        waitForText("YOUR ACCOUNT")
+        composeRule.onNodeWithText("SIGN IN WITH GOOGLE").performScrollTo().performClick()
+        waitForAnyText("Data choice required")
+        assertEquals(profile, session.session)
+        composeRule.onNodeWithText("DELETE ACCOUNT").performScrollTo().performClick()
+        waitForText("Delete account and data?")
+        composeRule.onNodeWithText("CONTINUE").performClick()
+        waitForText("Confirm account deletion")
+        composeRule
+            .onNodeWithText("all unclaimed local training data", substring = true)
+            .assertIsDisplayed()
+        composeRule.onNodeWithText("DELETE ACCOUNT AND ALL DATA").performClick()
         waitForText("No workout plan yet", timeoutMillis = 10_000)
 
         runBlocking {
@@ -119,6 +167,13 @@ class AccountDeletionJourneyTest {
             composeRule.onAllNodesWithText(text).fetchSemanticsNodes().isNotEmpty()
         }
         composeRule.onNodeWithText(text).assertIsDisplayed()
+    }
+
+    private fun waitForAnyText(text: String, timeoutMillis: Long = 5_000) {
+        composeRule.waitUntil(timeoutMillis) {
+            composeRule.onAllNodesWithText(text).fetchSemanticsNodes().isNotEmpty()
+        }
+        composeRule.onAllNodesWithText(text).onFirst().assertIsDisplayed()
     }
 
     private fun digest(value: String): String =

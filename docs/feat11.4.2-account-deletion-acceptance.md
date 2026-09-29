@@ -27,16 +27,23 @@ another physical device.
 7. Regression check ordinary **SIGN OUT** separately: **Keep data on this device** and
    **Remove data from this device** retain their existing behavior and do not delete the
    demo backup.
+8. On a fresh local profile with training data that has not been associated with an
+   account, sign in to the demo identity and choose **DELETE ACCOUNT**. Confirm the dialog
+   names unclaimed local data, then verify deletion clears it and returns Home. A profile
+   owned by a different account must not offer this action.
 
 ## Recovery checks
 
 Automated tests inject remote purge failure and local Room cleanup failure, recreate the
-deletion manager, and verify retry resumes from the durable journal stage. The remote
-store test also interrupts after the tombstone is durable, retries through a new store
-instance, verifies no backup payload remains, and rejects later publication to that
-account incarnation.
+deletion manager, and verify retry resumes from the durable journal stage. A malformed
+remote index is replaced by a tombstone under the account lock; purge does not require
+test-side deletion of the corrupt file. The remote store test also interrupts after the
+tombstone is durable, retries through a new store instance, verifies no backup payload
+remains, and rejects later publication to that account incarnation.
 
 After PREPARED, there is no cancellation. A pending deletion blocks normal app startup
 and training/profile writes until retry finishes. Successful deletion advances the local
 profile generation so delayed work captured by the old screen cannot repopulate the new
-profile.
+profile. Restore undo must preserve that generation. Removing local data through ordinary
+sign-out also clears old navigation entries; a newly opened History screen must accept a
+new record while rejecting work from the previous profile generation.

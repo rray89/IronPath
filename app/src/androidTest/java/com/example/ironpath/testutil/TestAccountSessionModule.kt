@@ -20,6 +20,7 @@ constructor(private val remote: com.example.ironpath.data.backup.RemoteBackupSto
             AccountProfile(AccountId("test-athlete"), "Test Athlete", "test@example.invalid")
         )
     private val deletedDemoAccounts = mutableSetOf<AccountId>()
+    var failDemoAccountDeletion = false
 
     override suspend fun requestGoogleCredential() = result
 
@@ -36,6 +37,7 @@ constructor(private val remote: com.example.ironpath.data.backup.RemoteBackupSto
     }
 
     override suspend fun deleteDemoAccount(accountId: AccountId): Boolean {
+        if (failDemoAccountDeletion) return false
         deletedDemoAccounts += accountId
         return accountId in deletedDemoAccounts
     }

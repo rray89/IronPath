@@ -286,20 +286,45 @@ constructor(
 
     fun openDeleteReview() {
         if (manual.value.busy || manual.value.signOutBusy) return
-        val signedIn = state.value as? AccountState.SignedIn ?: return
-        if (!signedIn.canDeleteAccount) return
-        val profile = signedIn.profile ?: return
+        val current = state.value
+        val request =
+            when (current) {
+                is AccountState.SignedIn -> {
+                    if (!current.canDeleteAccount) return
+                    AccountDeletionRequest(
+                        current.accountId,
+                        current.sessionEpoch,
+                        current.profileGeneration,
+                        expectedLocalOwnerUid = current.accountId.opaqueValue,
+                    )
+                }
+                is AccountState.AwaitingDataChoice -> {
+                    if (
+                        !current.canDeleteUnclaimedData ||
+                            current.context.ownership !is LocalOwnership.Unclaimed
+                    )
+                        return
+                    AccountDeletionRequest(
+                        current.accountId,
+                        current.sessionEpoch,
+                        current.profileGeneration,
+                        expectedLocalOwnerUid = null,
+                    )
+                }
+                else -> return
+            }
+        val profile =
+            when (current) {
+                is AccountState.SignedIn -> current.profile
+                is AccountState.AwaitingDataChoice -> current.profile
+            } ?: return
         mutableManual.update {
             it.copy(
                 accountDeletion =
                     AccountDeletionUiState(
                         target =
                             AccountDeletionTarget(
-                                AccountDeletionRequest(
-                                    signedIn.accountId,
-                                    signedIn.sessionEpoch,
-                                    signedIn.profileGeneration,
-                                ),
+                                request,
                                 profile.displayName,
                                 profile.email,
                             )
@@ -332,13 +357,7 @@ constructor(
         val deletion = manual.value.accountDeletion
         val target = deletion.target ?: return
         if (!target.confirmingIdentity || deletion.busy || manual.value.signOutBusy) return
-        val signedIn = state.value as? AccountState.SignedIn ?: return
-        if (
-            !signedIn.canDeleteAccount ||
-                signedIn.accountId != target.request.accountId ||
-                signedIn.sessionEpoch != target.request.sessionEpoch ||
-                signedIn.profileGeneration != target.request.profileGeneration
-        ) {
+        if (!state.value.matchesDeletionRequest(target.request)) {
             mutableManual.update {
                 it.copy(
                     accountDeletion = AccountDeletionUiState(),
@@ -357,6 +376,24 @@ constructor(
         }
         viewModelScope.launch { performAccountDeletion(target.request, retry = false) }
     }
+
+    private fun AccountState.matchesDeletionRequest(request: AccountDeletionRequest): Boolean =
+        when (this) {
+            is AccountState.SignedIn ->
+                canDeleteAccount &&
+                    accountId == request.accountId &&
+                    sessionEpoch == request.sessionEpoch &&
+                    profileGeneration == request.profileGeneration &&
+                    accountId.opaqueValue == request.expectedLocalOwnerUid
+            is AccountState.AwaitingDataChoice ->
+                canDeleteUnclaimedData &&
+                    context.ownership is LocalOwnership.Unclaimed &&
+                    accountId == request.accountId &&
+                    sessionEpoch == request.sessionEpoch &&
+                    profileGeneration == request.profileGeneration &&
+                    request.expectedLocalOwnerUid == null
+            else -> false
+        }
 
     fun retryAccountDeletion() {
         if (!manual.value.accountDeletion.retryAvailable || manual.value.accountDeletion.busy)
@@ -498,6 +535,9 @@ constructor(
                         mutableManual.update {
                             it.copy(
                                 signOutBusy = false,
+                                profileResetEpoch =
+                                    if (dataWasRemoved) it.profileResetEpoch + 1
+                                    else it.profileResetEpoch,
                                 signOutReview = null,
                                 review = null,
                                 latest = null,

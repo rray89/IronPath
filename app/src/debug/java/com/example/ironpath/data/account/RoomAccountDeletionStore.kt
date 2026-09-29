@@ -37,13 +37,14 @@ constructor(
                     .takeIf {
                         it.accountId == request.accountId.opaqueValue &&
                             it.sessionEpoch == request.sessionEpoch &&
-                            it.profileGeneration == request.profileGeneration
+                            it.profileGeneration == request.profileGeneration &&
+                            it.expectedLocalOwnerUid == request.expectedLocalOwnerUid
                     }
                     ?.toProgress()
             }
             val metadata = database.backupDao().getMetadata() ?: return@withTransaction null
             if (
-                metadata.ownerUid != request.accountId.opaqueValue ||
+                metadata.ownerUid != request.expectedLocalOwnerUid ||
                     metadata.profileGeneration != request.profileGeneration ||
                     metadata.pendingSignOutUid != null ||
                     createdAt < 0
@@ -55,6 +56,7 @@ constructor(
                     accountId = request.accountId.opaqueValue,
                     sessionEpoch = request.sessionEpoch,
                     profileGeneration = request.profileGeneration,
+                    expectedLocalOwnerUid = request.expectedLocalOwnerUid,
                     stage = AccountDeletionStage.PREPARED.name,
                     createdAtEpochMillis = createdAt,
                 )
@@ -89,7 +91,7 @@ constructor(
                 if (
                     !currentJournal.matches(expected) ||
                         currentJournal.stage != AccountDeletionStage.ACCOUNT_TOMBSTONED.name ||
-                        metadata.ownerUid != expected.accountId.opaqueValue ||
+                        metadata.ownerUid != expected.expectedLocalOwnerUid ||
                         metadata.profileGeneration != expected.profileGeneration ||
                         metadata.pendingSignOutUid != null
                 )
@@ -150,7 +152,8 @@ constructor(
         operationId == progress.operationId &&
             accountId == progress.accountId.opaqueValue &&
             sessionEpoch == progress.sessionEpoch &&
-            profileGeneration == progress.profileGeneration
+            profileGeneration == progress.profileGeneration &&
+            expectedLocalOwnerUid == progress.expectedLocalOwnerUid
 
     private fun AccountDeletionJournal.toProgress() =
         AccountDeletionProgress(
@@ -159,6 +162,7 @@ constructor(
             sessionEpoch = sessionEpoch,
             profileGeneration = profileGeneration,
             stage = stage.toDeletionStage(),
+            expectedLocalOwnerUid = expectedLocalOwnerUid,
         )
 
     private fun String.toDeletionStage(): AccountDeletionStage =

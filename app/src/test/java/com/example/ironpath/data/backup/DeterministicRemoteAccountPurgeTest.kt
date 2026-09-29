@@ -77,6 +77,31 @@ class DeterministicRemoteAccountPurgeTest {
         )
     }
 
+    @Test
+    fun purgeReplacesCorruptAccountStateWithAReadableTombstone() = runTest {
+        val directory = temporaryFolder.newFolder("remote-corrupt")
+        val account = AccountId("demo-corrupt-incarnation")
+        val snapshot = BackupSnapshotCodec().encode(emptyBundle())
+        val store = newStore(directory)
+        assertTrue(
+            store.publish(account, 0, "installation-corrupt", snapshot)
+                is RemoteBackupPublish.Completed
+        )
+        val stateFile = directory.listFiles().orEmpty().single { it.extension == "json" }
+        stateFile.writeText("malformed state that cannot be decoded")
+
+        assertEquals(RemoteAccountPurge.Completed, store.purgeAccount(account))
+        val absent = store.latest(account) as RemoteBackupRead.Absent
+        assertEquals(1, absent.generation)
+        assertTrue(
+            store.publish(account, 1, "installation-corrupt", snapshot)
+                is RemoteBackupPublish.Failed
+        )
+        assertTrue(stateFile.readText().contains("\"deleted\":true"))
+        assertFalse(stateFile.readText().contains(snapshot.chunks.first().payload))
+        assertFalse(File(directory, "${stateFile.name}.tmp").exists())
+    }
+
     private fun newStore(directory: File) =
         DeterministicRemoteBackupStore(directory, SequenceIds(), FixedTime()) {}
 

@@ -171,6 +171,7 @@ abstract class IronPathDatabase : RoomDatabase() {
                             `accountId` TEXT NOT NULL,
                             `sessionEpoch` INTEGER NOT NULL,
                             `profileGeneration` INTEGER NOT NULL,
+                            `expectedLocalOwnerUid` TEXT,
                             `stage` TEXT NOT NULL,
                             `createdAtEpochMillis` INTEGER NOT NULL,
                             PRIMARY KEY(`id`)

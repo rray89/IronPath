@@ -48,6 +48,9 @@ sealed interface AccountState {
         val context: DataChoiceContext,
         val profile: AccountProfile? = null,
         val sessionEpoch: Long = 0,
+        val profileGeneration: Long = 0,
+        /** Only unclaimed local data may be deleted while account setup is unresolved. */
+        val canDeleteUnclaimedData: Boolean = false,
     ) : AccountState
 
     data class SignedIn(

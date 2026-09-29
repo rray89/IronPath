@@ -462,19 +462,44 @@ constructor(
     override suspend fun deleteAccount(request: AccountDeletionRequest): AccountActionResult {
         val plan =
             mutex.withLock {
-                val current =
-                    mutableState.value as? AccountState.SignedIn
-                        ?: return AccountActionResult.Unavailable
-                if (!current.canDeleteAccount) return AccountActionResult.Unavailable
+                val candidate =
+                    when (val current = mutableState.value) {
+                        is AccountState.SignedIn -> {
+                            if (!current.canDeleteAccount) return AccountActionResult.Unavailable
+                            DeletionCandidate(
+                                current,
+                                current.accountId,
+                                current.sessionEpoch,
+                                current.profileGeneration,
+                                current.accountId.opaqueValue,
+                            )
+                        }
+                        is AccountState.AwaitingDataChoice -> {
+                            if (
+                                !current.canDeleteUnclaimedData ||
+                                    current.context.ownership !is LocalOwnership.Unclaimed
+                            )
+                                return AccountActionResult.Unavailable
+                            DeletionCandidate(
+                                current,
+                                current.accountId,
+                                current.sessionEpoch,
+                                current.profileGeneration,
+                                null,
+                            )
+                        }
+                        else -> return AccountActionResult.Unavailable
+                    }
                 if (
-                    current.accountId != request.accountId ||
-                        current.sessionEpoch != request.sessionEpoch ||
-                        current.profileGeneration != request.profileGeneration
+                    candidate.accountId != request.accountId ||
+                        candidate.sessionEpoch != request.sessionEpoch ||
+                        candidate.profileGeneration != request.profileGeneration ||
+                        candidate.expectedLocalOwnerUid != request.expectedLocalOwnerUid
                 )
                     return AccountActionResult.Cancelled
                 canCancel = false
                 mutableState.value = AccountState.DeletingAccount
-                DeletionPlan(++generation, current)
+                DeletionPlan(++generation, candidate.priorState)
             }
         return try {
             operationGate.withSessionMutation { previousEpoch, mutationEpoch ->
@@ -499,7 +524,7 @@ constructor(
                         val local = localContext.read()
                         if (
                             persisted?.id != request.accountId ||
-                                local.ownerUid != request.accountId.opaqueValue ||
+                                local.ownerUid != request.expectedLocalOwnerUid ||
                                 local.profileGeneration != request.profileGeneration ||
                                 local.pendingSignOutUid != null
                         ) {
@@ -1064,7 +1089,15 @@ constructor(
 
     private data class DeletionPlan(
         val generation: Long,
-        val priorState: AccountState.SignedIn,
+        val priorState: AccountState,
+    )
+
+    private data class DeletionCandidate(
+        val priorState: AccountState,
+        val accountId: AccountId,
+        val sessionEpoch: Long,
+        val profileGeneration: Long,
+        val expectedLocalOwnerUid: String?,
     )
 
     private fun AccountState.isTransitioning(): Boolean =
@@ -1157,7 +1190,14 @@ constructor(
                                 local.pendingSignOutUid == null,
                     )
                 is AccountState.AwaitingDataChoice ->
-                    resolved.copy(profile = profile, sessionEpoch = sessionEpoch)
+                    resolved.copy(
+                        profile = profile,
+                        sessionEpoch = sessionEpoch,
+                        profileGeneration = local.profileGeneration,
+                        canDeleteUnclaimedData =
+                            resolved.context.ownership is LocalOwnership.Unclaimed &&
+                                local.pendingSignOutUid == null,
+                    )
                 else -> resolved
             }
     }

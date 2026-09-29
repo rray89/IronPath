@@ -38,6 +38,8 @@ data class ManualBackupUiState(
     val feedback: String? = null,
     val signOutReview: SignOutReviewUiState? = null,
     val signOutBusy: Boolean = false,
+    /** Recreate navigation-scoped ViewModels after a committed local profile reset. */
+    val profileResetEpoch: Long = 0,
     val accountDeletion: AccountDeletionUiState = AccountDeletionUiState(),
 )
 

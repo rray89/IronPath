@@ -12,6 +12,7 @@ data class AccountDeletionRequest(
     val accountId: AccountId,
     val sessionEpoch: Long,
     val profileGeneration: Long,
+    val expectedLocalOwnerUid: String? = accountId.opaqueValue,
 )
 
 data class AccountDeletionProgress(
@@ -20,6 +21,7 @@ data class AccountDeletionProgress(
     val sessionEpoch: Long,
     val profileGeneration: Long,
     val stage: AccountDeletionStage,
+    val expectedLocalOwnerUid: String? = accountId.opaqueValue,
 )
 
 sealed interface AccountDeletionResult {

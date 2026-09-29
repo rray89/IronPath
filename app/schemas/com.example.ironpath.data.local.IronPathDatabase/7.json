@@ -2,7 +2,7 @@
   "formatVersion": 1,
   "database": {
     "version": 7,
-    "identityHash": "6d1b348ffe9c7389c5470f90ebcf40ee",
+    "identityHash": "f8a6951385c077f8a6b78870543bd936",
     "entities": [
       {
         "tableName": "weekly_plans",
@@ -1065,7 +1065,7 @@
       },
       {
         "tableName": "account_deletion_journal",
-        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER NOT NULL, `operationId` TEXT NOT NULL, `accountId` TEXT NOT NULL, `sessionEpoch` INTEGER NOT NULL, `profileGeneration` INTEGER NOT NULL, `stage` TEXT NOT NULL, `createdAtEpochMillis` INTEGER NOT NULL, PRIMARY KEY(`id`))",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER NOT NULL, `operationId` TEXT NOT NULL, `accountId` TEXT NOT NULL, `sessionEpoch` INTEGER NOT NULL, `profileGeneration` INTEGER NOT NULL, `stage` TEXT NOT NULL, `createdAtEpochMillis` INTEGER NOT NULL, `expectedLocalOwnerUid` TEXT, PRIMARY KEY(`id`))",
         "fields": [
           {
             "fieldPath": "id",
@@ -1108,6 +1108,11 @@
             "columnName": "createdAtEpochMillis",
             "affinity": "INTEGER",
             "notNull": true
+          },
+          {
+            "fieldPath": "expectedLocalOwnerUid",
+            "columnName": "expectedLocalOwnerUid",
+            "affinity": "TEXT"
           }
         ],
         "primaryKey": {
@@ -1120,7 +1125,7 @@
     ],
     "setupQueries": [
       "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
-      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '6d1b348ffe9c7389c5470f90ebcf40ee')"
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, 'f8a6951385c077f8a6b78870543bd936')"
     ]
   }
 }

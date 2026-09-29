@@ -67,12 +67,23 @@ internal constructor(
         withContext(Dispatchers.IO) {
             try {
                 locked(accountId) { file ->
-                    val existing = read(file)
-                    if (!existing.deleted) {
-                        check(existing.generation < Long.MAX_VALUE)
+                    val existing =
+                        try {
+                            read(file)
+                        } catch (_: ProtocolFailure) {
+                            // Targeted account deletion can replace malformed or unsupported
+                            // state without trusting any part of the old snapshot.
+                            null
+                        }
+                    if (existing?.deleted != true) {
+                        val nextGeneration =
+                            existing?.let {
+                                check(it.generation < Long.MAX_VALUE)
+                                it.generation + 1
+                            } ?: 1L
                         save(
                             file,
-                            State(generation = existing.generation + 1, deleted = true),
+                            State(generation = nextGeneration, deleted = true),
                             DebugRemoteWritePhase.AccountPurgeCommitted,
                         )
                     }

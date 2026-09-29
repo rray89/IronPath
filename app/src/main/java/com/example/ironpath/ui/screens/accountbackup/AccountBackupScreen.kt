@@ -152,7 +152,10 @@ fun AccountBackupScreen(
                 Text("SIGN OUT")
             }
         }
-        if (state is AccountState.SignedIn && state.canDeleteAccount) {
+        if (
+            (state is AccountState.SignedIn && state.canDeleteAccount) ||
+                (state is AccountState.AwaitingDataChoice && state.canDeleteUnclaimedData)
+        ) {
             TextButton(
                 onClick = manualActions.openDeleteReview,
                 enabled = !manual.busy && !manual.signOutBusy,
@@ -284,6 +287,10 @@ fun AccountBackupScreen(
     manual.accountDeletion.target
         ?.takeIf { !manual.accountDeletion.busy }
         ?.let { target ->
+            val localDataScope =
+                if (target.request.expectedLocalOwnerUid == null)
+                    "all unclaimed local training data"
+                else "all local training data owned by this account"
             if (target.confirmingIdentity) {
                 AlertDialog(
                     onDismissRequest = manualActions.dismissDeleteReview,
@@ -293,7 +300,7 @@ fun AccountBackupScreen(
                             Text("Confirm you are signed in as ${target.displayName}.")
                             Text(target.email)
                             Text(
-                                "This permanently deletes this demo IronPath account, all of its demo backups, all training history on this device, and any workout in progress. This cannot be undone. Your Google account is not affected."
+                                "This permanently deletes this demo IronPath account, all of its demo backups, $localDataScope, and any workout in progress. This cannot be undone. Your Google account is not affected."
                             )
                         }
                     },
@@ -322,7 +329,7 @@ fun AccountBackupScreen(
                         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             Text("You are signed in as ${target.displayName} (${target.email}).")
                             Text(
-                                "Deleting this demo IronPath account removes all of its demo backups, training history on this device, and any workout in progress. This cannot be undone. Your Google account is not affected."
+                                "Deleting this demo IronPath account removes all of its demo backups, $localDataScope, and any workout in progress. This cannot be undone. Your Google account is not affected."
                             )
                         }
                     },

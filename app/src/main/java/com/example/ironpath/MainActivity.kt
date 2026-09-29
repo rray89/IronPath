@@ -37,6 +37,7 @@ import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -189,69 +190,77 @@ class MainActivity : ComponentActivity() {
                         val manualState =
                             accountViewModel?.manual?.collectAsStateWithLifecycle()?.value
                                 ?: ManualBackupUiState()
-                        IronPathApp(
-                            timeProvider = timeProvider,
-                            onboardingCompleted = current.onboardingCompleted,
-                            onCompleteOnboarding = onboardingRepository::complete,
-                            accountState = accountState,
-                            manualBackupState = manualState,
-                            manualBackupActions =
-                                ManualBackupActions(
-                                    previewBackup = { accountViewModel?.previewBackup() },
-                                    previewSync = { accountViewModel?.previewSync() },
-                                    previewRestore = { accountViewModel?.previewRestore() },
-                                    previewUndo = { accountViewModel?.previewUndo() },
-                                    selectResolution = { accountViewModel?.selectResolution(it) },
-                                    confirmDestructive = {
-                                        accountViewModel?.confirmDestructive(it)
-                                    },
-                                    confirmActiveWorkoutDiscard = {
-                                        accountViewModel?.confirmActiveWorkoutDiscard(it)
-                                    },
-                                    holdGuidance = { accountViewModel?.holdGuidance() },
-                                    confirm = { accountViewModel?.confirm() },
-                                    keepDeviceEmpty = { accountViewModel?.keepDeviceEmpty() },
-                                    recoverUnreadableSession = {
-                                        accountViewModel?.recoverUnreadableSession()
-                                    },
-                                    openSignOutReview = { accountViewModel?.openSignOutReview() },
-                                    dismissSignOutReview = {
-                                        accountViewModel?.dismissSignOutReview()
-                                    },
-                                    chooseSignOutChoice = {
-                                        accountViewModel?.chooseSignOutChoice(it)
-                                    },
-                                    requestRemoveConfirmation = {
-                                        accountViewModel?.requestRemoveConfirmation()
-                                    },
-                                    dismissRemoveConfirmation = {
-                                        accountViewModel?.dismissRemoveConfirmation()
-                                    },
-                                    confirmSignOut = { accountViewModel?.confirmSignOut(it) },
-                                    retrySignOut = { accountViewModel?.retrySignOut() },
-                                    openDeleteReview = { accountViewModel?.openDeleteReview() },
-                                    dismissDeleteReview = {
-                                        accountViewModel?.dismissDeleteReview()
-                                    },
-                                    continueAccountDeletion = {
-                                        accountViewModel?.continueAccountDeletion()
-                                    },
-                                    confirmAccountDeletion = {
-                                        accountViewModel?.confirmAccountDeletion()
-                                    },
-                                    retryAccountDeletion = {
-                                        accountViewModel?.retryAccountDeletion()
-                                    },
-                                    acknowledgeDeletionNavigation = {
-                                        accountViewModel?.acknowledgeDeletionNavigation()
-                                    },
-                                ),
-                            onAccountSignIn = { accountViewModel?.signIn() },
-                            onAccountRetry = { accountViewModel?.refresh() },
-                            onAccountLeave = { onLeave ->
-                                accountViewModel?.leave(onLeave) ?: onLeave()
-                            },
-                        )
+                        key(manualState.profileResetEpoch) {
+                            IronPathApp(
+                                timeProvider = timeProvider,
+                                onboardingCompleted =
+                                    current.onboardingCompleted ||
+                                        manualState.profileResetEpoch > 0,
+                                onCompleteOnboarding = onboardingRepository::complete,
+                                accountState = accountState,
+                                manualBackupState = manualState,
+                                manualBackupActions =
+                                    ManualBackupActions(
+                                        previewBackup = { accountViewModel?.previewBackup() },
+                                        previewSync = { accountViewModel?.previewSync() },
+                                        previewRestore = { accountViewModel?.previewRestore() },
+                                        previewUndo = { accountViewModel?.previewUndo() },
+                                        selectResolution = {
+                                            accountViewModel?.selectResolution(it)
+                                        },
+                                        confirmDestructive = {
+                                            accountViewModel?.confirmDestructive(it)
+                                        },
+                                        confirmActiveWorkoutDiscard = {
+                                            accountViewModel?.confirmActiveWorkoutDiscard(it)
+                                        },
+                                        holdGuidance = { accountViewModel?.holdGuidance() },
+                                        confirm = { accountViewModel?.confirm() },
+                                        keepDeviceEmpty = { accountViewModel?.keepDeviceEmpty() },
+                                        recoverUnreadableSession = {
+                                            accountViewModel?.recoverUnreadableSession()
+                                        },
+                                        openSignOutReview = {
+                                            accountViewModel?.openSignOutReview()
+                                        },
+                                        dismissSignOutReview = {
+                                            accountViewModel?.dismissSignOutReview()
+                                        },
+                                        chooseSignOutChoice = {
+                                            accountViewModel?.chooseSignOutChoice(it)
+                                        },
+                                        requestRemoveConfirmation = {
+                                            accountViewModel?.requestRemoveConfirmation()
+                                        },
+                                        dismissRemoveConfirmation = {
+                                            accountViewModel?.dismissRemoveConfirmation()
+                                        },
+                                        confirmSignOut = { accountViewModel?.confirmSignOut(it) },
+                                        retrySignOut = { accountViewModel?.retrySignOut() },
+                                        openDeleteReview = { accountViewModel?.openDeleteReview() },
+                                        dismissDeleteReview = {
+                                            accountViewModel?.dismissDeleteReview()
+                                        },
+                                        continueAccountDeletion = {
+                                            accountViewModel?.continueAccountDeletion()
+                                        },
+                                        confirmAccountDeletion = {
+                                            accountViewModel?.confirmAccountDeletion()
+                                        },
+                                        retryAccountDeletion = {
+                                            accountViewModel?.retryAccountDeletion()
+                                        },
+                                        acknowledgeDeletionNavigation = {
+                                            accountViewModel?.acknowledgeDeletionNavigation()
+                                        },
+                                    ),
+                                onAccountSignIn = { accountViewModel?.signIn() },
+                                onAccountRetry = { accountViewModel?.refresh() },
+                                onAccountLeave = { onLeave ->
+                                    accountViewModel?.leave(onLeave) ?: onLeave()
+                                },
+                            )
+                        }
                     }
                 }
             }

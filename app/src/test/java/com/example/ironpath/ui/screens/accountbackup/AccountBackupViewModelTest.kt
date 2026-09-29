@@ -260,6 +260,7 @@ class AccountBackupViewModelTest {
                 }
             val viewModel = viewModel(gateway)
             advanceUntilIdle()
+            assertEquals(0L, viewModel.manual.value.profileResetEpoch)
 
             viewModel.openSignOutReview()
             viewModel.chooseSignOutChoice(SignOutDataChoice.RemoveData)
@@ -278,6 +279,7 @@ class AccountBackupViewModelTest {
             assertTrue(
                 viewModel.manual.value.feedback?.contains("Training data was removed") == true
             )
+            assertEquals(1L, viewModel.manual.value.profileResetEpoch)
 
             gateway.state.value = AccountState.SignOutPending(profile.id, profile, sessionEpoch = 8)
             viewModel.retrySignOut()
@@ -290,6 +292,7 @@ class AccountBackupViewModelTest {
                 viewModel.manual.value.feedback?.contains("Training data was removed") == true
             )
             assertFalse(viewModel.manual.value.feedback?.contains("remain on this device") == true)
+            assertEquals(2L, viewModel.manual.value.profileResetEpoch)
         }
 
     @Test
@@ -320,7 +323,7 @@ class AccountBackupViewModelTest {
         }
 
     @Test
-    fun `delete review is limited to a deletable signed-in account and dismiss has no effect`() =
+    fun `delete review supports owned accounts and unclaimed data but rejects another owner`() =
         runTest {
             val profile =
                 AccountProfile(
@@ -368,13 +371,48 @@ class AccountBackupViewModelTest {
             assertNull(viewModel.manual.value.accountDeletion.target)
             gateway.state.value =
                 AccountState.AwaitingDataChoice(
+                    accountId = profile.id,
+                    context =
+                        DataChoiceContext(
+                            LocalOwnership.Unclaimed,
+                            localDataIsEmpty = false,
+                            remoteSnapshot = RemoteSnapshotPresence.Absent,
+                            conflict = null,
+                        ),
+                    profile = profile,
+                    sessionEpoch = 9,
+                    profileGeneration = 12,
+                    canDeleteUnclaimedData = true,
+                )
+            viewModel.openDeleteReview()
+            val unclaimedTarget = viewModel.manual.value.accountDeletion.target!!
+            assertEquals(
+                AccountDeletionRequest(
                     profile.id,
-                    DataChoiceContext(
-                        LocalOwnership.Unclaimed,
-                        true,
-                        RemoteSnapshotPresence.Absent,
-                        null
-                    ),
+                    sessionEpoch = 9,
+                    profileGeneration = 12,
+                    expectedLocalOwnerUid = null,
+                ),
+                unclaimedTarget.request,
+            )
+            viewModel.continueAccountDeletion()
+            viewModel.confirmAccountDeletion()
+            advanceUntilIdle()
+            assertEquals(listOf(unclaimedTarget.request), gateway.deletionRequests)
+
+            gateway.state.value =
+                AccountState.AwaitingDataChoice(
+                    accountId = profile.id,
+                    context =
+                        DataChoiceContext(
+                            LocalOwnership.Account(AccountId("another-owner")),
+                            localDataIsEmpty = true,
+                            remoteSnapshot = RemoteSnapshotPresence.Absent,
+                            conflict = null,
+                        ),
+                    profile = profile,
+                    sessionEpoch = 9,
+                    profileGeneration = 12,
                 )
             viewModel.openDeleteReview()
             assertNull(viewModel.manual.value.accountDeletion.target)

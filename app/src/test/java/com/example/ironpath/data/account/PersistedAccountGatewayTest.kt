@@ -90,14 +90,16 @@ class PersistedAccountGatewayTest {
     }
 
     @Test
-    fun `sign in persists identity but never claims unclaimed data`() = runTest {
+    fun `sign in keeps data unclaimed and can request deletion of that profile`() = runTest {
         val source = Source()
         val reader = Reader()
-        val gateway = gateway(source, reader)
+        val deletion = RecordingDeletionManager()
+        val gateway = gateway(source, reader, deletionManager = deletion)
         assertEquals(AccountActionResult.Completed, gateway.startGoogleSignIn())
         val state = gateway.state.value as AccountState.AwaitingDataChoice
         assertEquals(profile.id, state.accountId)
         assertEquals(LocalOwnership.Unclaimed, state.context.ownership)
+        assertTrue(state.canDeleteUnclaimedData)
         assertEquals(profile, source.session)
         assertNull(reader.context.ownerUid)
         assertEquals(
@@ -112,6 +114,19 @@ class PersistedAccountGatewayTest {
         )
         assertEquals(profile, source.session)
         assertEquals(AccountActionResult.Unavailable, gateway.deleteAccount())
+        val request =
+            AccountDeletionRequest(
+                state.accountId,
+                state.sessionEpoch,
+                state.profileGeneration,
+                expectedLocalOwnerUid = null,
+            )
+        assertEquals(AccountActionResult.Unavailable, gateway.deleteAccount(request))
+        assertEquals(1, deletion.deleteCalls)
+        assertEquals(request, deletion.lastRequest)
+        assertNull(reader.context.ownerUid)
+        assertEquals(profile, source.session)
+        assertTrue(gateway.state.value is AccountState.AwaitingDataChoice)
         assertEquals(AccountActionResult.Unavailable, gateway.reauthenticate())
     }
 
@@ -1046,6 +1061,7 @@ class PersistedAccountGatewayTest {
 
     private class RecordingDeletionManager : AccountDeletionManager {
         var deleteCalls = 0
+        var lastRequest: AccountDeletionRequest? = null
         var result: AccountDeletionResult = AccountDeletionResult.Unavailable
         var pendingProgress: AccountDeletionProgress? = null
         var retryAction: suspend () -> AccountDeletionResult = { AccountDeletionResult.Idle }
@@ -1054,6 +1070,7 @@ class PersistedAccountGatewayTest {
 
         override suspend fun delete(request: AccountDeletionRequest): AccountDeletionResult {
             deleteCalls++
+            lastRequest = request
             return result
         }
 

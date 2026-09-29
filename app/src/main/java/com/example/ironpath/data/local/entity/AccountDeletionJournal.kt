@@ -13,6 +13,7 @@ data class AccountDeletionJournal(
     val profileGeneration: Long,
     val stage: String,
     val createdAtEpochMillis: Long,
+    val expectedLocalOwnerUid: String? = accountId,
 ) {
     companion object {
         const val SINGLETON_ID = 1
