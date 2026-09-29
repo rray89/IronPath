@@ -429,6 +429,7 @@ constructor(
                     mutableManual.update {
                         it.copy(
                             busy = false,
+                            profileResetEpoch = it.profileResetEpoch + 1,
                             latest = null,
                             undoAvailable = false,
                             status = BackupStatus.LocalOnly,

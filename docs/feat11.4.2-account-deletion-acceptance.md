@@ -18,9 +18,12 @@ another physical device.
    **Signed in** and **DELETE ACCOUNT**.
 4. Choose **DELETE ACCOUNT**. Review the current identity and complete deletion scope.
    Choose **CANCEL** and verify the account, plan, history, records, and active workout
-   remain unchanged.
+   remain unchanged. Before confirming deletion, switch to History and back to Home so
+   the previous History screen is saved in navigation state.
 5. Reopen the flow, continue, then choose **DELETE ACCOUNT AND ALL DATA**. Wait for the
    progress UI to finish. Confirm IronPath returns Home and the account session is gone.
+   Navigate to History, open Records, and save a new record to verify the previous
+   profile's saved page state was discarded.
 6. Open Account & Backup again and sign in with the demo identity. It is a new IronPath
    account incarnation: the old backup is absent and the deleted local training data
    does not return.
@@ -45,5 +48,5 @@ After PREPARED, there is no cancellation. A pending deletion blocks normal app s
 and training/profile writes until retry finishes. Successful deletion advances the local
 profile generation so delayed work captured by the old screen cannot repopulate the new
 profile. Restore undo must preserve that generation. Removing local data through ordinary
-sign-out also clears old navigation entries; a newly opened History screen must accept a
-new record while rejecting work from the previous profile generation.
+sign-out or account deletion also clears old navigation entries; a newly opened History
+screen must accept a new record while rejecting work from the previous profile generation.

@@ -1,6 +1,7 @@
 package com.example.ironpath.e2e
 
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onFirst
@@ -22,6 +23,8 @@ import com.example.ironpath.testutil.AccountFilesUnchangedRule
 import com.example.ironpath.testutil.FakeAccountSessionAdapter
 import com.example.ironpath.testutil.HiltTestDatabaseRule
 import com.example.ironpath.testutil.TestData
+import com.example.ironpath.ui.navigation.Route
+import com.example.ironpath.ui.testing.TestTags
 import dagger.hilt.android.testing.HiltAndroidRule
 import dagger.hilt.android.testing.HiltAndroidTest
 import java.io.File
@@ -123,6 +126,10 @@ class AccountDeletionJourneyTest {
         waitForText("CONTINUE ON THIS DEVICE")
         composeRule.onNodeWithText("CONTINUE ON THIS DEVICE").performScrollTo().performClick()
         waitForText("No workout plan yet")
+        composeRule.onNodeWithTag(TestTags.bottomNav(Route.HISTORY)).performClick()
+        waitForText("No workout logs yet")
+        composeRule.onNodeWithTag(TestTags.bottomNav(Route.HOME)).performClick()
+        waitForText("No workout plan yet")
 
         val accountId = AccountId("test-athlete")
         val profile = AccountProfile(accountId, "Test Athlete", "test@example.invalid")
@@ -160,6 +167,28 @@ class AccountDeletionJourneyTest {
             )
         }
         assertTrue(runBlocking { remote.latest(accountId) is RemoteBackupRead.Absent })
+
+        composeRule.onNodeWithTag(TestTags.bottomNav(Route.HOME)).assertIsSelected()
+        composeRule.onNodeWithTag(TestTags.bottomNav(Route.HISTORY)).performClick()
+        waitForText("No workout logs yet")
+        composeRule.onNodeWithText("RECORDS").performClick()
+        waitForText("No records yet")
+        composeRule.onNodeWithText("ADD RECORD").performClick()
+        waitForText("ADD RECORD")
+        composeRule
+            .onNodeWithTag(TestTags.RECORD_NAME)
+            .performScrollTo()
+            .performTextReplacement("Post-delete squat")
+        composeRule
+            .onNodeWithTag(TestTags.RECORD_WEIGHT)
+            .performScrollTo()
+            .performTextReplacement("100")
+        composeRule.onNodeWithText("SAVE").performScrollTo().performClick()
+        waitForText("Post-delete squat")
+        assertEquals(
+            "Post-delete squat",
+            runBlocking { database.backupDao().getPersonalRecords().single().exerciseName },
+        )
     }
 
     private fun waitForText(text: String, timeoutMillis: Long = 5_000) {

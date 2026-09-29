@@ -497,6 +497,7 @@ class AccountBackupViewModelTest {
                 gateway.deletionRequests,
             )
             assertTrue(viewModel.manual.value.accountDeletion.completed)
+            assertEquals(1L, viewModel.manual.value.profileResetEpoch)
             assertNull(viewModel.manual.value.review)
             assertNull(viewModel.manual.value.latest)
             assertFalse(viewModel.manual.value.undoAvailable)
