@@ -3,6 +3,7 @@ package com.example.ironpath.data.repository
 import androidx.room.withTransaction
 import com.example.ironpath.data.backup.BackupChangeTracker
 import com.example.ironpath.data.local.IronPathDatabase
+import com.example.ironpath.data.local.dao.AccountDeletionDao
 import com.example.ironpath.data.local.dao.HistoryDao
 import com.example.ironpath.data.local.entity.LoggedExercise
 import com.example.ironpath.data.local.entity.LoggedSet
@@ -26,6 +27,7 @@ class HistoryRepositoryTest {
 
     private lateinit var historyDao: HistoryDao
     private lateinit var database: IronPathDatabase
+    private lateinit var accountDeletionDao: AccountDeletionDao
     private lateinit var backupChangeTracker: BackupChangeTracker
     private lateinit var repository: HistoryRepository
 
@@ -62,10 +64,13 @@ class HistoryRepositoryTest {
     fun setUp() {
         historyDao = mockk()
         database = mockk()
+        accountDeletionDao = mockk()
         backupChangeTracker = mockk()
         coEvery { historyDao.getLogById(any()) } returns null
         coEvery { historyDao.insertLog(any()) } returns Unit
         coEvery { backupChangeTracker.markIncludedDataChanged() } returns Unit
+        every { database.accountDeletionDao() } returns accountDeletionDao
+        coEvery { accountDeletionDao.getJournal() } returns null
         mockkStatic("androidx.room.RoomDatabaseKt")
         coEvery { database.withTransaction(any<suspend () -> Unit>()) } coAnswers
             {

@@ -1333,7 +1333,8 @@ class ManualBackupCoordinatorTest {
                 fixtureGuard(),
                 object : LocalProfileResetter {
                     override suspend fun resetLocalProfile(
-                        pendingSignOutUid: String?
+                        pendingSignOutUid: String?,
+                        expectedProfileGeneration: Long?,
                     ): LocalProfileResetResult =
                         error("Keep-data sign-out must not reset local data")
 

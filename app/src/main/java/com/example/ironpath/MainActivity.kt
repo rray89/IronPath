@@ -10,11 +10,16 @@ import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Menu
+import androidx.compose.material3.Button
 import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -35,18 +40,21 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.hideFromAccessibility
+import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.semantics.testTagsAsResourceId
+import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavHostController
@@ -54,6 +62,9 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.example.ironpath.data.backup.InstallationGuard
 import com.example.ironpath.data.onboarding.OnboardingRepository
+import com.example.ironpath.domain.account.AccountDeletionManager
+import com.example.ironpath.domain.account.AccountDeletionProgress
+import com.example.ironpath.domain.account.AccountDeletionResult
 import com.example.ironpath.domain.account.AccountState
 import com.example.ironpath.domain.time.TimeProvider
 import com.example.ironpath.ui.navigation.BottomNavItem
@@ -73,6 +84,7 @@ import com.example.ironpath.ui.testing.TestTags
 import com.example.ironpath.ui.theme.IronPathTheme
 import dagger.hilt.android.AndroidEntryPoint
 import javax.inject.Inject
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 
 @AndroidEntryPoint
@@ -83,72 +95,166 @@ class MainActivity : ComponentActivity() {
 
     @Inject lateinit var installationGuard: InstallationGuard
 
+    @Inject lateinit var accountDeletionManager: AccountDeletionManager
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         setContent {
-            val accountViewModel =
-                if (ACCOUNT_EXPERIENCE_PREVIEW_ENABLED) hiltViewModel<AccountBackupViewModel>()
-                else null
-            val accountState =
-                accountViewModel?.state?.collectAsStateWithLifecycle()?.value
-                    ?: AccountState.LocalOnly
-            val manualState =
-                accountViewModel?.manual?.collectAsStateWithLifecycle()?.value
-                    ?: ManualBackupUiState()
             IronPathTheme {
-                val onboardingCompleted by
-                    produceState<Boolean?>(
-                        initialValue = null,
-                        key1 = onboardingRepository,
-                        key2 = installationGuard,
-                    ) {
-                        runCatching { installationGuard.validate() }
-                        value =
-                            runCatching { onboardingRepository.isCompleted() }.getOrDefault(false)
+                var startup by remember { mutableStateOf<StartupState>(StartupState.Loading) }
+                val scope = rememberCoroutineScope()
+                suspend fun prepareApp(): StartupState {
+                    val deletion =
+                        try {
+                            accountDeletionManager.recoverAtStartup()
+                        } catch (cancelled: CancellationException) {
+                            throw cancelled
+                        } catch (_: Exception) {
+                            AccountDeletionResult.Unavailable
+                        }
+                    return when (deletion) {
+                        AccountDeletionResult.Idle,
+                        AccountDeletionResult.Completed -> {
+                            runCatching { installationGuard.validate() }
+                            StartupState.Ready(
+                                runCatching { onboardingRepository.isCompleted() }
+                                    .getOrDefault(false)
+                            )
+                        }
+                        is AccountDeletionResult.RetryRequired ->
+                            StartupState.DeletionPending(deletion.progress)
+                        AccountDeletionResult.Unavailable -> {
+                            val pending =
+                                try {
+                                    accountDeletionManager.pending()
+                                } catch (cancelled: CancellationException) {
+                                    throw cancelled
+                                } catch (_: Exception) {
+                                    null
+                                }
+                            StartupState.DeletionPending(pending)
+                        }
                     }
-                onboardingCompleted?.let { completed ->
-                    IronPathApp(
-                        timeProvider = timeProvider,
-                        onboardingCompleted = completed,
-                        onCompleteOnboarding = onboardingRepository::complete,
-                        accountState = accountState,
-                        manualBackupState = manualState,
-                        manualBackupActions =
-                            ManualBackupActions(
-                                previewBackup = { accountViewModel?.previewBackup() },
-                                previewSync = { accountViewModel?.previewSync() },
-                                previewRestore = { accountViewModel?.previewRestore() },
-                                previewUndo = { accountViewModel?.previewUndo() },
-                                selectResolution = { accountViewModel?.selectResolution(it) },
-                                confirmDestructive = { accountViewModel?.confirmDestructive(it) },
-                                confirmActiveWorkoutDiscard = {
-                                    accountViewModel?.confirmActiveWorkoutDiscard(it)
-                                },
-                                holdGuidance = { accountViewModel?.holdGuidance() },
-                                confirm = { accountViewModel?.confirm() },
-                                keepDeviceEmpty = { accountViewModel?.keepDeviceEmpty() },
-                                recoverUnreadableSession = {
-                                    accountViewModel?.recoverUnreadableSession()
-                                },
-                                openSignOutReview = { accountViewModel?.openSignOutReview() },
-                                dismissSignOutReview = { accountViewModel?.dismissSignOutReview() },
-                                chooseSignOutChoice = { accountViewModel?.chooseSignOutChoice(it) },
-                                requestRemoveConfirmation = {
-                                    accountViewModel?.requestRemoveConfirmation()
-                                },
-                                dismissRemoveConfirmation = {
-                                    accountViewModel?.dismissRemoveConfirmation()
-                                },
-                                confirmSignOut = { accountViewModel?.confirmSignOut(it) },
-                                retrySignOut = { accountViewModel?.retrySignOut() },
-                            ),
-                        onAccountSignIn = { accountViewModel?.signIn() },
-                        onAccountRetry = { accountViewModel?.refresh() },
-                        onAccountLeave = { onLeave ->
-                            accountViewModel?.leave(onLeave) ?: onLeave()
-                        },
-                    )
+                }
+                LaunchedEffect(accountDeletionManager) { startup = prepareApp() }
+                when (val current = startup) {
+                    StartupState.Loading ->
+                        AccountDeletionStartupScreen(
+                            title = "Opening IronPath",
+                            detail = "Checking account and local data status.",
+                        )
+                    is StartupState.DeletionPending ->
+                        AccountDeletionStartupScreen(
+                            title = "Finishing account deletion",
+                            detail =
+                                "IronPath will open after the saved deletion steps finish. " +
+                                    "Training data stays unavailable while cleanup is pending.",
+                            onRetry = { scope.launch { startup = prepareApp() } },
+                        )
+                    is StartupState.Ready -> {
+                        val accountViewModel =
+                            if (ACCOUNT_EXPERIENCE_PREVIEW_ENABLED)
+                                hiltViewModel<AccountBackupViewModel>()
+                            else null
+                        val accountState =
+                            accountViewModel?.state?.collectAsStateWithLifecycle()?.value
+                                ?: AccountState.LocalOnly
+                        val manualState =
+                            accountViewModel?.manual?.collectAsStateWithLifecycle()?.value
+                                ?: ManualBackupUiState()
+                        IronPathApp(
+                            timeProvider = timeProvider,
+                            onboardingCompleted = current.onboardingCompleted,
+                            onCompleteOnboarding = onboardingRepository::complete,
+                            accountState = accountState,
+                            manualBackupState = manualState,
+                            manualBackupActions =
+                                ManualBackupActions(
+                                    previewBackup = { accountViewModel?.previewBackup() },
+                                    previewSync = { accountViewModel?.previewSync() },
+                                    previewRestore = { accountViewModel?.previewRestore() },
+                                    previewUndo = { accountViewModel?.previewUndo() },
+                                    selectResolution = { accountViewModel?.selectResolution(it) },
+                                    confirmDestructive = {
+                                        accountViewModel?.confirmDestructive(it)
+                                    },
+                                    confirmActiveWorkoutDiscard = {
+                                        accountViewModel?.confirmActiveWorkoutDiscard(it)
+                                    },
+                                    holdGuidance = { accountViewModel?.holdGuidance() },
+                                    confirm = { accountViewModel?.confirm() },
+                                    keepDeviceEmpty = { accountViewModel?.keepDeviceEmpty() },
+                                    recoverUnreadableSession = {
+                                        accountViewModel?.recoverUnreadableSession()
+                                    },
+                                    openSignOutReview = { accountViewModel?.openSignOutReview() },
+                                    dismissSignOutReview = {
+                                        accountViewModel?.dismissSignOutReview()
+                                    },
+                                    chooseSignOutChoice = {
+                                        accountViewModel?.chooseSignOutChoice(it)
+                                    },
+                                    requestRemoveConfirmation = {
+                                        accountViewModel?.requestRemoveConfirmation()
+                                    },
+                                    dismissRemoveConfirmation = {
+                                        accountViewModel?.dismissRemoveConfirmation()
+                                    },
+                                    confirmSignOut = { accountViewModel?.confirmSignOut(it) },
+                                    retrySignOut = { accountViewModel?.retrySignOut() },
+                                    openDeleteReview = { accountViewModel?.openDeleteReview() },
+                                    dismissDeleteReview = {
+                                        accountViewModel?.dismissDeleteReview()
+                                    },
+                                    continueAccountDeletion = {
+                                        accountViewModel?.continueAccountDeletion()
+                                    },
+                                    confirmAccountDeletion = {
+                                        accountViewModel?.confirmAccountDeletion()
+                                    },
+                                    retryAccountDeletion = {
+                                        accountViewModel?.retryAccountDeletion()
+                                    },
+                                    acknowledgeDeletionNavigation = {
+                                        accountViewModel?.acknowledgeDeletionNavigation()
+                                    },
+                                ),
+                            onAccountSignIn = { accountViewModel?.signIn() },
+                            onAccountRetry = { accountViewModel?.refresh() },
+                            onAccountLeave = { onLeave ->
+                                accountViewModel?.leave(onLeave) ?: onLeave()
+                            },
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    private sealed interface StartupState {
+        data object Loading : StartupState
+
+        data class Ready(val onboardingCompleted: Boolean) : StartupState
+
+        data class DeletionPending(val progress: AccountDeletionProgress?) : StartupState
+    }
+
+    @Composable
+    private fun AccountDeletionStartupScreen(
+        title: String,
+        detail: String,
+        onRetry: (() -> Unit)? = null,
+    ) {
+        Column(
+            modifier = Modifier.fillMaxSize().padding(24.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterVertically),
+        ) {
+            Text(title, style = MaterialTheme.typography.headlineMedium)
+            Text(detail, style = MaterialTheme.typography.bodyLarge)
+            onRetry?.let { retry ->
+                Button(onClick = retry, modifier = Modifier.fillMaxWidth()) {
+                    Text("RETRY DELETION")
                 }
             }
         }
@@ -169,6 +275,15 @@ fun IronPathApp(
     onAccountRetry: () -> Unit = {},
     onAccountLeave: (() -> Unit) -> Unit = { it() },
 ) {
+    LaunchedEffect(manualBackupState.accountDeletion.completed) {
+        if (manualBackupState.accountDeletion.completed) {
+            navController.navigate(Route.HOME) {
+                popUpTo(Route.HOME) { inclusive = true }
+                launchSingleTop = true
+            }
+            manualBackupActions.acknowledgeDeletionNavigation()
+        }
+    }
     val onAccountBack: () -> Unit = {
         onAccountLeave {
             if (isAccountBackupRoute(navController.currentDestination?.route))
@@ -360,23 +475,68 @@ fun IronPathApp(
                     }
                 },
             ) { innerPadding ->
-                IronPathNavHost(
-                    navController = navController,
-                    innerPadding = innerPadding,
-                    startDestination = startupRoute(onboardingCompleted),
-                    onCompleteOnboarding = onCompleteOnboarding,
-                    accountState = accountState,
-                    onAccountSignIn = onAccountSignIn,
-                    onAccountRetry = onAccountRetry,
-                    manualBackupState = manualBackupState,
-                    manualBackupActions = manualBackupActions,
-                    onAccountBack = onAccountBack,
-                    drawerOpen = drawerBackInterceptEnabled,
-                    onCloseDrawer = {
-                        drawerBackInterceptEnabled = false
-                        coroutineScope.launch { drawerState.close() }
-                    },
-                )
+                if (
+                    accountState == AccountState.DeletingAccount ||
+                        accountState is AccountState.AccountDeletionPending
+                ) {
+                    Column(
+                        modifier = Modifier.fillMaxSize().padding(innerPadding).padding(24.dp),
+                        verticalArrangement =
+                            Arrangement.spacedBy(16.dp, Alignment.CenterVertically),
+                    ) {
+                        Text(
+                            if (accountState == AccountState.DeletingAccount)
+                                "Deleting account and all data"
+                            else "Account deletion needs retry",
+                            style = MaterialTheme.typography.headlineMedium,
+                        )
+                        Text(
+                            if (accountState == AccountState.DeletingAccount)
+                                "IronPath is removing the demo backups and local training data. Keep the app open while this finishes."
+                            else {
+                                val progress =
+                                    (accountState as AccountState.AccountDeletionPending).progress
+                                "Deletion stopped at ${progress.stage.name.lowercase().replace('_', ' ')}. Retry to finish the same operation."
+                            },
+                            style = MaterialTheme.typography.bodyLarge,
+                            modifier =
+                                Modifier.semantics {
+                                    stateDescription =
+                                        if (accountState == AccountState.DeletingAccount)
+                                            "Account deletion in progress"
+                                        else "Account deletion needs retry"
+                                    liveRegion = androidx.compose.ui.semantics.LiveRegionMode.Polite
+                                },
+                        )
+                        if (accountState is AccountState.AccountDeletionPending) {
+                            Button(
+                                onClick = manualBackupActions.retryAccountDeletion,
+                                enabled = !manualBackupState.accountDeletion.busy,
+                                modifier = Modifier.fillMaxWidth(),
+                            ) {
+                                Text("RETRY DELETION")
+                            }
+                        }
+                    }
+                } else {
+                    IronPathNavHost(
+                        navController = navController,
+                        innerPadding = innerPadding,
+                        startDestination = startupRoute(onboardingCompleted),
+                        onCompleteOnboarding = onCompleteOnboarding,
+                        accountState = accountState,
+                        onAccountSignIn = onAccountSignIn,
+                        onAccountRetry = onAccountRetry,
+                        manualBackupState = manualBackupState,
+                        manualBackupActions = manualBackupActions,
+                        onAccountBack = onAccountBack,
+                        drawerOpen = drawerBackInterceptEnabled,
+                        onCloseDrawer = {
+                            drawerBackInterceptEnabled = false
+                            coroutineScope.launch { drawerState.close() }
+                        },
+                    )
+                }
             }
         }
     }

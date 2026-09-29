@@ -4,12 +4,14 @@ import androidx.room.Database
 import androidx.room.RoomDatabase
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
+import com.example.ironpath.data.local.dao.AccountDeletionDao
 import com.example.ironpath.data.local.dao.BackupDao
 import com.example.ironpath.data.local.dao.HistoryDao
 import com.example.ironpath.data.local.dao.PlanDao
 import com.example.ironpath.data.local.dao.RecordDao
 import com.example.ironpath.data.local.dao.SessionDao
 import com.example.ironpath.data.local.entity.AccountBackupMetadata
+import com.example.ironpath.data.local.entity.AccountDeletionJournal
 import com.example.ironpath.data.local.entity.ActiveSession
 import com.example.ironpath.data.local.entity.BackupBaselineChunk
 import com.example.ironpath.data.local.entity.LoggedExercise
@@ -41,8 +43,9 @@ import com.example.ironpath.data.local.entity.WorkoutLog
             BackupBaselineChunk::class,
             RestoreUndoMetadata::class,
             RestoreUndoChunk::class,
+            AccountDeletionJournal::class,
         ],
-    version = 6,
+    version = 7,
     exportSchema = true,
 )
 abstract class IronPathDatabase : RoomDatabase() {
@@ -55,6 +58,8 @@ abstract class IronPathDatabase : RoomDatabase() {
     abstract fun recordDao(): RecordDao
 
     abstract fun backupDao(): BackupDao
+
+    abstract fun accountDeletionDao(): AccountDeletionDao
 
     companion object {
         val MIGRATION_3_4 =
@@ -148,6 +153,30 @@ abstract class IronPathDatabase : RoomDatabase() {
                 override fun migrate(db: SupportSQLiteDatabase) {
                     db.execSQL(
                         "ALTER TABLE `account_backup_metadata` ADD COLUMN `pendingSignOutUid` TEXT"
+                    )
+                }
+            }
+
+        val MIGRATION_6_7 =
+            object : Migration(6, 7) {
+                override fun migrate(db: SupportSQLiteDatabase) {
+                    db.execSQL(
+                        "ALTER TABLE `account_backup_metadata` ADD COLUMN `profileGeneration` INTEGER NOT NULL DEFAULT 0"
+                    )
+                    db.execSQL(
+                        """
+                        CREATE TABLE IF NOT EXISTS `account_deletion_journal` (
+                            `id` INTEGER NOT NULL,
+                            `operationId` TEXT NOT NULL,
+                            `accountId` TEXT NOT NULL,
+                            `sessionEpoch` INTEGER NOT NULL,
+                            `profileGeneration` INTEGER NOT NULL,
+                            `stage` TEXT NOT NULL,
+                            `createdAtEpochMillis` INTEGER NOT NULL,
+                            PRIMARY KEY(`id`)
+                        )
+                        """
+                            .trimIndent()
                     )
                 }
             }

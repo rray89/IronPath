@@ -1,6 +1,5 @@
 package com.example.ironpath.data.repository
 
-import androidx.room.withTransaction
 import com.example.ironpath.data.backup.BackupChangeTracker
 import com.example.ironpath.data.local.IronPathDatabase
 import com.example.ironpath.data.local.dao.HistoryDao
@@ -12,6 +11,7 @@ import com.example.ironpath.data.local.entity.LoggedSet
 import com.example.ironpath.data.local.entity.SessionExercise
 import com.example.ironpath.data.local.entity.SessionSet
 import com.example.ironpath.data.local.entity.WorkoutLog
+import com.example.ironpath.data.local.withProfileWrite
 import com.example.ironpath.data.performance.PerformanceTracer
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -52,23 +52,34 @@ constructor(
     suspend fun startSession(
         session: ActiveSession,
         exercises: List<SessionExercise>,
-    ) = sessionDao.startPlannedSession(session, exercises)
+        expectedProfileGeneration: Long? = null,
+    ) =
+        database.withProfileWrite(expectedProfileGeneration) {
+            sessionDao.startPlannedSession(session, exercises)
+        }
 
-    suspend fun updateSession(session: ActiveSession) = sessionDao.updateSession(session)
+    suspend fun updateSession(session: ActiveSession, expectedProfileGeneration: Long? = null) =
+        database.withProfileWrite(expectedProfileGeneration) { sessionDao.updateSession(session) }
 
-    suspend fun insertSet(set: SessionSet) = sessionDao.insertSet(set)
+    suspend fun insertSet(set: SessionSet, expectedProfileGeneration: Long? = null) =
+        database.withProfileWrite(expectedProfileGeneration) { sessionDao.insertSet(set) }
 
-    suspend fun updateSet(set: SessionSet) = sessionDao.updateSet(set)
+    suspend fun updateSet(set: SessionSet, expectedProfileGeneration: Long? = null) =
+        database.withProfileWrite(expectedProfileGeneration) { sessionDao.updateSet(set) }
 
     /**
      * Completes a session atomically: conditionally marks its planned workout complete, writes an
      * immutable history snapshot, and deletes the active graph. Rejects a repeated completion after
      * the source session has already been removed.
      */
-    suspend fun completeSession(sessionId: String, log: WorkoutLog) {
+    suspend fun completeSession(
+        sessionId: String,
+        log: WorkoutLog,
+        expectedProfileGeneration: Long? = null,
+    ) {
         val traceCookie = performanceTracer.beginAsyncSection(COMPLETE_SESSION_TRACE)
         try {
-            database.withTransaction {
+            database.withProfileWrite(expectedProfileGeneration) {
                 val activeSession = sessionDao.getActiveSession()
                 check(activeSession?.id == sessionId) {
                     "Active session $sessionId no longer exists"

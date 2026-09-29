@@ -1,12 +1,12 @@
 package com.example.ironpath.data.repository
 
-import androidx.room.withTransaction
 import com.example.ironpath.data.backup.BackupChangeTracker
 import com.example.ironpath.data.local.IronPathDatabase
 import com.example.ironpath.data.local.dao.PlanDao
 import com.example.ironpath.data.local.entity.PlannedExercise
 import com.example.ironpath.data.local.entity.PlannedWorkout
 import com.example.ironpath.data.local.entity.WeeklyPlan
+import com.example.ironpath.data.local.withProfileWrite
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.flow.Flow
@@ -48,20 +48,24 @@ constructor(
         plan: WeeklyPlan,
         workouts: List<PlannedWorkout>,
         exercises: List<PlannedExercise>,
+        expectedProfileGeneration: Long? = null,
     ) =
-        database.withTransaction {
+        database.withProfileWrite(expectedProfileGeneration) {
             planDao.createPlanWithWorkouts(plan, workouts, exercises)
             backupChangeTracker.markIncludedDataChanged()
         }
 
-    suspend fun updateWorkout(workout: PlannedWorkout) =
-        database.withTransaction {
+    suspend fun updateWorkout(
+        workout: PlannedWorkout,
+        expectedProfileGeneration: Long? = null,
+    ) =
+        database.withProfileWrite(expectedProfileGeneration) {
             planDao.updateWorkout(workout)
             backupChangeTracker.markIncludedDataChanged()
         }
 
-    suspend fun deleteWorkout(id: String) =
-        database.withTransaction {
+    suspend fun deleteWorkout(id: String, expectedProfileGeneration: Long? = null) =
+        database.withProfileWrite(expectedProfileGeneration) {
             planDao.deleteWorkout(id)
             backupChangeTracker.markIncludedDataChanged()
         }

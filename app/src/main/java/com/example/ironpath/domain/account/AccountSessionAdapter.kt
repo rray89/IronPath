@@ -16,6 +16,15 @@ interface AccountSessionAdapter {
     suspend fun clearUnreadableSession(): Boolean = false
 
     suspend fun remoteSnapshot(accountId: AccountId): RemoteSnapshotPresence
+
+    /** Debug adapters can tombstone one IronPath account incarnation without removing identity. */
+    suspend fun deleteDemoAccount(accountId: AccountId): Boolean = false
+
+    /** Clear only the matching session after its demo account incarnation was tombstoned. */
+    suspend fun clearDeletedSession(accountId: AccountId): Boolean {
+        val current = readSession() ?: return true
+        return current.id == accountId && clearSession()
+    }
 }
 
 class UnreadableAccountSessionException : Exception()

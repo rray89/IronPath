@@ -5,6 +5,7 @@ import com.example.ironpath.data.local.IronPathDatabase
 import com.example.ironpath.data.local.entity.AccountBackupMetadata
 import com.example.ironpath.data.local.entity.RestoreUndoChunk
 import com.example.ironpath.data.local.entity.RestoreUndoMetadata
+import com.example.ironpath.data.local.requireWritesAllowed
 import com.example.ironpath.domain.account.AccountId
 import com.example.ironpath.domain.identity.IdProvider
 import javax.inject.Inject
@@ -50,6 +51,7 @@ constructor(
         accountId: AccountId
     ): Boolean =
         database.withTransaction {
+            database.requireWritesAllowed()
             val current = checkNotNull(database.backupDao().getMetadata())
             if (
                 captured.activeSessionId != null ||
@@ -70,6 +72,7 @@ constructor(
         backup: RemoteBackupArtifact
     ): Boolean =
         database.withTransaction {
+            database.requireWritesAllowed()
             val current = checkNotNull(database.backupDao().getMetadata())
             if (
                 !sameAuthority(current, captured, accountId) ||
@@ -91,6 +94,7 @@ constructor(
         backup: RemoteBackupArtifact
     ): Boolean =
         database.withTransaction {
+            database.requireWritesAllowed()
             val current = checkNotNull(database.backupDao().getMetadata())
             if (
                 !sameAuthority(current, captured, accountId) ||
@@ -127,6 +131,7 @@ constructor(
         accountId: AccountId
     ): Boolean =
         current.installationId == captured.metadata.installationId &&
+            current.profileGeneration == captured.metadata.profileGeneration &&
             current.ownerUid == captured.metadata.ownerUid &&
             (current.ownerUid == null || current.ownerUid == accountId.opaqueValue)
 
@@ -164,6 +169,7 @@ constructor(
 
     override suspend fun markIncludedDataChanged() {
         database.withTransaction {
+            database.requireWritesAllowed()
             ensureMetadata()
             val dao = database.backupDao()
             val metadata = checkNotNull(dao.getMetadata())
@@ -211,6 +217,7 @@ constructor(
             oldBaselineChunks.all { it.encodedByteCount <= BackupSnapshotCodec.MAX_CHUNK_BYTES }
         )
         return database.withTransaction {
+            database.requireWritesAllowed()
             val backupDao = database.backupDao()
             val currentMetadata = checkNotNull(backupDao.getMetadata())
             if (!captureStillCurrent(currentMetadata, captured, accountId))
@@ -351,6 +358,7 @@ constructor(
         undo: ManualBackupUndoCapture,
     ): Boolean =
         database.withTransaction {
+            database.requireWritesAllowed()
             val dao = database.backupDao()
             val currentMetadata = dao.getMetadata() ?: return@withTransaction false
             if (!captureStillCurrent(currentMetadata, captured, accountId))
@@ -431,16 +439,23 @@ constructor(
 
     override suspend fun resetLocalProfile(
         pendingSignOutUid: String?,
+        expectedProfileGeneration: Long?,
     ): LocalProfileResetResult {
         installationValidationMutex.withLock {
-            val resetMetadata =
-                AccountBackupMetadata(
-                    installationId = idProvider.newId(),
-                    pendingSignOutUid = pendingSignOutUid,
-                )
+            val newInstallationId = idProvider.newId()
+            var resetGeneration = 0L
             try {
                 database.withTransaction {
+                    database.requireWritesAllowed(expectedProfileGeneration)
                     val backupDao = database.backupDao()
+                    val previous = backupDao.getMetadata()
+                    resetGeneration = Math.addExact(previous?.profileGeneration ?: 0L, 1L)
+                    val resetMetadata =
+                        AccountBackupMetadata(
+                            installationId = newInstallationId,
+                            pendingSignOutUid = pendingSignOutUid,
+                            profileGeneration = resetGeneration,
+                        )
                     backupDao.deleteActiveSessions()
                     backupDao.deletePersonalRecords()
                     backupDao.deleteWorkoutLogs()
@@ -458,7 +473,7 @@ constructor(
                 return LocalProfileResetResult.NotCommitted
             }
             return LocalProfileResetResult.Committed(
-                installationMarkerUpdated = writeSentinel(sentinel, resetMetadata.installationId)
+                installationMarkerUpdated = writeSentinel(sentinel, newInstallationId)
             )
         }
     }
@@ -477,6 +492,7 @@ constructor(
             var created = false
             val metadata =
                 database.withTransaction {
+                    database.requireWritesAllowed()
                     val backupDao = database.backupDao()
                     if (backupDao.getMetadata() == null) {
                         backupDao.insertMetadataIfAbsent(
@@ -505,6 +521,7 @@ constructor(
 
             val rotated =
                 database.withTransaction {
+                    database.requireWritesAllowed()
                     val backupDao = database.backupDao()
                     val current = checkNotNull(backupDao.getMetadata())
                     val replacement =
@@ -557,6 +574,7 @@ constructor(
     ): Boolean {
         if (
             current != captured.metadata ||
+                current.profileGeneration != captured.metadata.profileGeneration ||
                 current.installationId != captured.metadata.installationId ||
                 (current.ownerUid != null && current.ownerUid != accountId.opaqueValue)
         )

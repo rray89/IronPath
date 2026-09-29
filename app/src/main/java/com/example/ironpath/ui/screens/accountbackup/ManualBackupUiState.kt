@@ -1,5 +1,7 @@
 package com.example.ironpath.ui.screens.accountbackup
 
+import com.example.ironpath.domain.account.AccountDeletionProgress
+import com.example.ironpath.domain.account.AccountDeletionRequest
 import com.example.ironpath.domain.account.AccountId
 import com.example.ironpath.domain.account.SignOutDataChoice
 import com.example.ironpath.domain.backup.*
@@ -36,6 +38,7 @@ data class ManualBackupUiState(
     val feedback: String? = null,
     val signOutReview: SignOutReviewUiState? = null,
     val signOutBusy: Boolean = false,
+    val accountDeletion: AccountDeletionUiState = AccountDeletionUiState(),
 )
 
 data class SignOutTarget(val accountId: AccountId, val sessionEpoch: Long)
@@ -44,6 +47,21 @@ data class SignOutReviewUiState(
     val target: SignOutTarget,
     val choice: SignOutDataChoice = SignOutDataChoice.KeepData,
     val confirmingRemoval: Boolean = false,
+)
+
+data class AccountDeletionTarget(
+    val request: AccountDeletionRequest,
+    val displayName: String,
+    val email: String,
+    val confirmingIdentity: Boolean = false,
+)
+
+data class AccountDeletionUiState(
+    val target: AccountDeletionTarget? = null,
+    val busy: Boolean = false,
+    val progress: AccountDeletionProgress? = null,
+    val retryAvailable: Boolean = false,
+    val completed: Boolean = false,
 )
 
 data class ManualBackupActions(
@@ -65,6 +83,12 @@ data class ManualBackupActions(
     val dismissRemoveConfirmation: () -> Unit = {},
     val confirmSignOut: (Boolean) -> Unit = {},
     val retrySignOut: () -> Unit = {},
+    val openDeleteReview: () -> Unit = {},
+    val dismissDeleteReview: () -> Unit = {},
+    val continueAccountDeletion: () -> Unit = {},
+    val confirmAccountDeletion: () -> Unit = {},
+    val retryAccountDeletion: () -> Unit = {},
+    val acknowledgeDeletionNavigation: () -> Unit = {},
 )
 
 internal fun backupFailureMessage(reason: BackupFailureReason): String =

@@ -76,5 +76,10 @@ class AccountSessionOperationGate @Inject constructor() {
         synchronized(admissionLock) { if (pendingSessionMutations == 0) admissionClosed = false }
     }
 
+    /** Moves delayed account/session callbacks onto a new process-local generation. */
+    fun advanceSessionEpoch() {
+        currentSessionEpoch = Math.addExact(currentSessionEpoch, 1)
+    }
+
     data class MutationResult<T>(val value: T, val reopenAdmission: Boolean)
 }

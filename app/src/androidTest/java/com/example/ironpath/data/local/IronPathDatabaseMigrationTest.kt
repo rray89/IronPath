@@ -421,6 +421,35 @@ class IronPathDatabaseMigrationTest {
 
     @Test
     @Throws(IOException::class)
+    fun migrate6To7_preservesAccountBackupOwnerAndCreatesEmptyDeletionJournal() {
+        val name = "account-deletion-migration-6.db"
+        helper.createDatabase(name, 6).apply {
+            execSQL(
+                "INSERT INTO account_backup_metadata VALUES (1, 'legacy-demo-owner', 'legacy-installation', 12, 10, 'legacy-backup', 3, 'legacy-digest', 'legacy-source', 100, 0, NULL)"
+            )
+            close()
+        }
+
+        helper
+            .runMigrationsAndValidate(
+                name,
+                7,
+                true,
+                IronPathDatabase.MIGRATION_6_7,
+            )
+            .use { database ->
+                database.assertSingleRow("SELECT * FROM account_backup_metadata WHERE id = 1") {
+                    assertEquals("legacy-demo-owner", string("ownerUid"))
+                    assertEquals("legacy-installation", string("installationId"))
+                    assertEquals(12L, long("localChangeRevision"))
+                    assertEquals(0L, long("profileGeneration"))
+                }
+                assertEquals(0, database.rowCount("account_deletion_journal"))
+            }
+    }
+
+    @Test
+    @Throws(IOException::class)
     fun allMigrations_openLatestSchemaAndAllDaosRemainUsable() {
         helper.createDatabase(ALL_MIGRATIONS_DATABASE, 1).apply {
             seedVersionOneData()
@@ -429,13 +458,14 @@ class IronPathDatabaseMigrationTest {
         helper
             .runMigrationsAndValidate(
                 ALL_MIGRATIONS_DATABASE,
-                6,
+                7,
                 true,
                 IronPathDatabase.MIGRATION_1_2,
                 IronPathDatabase.MIGRATION_2_3,
                 IronPathDatabase.MIGRATION_3_4,
                 IronPathDatabase.MIGRATION_4_5,
                 IronPathDatabase.MIGRATION_5_6,
+                IronPathDatabase.MIGRATION_6_7,
             )
             .close()
 
@@ -447,7 +477,8 @@ class IronPathDatabaseMigrationTest {
                     IronPathDatabase.MIGRATION_2_3,
                     IronPathDatabase.MIGRATION_3_4,
                     IronPathDatabase.MIGRATION_4_5,
-                    IronPathDatabase.MIGRATION_5_6
+                    IronPathDatabase.MIGRATION_5_6,
+                    IronPathDatabase.MIGRATION_6_7
                 )
                 .build()
         try {

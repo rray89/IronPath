@@ -30,7 +30,8 @@ object DatabaseModule {
                 IronPathDatabase.MIGRATION_2_3,
                 IronPathDatabase.MIGRATION_3_4,
                 IronPathDatabase.MIGRATION_4_5,
-                IronPathDatabase.MIGRATION_5_6
+                IronPathDatabase.MIGRATION_5_6,
+                IronPathDatabase.MIGRATION_6_7
             )
             .build()
 

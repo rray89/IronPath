@@ -21,7 +21,10 @@ constructor(
     private val idProvider: IdProvider,
 ) {
 
-    suspend operator fun invoke(workout: PlannedWorkout) {
+    suspend operator fun invoke(
+        workout: PlannedWorkout,
+        expectedProfileGeneration: Long? = null,
+    ) {
         val startedAt = timeProvider.epochMillis()
         val session =
             ActiveSession(
@@ -45,7 +48,7 @@ constructor(
                 )
             }
 
-        sessionRepository.startSession(session, sessionExercises)
+        sessionRepository.startSession(session, sessionExercises, expectedProfileGeneration)
 
         val createdExercises = sessionRepository.getExercisesForSession(session.id)
         createdExercises.forEach { exercise ->
@@ -57,6 +60,7 @@ constructor(
                         setNumber = index + 1,
                         weightKg = exercise.plannedWeightKg,
                     ),
+                    expectedProfileGeneration,
                 )
             }
         }

@@ -10,6 +10,8 @@ import com.example.ironpath.domain.account.AccountSessionAdapter
 import com.example.ironpath.domain.account.CredentialResult
 import com.example.ironpath.domain.account.RemoteSnapshotPresence
 import com.example.ironpath.domain.account.UnreadableAccountSessionException
+import com.example.ironpath.domain.identity.IdProvider
+import com.example.ironpath.domain.identity.UuidIdProvider
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.io.File
 import java.io.FileNotFoundException
@@ -22,12 +24,28 @@ import kotlinx.coroutines.withContext
 @Singleton
 class DeterministicAccountSessionAdapter
 @Inject
-constructor(@ApplicationContext context: Context, private val remote: RemoteBackupStore) :
-    AccountSessionAdapter {
+constructor(
+    @ApplicationContext context: Context,
+    private val remote: RemoteBackupStore,
+    private val idProvider: IdProvider,
+) : AccountSessionAdapter {
     private val sessionFile = AtomicFile(File(context.noBackupFilesDir, SESSION_FILE_NAME))
+    private val registryFile =
+        AtomicFile(File(context.noBackupFilesDir, ACCOUNT_REGISTRY_FILE_NAME))
+    private val deletedAccountsFile =
+        AtomicFile(File(context.noBackupFilesDir, DELETED_ACCOUNTS_FILE_NAME))
+
+    internal constructor(
+        context: Context,
+        remote: RemoteBackupStore
+    ) : this(context, remote, UuidIdProvider())
 
     override suspend fun requestGoogleCredential(): CredentialResult =
-        CredentialResult.Selected(PROFILE)
+        withContext(Dispatchers.IO) {
+            synchronized(LIFECYCLE_LOCK) {
+                CredentialResult.Selected(profile(AccountId(currentAccountId())))
+            }
+        }
 
     override suspend fun readSession(): AccountProfile? =
         withContext(Dispatchers.IO) {
@@ -38,16 +56,17 @@ constructor(@ApplicationContext context: Context, private val remote: RemoteBack
                     if (sessionFile.baseFile.exists()) throw missing
                     return@withContext null
                 }
-            when (identifier) {
-                PROFILE.id.opaqueValue -> PROFILE
-                "" -> null
-                else -> throw UnreadableAccountSessionException()
-            }
+            if (identifier.isEmpty()) return@withContext null
+            if (identifier in deletedAccounts() || identifier != currentAccountId())
+                throw UnreadableAccountSessionException()
+            profile(AccountId(identifier))
         }
 
     override suspend fun saveSession(profile: AccountProfile): Boolean =
         withContext(Dispatchers.IO) {
-            require(profile == PROFILE)
+            require(profile.displayName == PROFILE.displayName && profile.email == PROFILE.email)
+            require(profile.id.opaqueValue == currentAccountId())
+            require(profile.id.opaqueValue !in deletedAccounts())
             writeSession(profile.id.opaqueValue)
         }
 
@@ -63,10 +82,94 @@ constructor(@ApplicationContext context: Context, private val remote: RemoteBack
                 } catch (_: Exception) {
                     return@withContext false
                 }
-            if (identifier == PROFILE.id.opaqueValue) return@withContext false
+            if (identifier in deletedAccounts() || identifier == currentAccountId())
+                return@withContext false
             if (identifier.isEmpty()) return@withContext true
             writeSession("")
         }
+
+    override suspend fun deleteDemoAccount(accountId: AccountId): Boolean =
+        withContext(Dispatchers.IO) {
+            synchronized(LIFECYCLE_LOCK) {
+                val current = readCurrentAccountId()
+                val deleted = deletedAccounts().toMutableSet()
+                deleted += accountId.opaqueValue
+                if (!writeAtomic(deletedAccountsFile, deleted.sorted().joinToString("\n")))
+                    return@synchronized false
+                if (current == accountId.opaqueValue) {
+                    val next = idProvider.newId()
+                    if (next.isBlank() || next == accountId.opaqueValue || next in deleted)
+                        return@synchronized false
+                    if (!writeAtomic(registryFile, next)) return@synchronized false
+                }
+                accountId.opaqueValue in deletedAccounts() &&
+                    currentAccountId() != accountId.opaqueValue
+            }
+        }
+
+    override suspend fun clearDeletedSession(accountId: AccountId): Boolean =
+        withContext(Dispatchers.IO) {
+            synchronized(LIFECYCLE_LOCK) {
+                val identifier =
+                    try {
+                        sessionFile.readFully().toString(Charsets.UTF_8)
+                    } catch (missing: FileNotFoundException) {
+                        return@synchronized !sessionFile.baseFile.exists()
+                    } catch (_: Exception) {
+                        return@synchronized false
+                    }
+                when {
+                    identifier.isEmpty() -> true
+                    identifier != accountId.opaqueValue -> false
+                    identifier !in deletedAccounts() -> false
+                    else -> writeSession("")
+                }
+            }
+        }
+
+    private fun currentAccountId(): String {
+        val stored = readCurrentAccountId()
+        check(stored !in deletedAccounts())
+        return stored
+    }
+
+    private fun readCurrentAccountId(): String {
+        val stored =
+            try {
+                registryFile.readFully().toString(Charsets.UTF_8)
+            } catch (missing: FileNotFoundException) {
+                if (registryFile.baseFile.exists()) throw missing
+                LEGACY_ACCOUNT_ID
+            }
+        check(stored.isNotBlank())
+        return stored
+    }
+
+    private fun deletedAccounts(): Set<String> {
+        val stored =
+            try {
+                deletedAccountsFile.readFully().toString(Charsets.UTF_8)
+            } catch (missing: FileNotFoundException) {
+                if (deletedAccountsFile.baseFile.exists()) throw missing
+                return emptySet()
+            }
+        return stored.lineSequence().filter(String::isNotBlank).toSet()
+    }
+
+    private fun writeAtomic(file: AtomicFile, value: String): Boolean {
+        val output = file.startWrite()
+        return try {
+            output.write(value.toByteArray(Charsets.UTF_8))
+            output.fd.sync()
+            file.finishWrite(output)
+            file.readFully().toString(Charsets.UTF_8) == value
+        } catch (_: Exception) {
+            file.failWrite(output)
+            false
+        }
+    }
+
+    private fun profile(id: AccountId) = PROFILE.copy(id = id)
 
     private fun writeSession(identifier: String): Boolean {
         val output = sessionFile.startWrite()
@@ -96,6 +199,10 @@ constructor(@ApplicationContext context: Context, private val remote: RemoteBack
 
     companion object {
         const val SESSION_FILE_NAME = "ironpath-debug-account-session"
+        const val ACCOUNT_REGISTRY_FILE_NAME = "ironpath-debug-account-registry"
+        const val DELETED_ACCOUNTS_FILE_NAME = "ironpath-debug-deleted-accounts"
+        private const val LEGACY_ACCOUNT_ID = "ironpath-demo-athlete"
+        private val LIFECYCLE_LOCK = Any()
         val PROFILE =
             AccountProfile(
                 AccountId("ironpath-demo-athlete"),

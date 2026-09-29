@@ -1,6 +1,7 @@
 package com.example.ironpath.ui.screens.accountbackup
 
 import androidx.compose.material3.Surface
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.unit.DpSize
@@ -25,6 +26,7 @@ class AccountBackupScreenTest {
     private var removeConfirmRequests = 0
     private var removeConfirmationDismissals = 0
     private var signOutDismissals = 0
+    private var deleteReviews = 0
 
     @Test
     fun localOnly_explainsDemoAndKeepsManualOperationsUnavailable() {
@@ -37,6 +39,7 @@ class AccountBackupScreenTest {
         assertEquals(1, previews)
         composeRule.onNodeWithText("SIGN OUT").assertDoesNotExist()
         composeRule.onNodeWithText("DELETE CLOUD ACCOUNT AND BACKUP").assertDoesNotExist()
+        composeRule.onNodeWithText("DELETE ACCOUNT").assertDoesNotExist()
     }
 
     @Test
@@ -97,6 +100,87 @@ class AccountBackupScreenTest {
         composeRule.onNodeWithText("BACK UP NOW").performScrollTo().assertIsEnabled()
         composeRule.onNodeWithText("REVIEW MANUAL SYNC").performScrollTo().assertIsEnabled()
         composeRule.onNodeWithText("PREVIEW WHOLE-BACKUP RESTORE").assertIsNotEnabled()
+    }
+
+    @Test
+    fun deleteAccount_isShownOnlyForAnEligibleSignedInOwner() {
+        val profile = AccountProfile(AccountId("demo"), "Demo Athlete", "athlete@example.invalid")
+        val state =
+            mutableStateOf<AccountState>(
+                AccountState.SignedIn(profile.id, profile, canDeleteAccount = true)
+            )
+        composeRule.setContent {
+            IronPathTheme {
+                Surface {
+                    AccountBackupScreen(
+                        state.value,
+                        {},
+                        {},
+                        {},
+                        {},
+                        manualActions = ManualBackupActions(openDeleteReview = { deleteReviews++ }),
+                    )
+                }
+            }
+        }
+        composeRule
+            .onNodeWithText("DELETE ACCOUNT")
+            .performScrollTo()
+            .assertIsEnabled()
+            .performClick()
+        assertEquals(1, deleteReviews)
+
+        composeRule.runOnIdle {
+            state.value = AccountState.SignedIn(profile.id, profile, canDeleteAccount = false)
+        }
+        composeRule.onNodeWithText("DELETE ACCOUNT").assertDoesNotExist()
+        composeRule.runOnIdle { state.value = pending(LocalOwnership.Unclaimed) }
+        composeRule.onNodeWithText("DELETE ACCOUNT").assertDoesNotExist()
+    }
+
+    @Test
+    fun deletionConfirmationNamesIdentityScopeAndRequiresFinalDeleteAction() {
+        var started = 0
+        var dismissed = 0
+        val profile = AccountProfile(AccountId("demo"), "Demo Athlete", "athlete@example.invalid")
+        val target =
+            AccountDeletionTarget(
+                AccountDeletionRequest(profile.id, sessionEpoch = 4, profileGeneration = 9),
+                profile.displayName,
+                profile.email,
+                confirmingIdentity = true,
+            )
+        setScreen(
+            AccountState.SignedIn(
+                profile.id,
+                profile,
+                sessionEpoch = 4,
+                profileGeneration = 9,
+                canDeleteAccount = true,
+            ),
+            manual = ManualBackupUiState(accountDeletion = AccountDeletionUiState(target = target)),
+            actions =
+                ManualBackupActions(
+                    confirmAccountDeletion = { started++ },
+                    dismissDeleteReview = { dismissed++ },
+                ),
+        )
+
+        composeRule.onNodeWithText("Confirm account deletion").assertIsDisplayed()
+        composeRule.onNodeWithText("Demo Athlete").assertIsDisplayed()
+        val accountEmails = composeRule.onAllNodesWithText("athlete@example.invalid")
+        accountEmails.assertCountEquals(2)
+        accountEmails[0].assertIsDisplayed()
+        composeRule
+            .onNodeWithText("This permanently deletes this demo IronPath account", substring = true)
+            .assertIsDisplayed()
+        composeRule
+            .onNodeWithText("Your Google account is not affected.", substring = true)
+            .assertIsDisplayed()
+        composeRule.onNodeWithText("Keep local data").assertDoesNotExist()
+        composeRule.onNodeWithText("DELETE ACCOUNT AND ALL DATA").performClick()
+        assertEquals(1, started)
+        assertEquals(0, dismissed)
     }
 
     @Test

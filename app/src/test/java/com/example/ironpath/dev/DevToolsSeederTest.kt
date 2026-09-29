@@ -3,6 +3,7 @@ package com.example.ironpath.dev
 import androidx.room.withTransaction
 import com.example.ironpath.data.backup.RoomBackupStore
 import com.example.ironpath.data.local.IronPathDatabase
+import com.example.ironpath.data.local.dao.AccountDeletionDao
 import com.example.ironpath.data.local.dao.HistoryDao
 import com.example.ironpath.data.local.entity.LoggedExercise
 import com.example.ironpath.data.local.entity.LoggedSet
@@ -33,6 +34,7 @@ import org.junit.Test
 class DevToolsSeederTest {
 
     private lateinit var database: IronPathDatabase
+    private lateinit var accountDeletionDao: AccountDeletionDao
     private lateinit var historyDao: HistoryDao
     private lateinit var onboardingRepository: OnboardingRepository
     private lateinit var backupStore: RoomBackupStore
@@ -42,6 +44,7 @@ class DevToolsSeederTest {
     @Before
     fun setUp() {
         database = mockk(relaxed = true)
+        accountDeletionDao = mockk()
         historyDao = mockk(relaxed = true)
         onboardingRepository = mockk()
         backupStore = mockk(relaxed = true)
@@ -49,6 +52,8 @@ class DevToolsSeederTest {
         recordRepository = mockk(relaxed = true)
 
         every { database.historyDao() } returns historyDao
+        every { database.accountDeletionDao() } returns accountDeletionDao
+        coEvery { accountDeletionDao.getJournal() } returns null
         coEvery { historyDao.countLogsWithSourcePlannedWorkoutId(any()) } returns 0
         coEvery { onboardingRepository.reset() } returns true
         coEvery { planRepository.getActivePlan() } returns null

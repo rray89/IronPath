@@ -10,6 +10,8 @@ import com.example.ironpath.data.local.IronPathDatabase
 import com.example.ironpath.data.local.entity.AccountBackupMetadata
 import com.example.ironpath.domain.account.AccountActionResult
 import com.example.ironpath.domain.account.AccountState
+import com.example.ironpath.domain.account.CredentialResult
+import com.example.ironpath.domain.account.UnreadableAccountSessionException
 import com.example.ironpath.domain.identity.IdProvider
 import com.example.ironpath.testutil.IsolatedNoBackupDirectory
 import com.example.ironpath.testutil.TestData
@@ -53,6 +55,69 @@ class AccountPersistenceTest {
     fun tearDown() {
         database.close()
         context.deleteDatabase(DATABASE_NAME)
+    }
+
+    @Test
+    fun demoAccountDeletionTombstonesOldIncarnationAndPersistsANewIdentity() = runBlocking {
+        val adapter =
+            DeterministicAccountSessionAdapter(
+                context,
+                absentRemote,
+                object : IdProvider {
+                    private var next = 0
+
+                    override fun newId() = "demo-incarnation-${++next}"
+                },
+            )
+        val firstCredential = adapter.requestGoogleCredential() as CredentialResult.Selected
+        assertEquals("ironpath-demo-athlete", firstCredential.profile.id.opaqueValue)
+        assertTrue(adapter.saveSession(firstCredential.profile))
+        assertEquals(
+            firstCredential.profile.id,
+            (adapter.requestGoogleCredential() as CredentialResult.Selected).profile.id,
+        )
+
+        assertTrue(adapter.deleteDemoAccount(firstCredential.profile.id))
+        var unreadable: Exception? = null
+        try {
+            adapter.readSession()
+        } catch (failure: Exception) {
+            unreadable = failure
+        }
+        assertTrue(unreadable is UnreadableAccountSessionException)
+        assertTrue(adapter.clearDeletedSession(firstCredential.profile.id))
+
+        val nextCredential = adapter.requestGoogleCredential() as CredentialResult.Selected
+        assertEquals("demo-incarnation-1", nextCredential.profile.id.opaqueValue)
+        assertNotEquals(firstCredential.profile.id, nextCredential.profile.id)
+        val recreated =
+            DeterministicAccountSessionAdapter(
+                context,
+                absentRemote,
+                object : IdProvider {
+                    override fun newId() = "unused-after-migration"
+                },
+            )
+        assertEquals(
+            nextCredential.profile.id,
+            (recreated.requestGoogleCredential() as CredentialResult.Selected).profile.id
+        )
+        assertFalse(
+            File(
+                    context.noBackupFilesDir,
+                    DeterministicAccountSessionAdapter.ACCOUNT_REGISTRY_FILE_NAME
+                )
+                .readText()
+                .contains(firstCredential.profile.id.opaqueValue)
+        )
+        assertTrue(
+            File(
+                    context.noBackupFilesDir,
+                    DeterministicAccountSessionAdapter.DELETED_ACCOUNTS_FILE_NAME
+                )
+                .readText()
+                .contains(firstCredential.profile.id.opaqueValue)
+        )
     }
 
     @Test

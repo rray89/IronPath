@@ -923,9 +923,9 @@ Signed in:
 - `Review manual sync`
 - restore availability and last remote snapshot summary
 
-`Sign out` and `Delete cloud account and backup` are not exposed in the
-`feat11.3.1`–`feat11.3.3` implementation sequence. They remain specified below for the
-later lifecycle-hardening slice.
+`Sign out` is available in the `feat11.4` lifecycle flow. `Delete account` is available
+only in the debug demo adapter through `feat11.4.2`; release bindings report the action
+as unavailable until a production deletion service is implemented.
 
 No UI claims `Up to date` based only on authentication state.
 
@@ -945,34 +945,42 @@ the Firebase session is cleared.
 
 ### Delete-account behavior
 
-Deferred to `feat11.4`, beyond the V5 manual account/backup release.
+### `feat11.4.2` demo first usable slice
 
-Because V5 forbids Cloud Functions, deletion is an authenticated client-owned flow:
+Account deletion removes the current IronPath account incarnation, all of its backups,
+and all local training data, including an active workout and restore/undo metadata. The
+flow offers no option to keep device data. It is irreversible. The Google identity itself
+is unaffected; signing into that same demo identity again creates a new IronPath account
+incarnation with no access to the deleted incarnation's backups.
 
-1. Require recent Google authentication before destructive work.
-2. Read the authoritative `backupIds` registry for the current UID.
-3. For every registered backup, delete all chunk documents, then its manifest, then
-   remove its registry entry; every phase is bounded, retryable, and idempotent.
-4. Verify the registry is empty and a query over `users/{uid}/backups` returns zero
-   manifest documents.
-5. Delete `users/{uid}` only after step 4 succeeds.
-6. Delete the Firebase Authentication account.
-7. Ask whether to erase the device or retain its data as a new unclaimed local profile.
+This implementation is deliberately demo-only. The debug adapter uses a deterministic,
+local file-backed backup store and a persisted demo identity registry. It does not call
+Google, Firebase Authentication, Firestore, or any network service. Release binds an
+unavailable deletion manager, so production UI cannot claim deletion succeeded.
 
-The UI reports completion only after remote deletion and Firebase account deletion
-succeed. Recoverable failure retains enough authenticated state to retry and never
-claims the account was deleted.
+The deletion screen is available only for a matching `SignedIn` demo owner. It displays
+the current demo identity, explains the complete deletion scope and irreversibility, and
+requires a second confirmation whose final action says `DELETE ACCOUNT AND ALL DATA`.
+Canceling before the first destructive write has no effect. Once PREPARED is durable,
+there is no cancellation action.
 
-Deleting a Firebase Auth account and later signing in with the same Google identity is
-treated as a new account with a potentially different UID. Remote residue under the
-deleted UID would then be unrecoverable by the client, which is why remote verification
-must succeed before Auth deletion. The same chunks → manifest → registry ordering is
-mandatory for ordinary retention cleanup.
+The debug flow persists a deletion journal before ordinary session, installation, and
+navigation recovery. It purges and verifies all per-account backup state, writes a
+permanent account-incarnation tombstone, then atomically clears Room training data,
+account ownership, backup lineage, and restore/undo state while advancing the local
+profile generation. Only after those steps does it clear the demo session and mark the
+journal COMPLETE. A retry or startup recovery resumes from the recorded stage. If remote
+backup purge has not completed, the session remains available for retry; pending cleanup
+keeps training and profile writes blocked. Old generation requests are rejected after
+the local profile is reset.
 
-This client-owned deletion is acceptable for a private portfolio phase. Before any
-public release, IronPath must add a production deletion mechanism that remains
-available after uninstall, an external deletion-request path, a published privacy
-policy, and any required server-side cleanup.
+Ordinary sign-out remains separate: it still offers Keep or Remove local data and never
+deletes a remote backup.
+
+Before public release, replace this demonstration with recent Google reauthentication,
+Firebase Authentication deletion, authoritative server-side backup cleanup and
+verification, an external deletion-request path, and a published privacy policy. The
+demo slice is not evidence that production account deletion is available.
 
 ### Android platform backup
 

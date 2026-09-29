@@ -21,6 +21,11 @@ interface AccountGateway {
     suspend fun signOut(request: SignOutRequest): AccountActionResult
 
     suspend fun deleteAccount(): AccountActionResult
+
+    suspend fun deleteAccount(request: AccountDeletionRequest): AccountActionResult =
+        AccountActionResult.Unavailable
+
+    suspend fun retryAccountDeletion(): AccountActionResult = AccountActionResult.Unavailable
 }
 
 sealed interface AccountState {
@@ -46,6 +51,8 @@ sealed interface AccountState {
         val accountId: AccountId,
         val profile: AccountProfile? = null,
         val sessionEpoch: Long = 0,
+        val profileGeneration: Long = 0,
+        val canDeleteAccount: Boolean = false,
     ) : AccountState
 
     /** Local removal committed; only clearing this same account's session may be retried. */
@@ -60,6 +67,8 @@ sealed interface AccountState {
     data object SigningOut : AccountState
 
     data object DeletingAccount : AccountState
+
+    data class AccountDeletionPending(val progress: AccountDeletionProgress) : AccountState
 
     data class RecoverableError(
         val reason: AccountFailureReason,

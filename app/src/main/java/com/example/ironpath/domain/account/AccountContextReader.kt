@@ -14,4 +14,5 @@ data class LocalAccountContext(
     val conflict: PersistedConflictContext,
     val pendingSignOutUid: String? = null,
     val activeWorkoutPresent: Boolean = false,
+    val profileGeneration: Long = 0,
 )

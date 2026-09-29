@@ -8,7 +8,10 @@ sealed interface LocalProfileResetResult {
 }
 
 interface LocalProfileResetter {
-    suspend fun resetLocalProfile(pendingSignOutUid: String? = null): LocalProfileResetResult
+    suspend fun resetLocalProfile(
+        pendingSignOutUid: String? = null,
+        expectedProfileGeneration: Long? = null,
+    ): LocalProfileResetResult
 
     suspend fun clearPendingSignOut(uid: String): Boolean
 }

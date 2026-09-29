@@ -116,6 +116,96 @@ class PersistedAccountGatewayTest {
     }
 
     @Test
+    fun `data choice and foreign owner cannot start account deletion`() = runTest {
+        val source = Source().apply { session = profile }
+        val reader = Reader().apply { context = context.copy(ownerUid = "another-account") }
+        val deletion = RecordingDeletionManager()
+        val resetter = TestResetter(reader)
+        val gateway = gateway(source, reader, resetter = resetter, deletionManager = deletion)
+
+        assertEquals(AccountActionResult.Completed, gateway.refreshLocal())
+        val awaiting = gateway.state.value as AccountState.AwaitingDataChoice
+        assertEquals(
+            AccountActionResult.Unavailable,
+            gateway.deleteAccount(
+                AccountDeletionRequest(awaiting.accountId, awaiting.sessionEpoch, 0)
+            ),
+        )
+        assertEquals(0, deletion.deleteCalls)
+        assertEquals(0, source.clearCalls)
+        assertEquals(0, resetter.resetCalls)
+        assertEquals("another-account", reader.context.ownerUid)
+    }
+
+    @Test
+    fun `deletion requires exact signed-in epoch and profile generation and retains session for retry`() =
+        runTest {
+            val source = Source().apply { session = profile }
+            val reader =
+                Reader().apply {
+                    context = context.copy(ownerUid = profile.id.opaqueValue, profileGeneration = 8)
+                }
+            val deletion =
+                RecordingDeletionManager().apply {
+                    result =
+                        AccountDeletionResult.RetryRequired(
+                            AccountDeletionProgress(
+                                "delete-operation",
+                                profile.id,
+                                sessionEpoch = 0,
+                                profileGeneration = 8,
+                                stage = AccountDeletionStage.PREPARED,
+                            )
+                        )
+                }
+            val resetter = TestResetter(reader)
+            val gateway = gateway(source, reader, resetter = resetter, deletionManager = deletion)
+            gateway.refreshLocal()
+            val signedIn = gateway.state.value as AccountState.SignedIn
+            assertTrue(signedIn.canDeleteAccount)
+            assertEquals(8, signedIn.profileGeneration)
+
+            assertEquals(
+                AccountActionResult.Cancelled,
+                gateway.deleteAccount(
+                    AccountDeletionRequest(
+                        signedIn.accountId,
+                        sessionEpoch = signedIn.sessionEpoch - 1,
+                        profileGeneration = signedIn.profileGeneration,
+                    )
+                ),
+            )
+            assertEquals(0, deletion.deleteCalls)
+            assertEquals(
+                AccountActionResult.Cancelled,
+                gateway.deleteAccount(
+                    AccountDeletionRequest(
+                        signedIn.accountId,
+                        signedIn.sessionEpoch,
+                        profileGeneration = signedIn.profileGeneration - 1,
+                    )
+                ),
+            )
+            assertEquals(0, deletion.deleteCalls)
+
+            assertEquals(
+                AccountActionResult.Failed(AccountFailureReason.ServiceUnavailable),
+                gateway.deleteAccount(
+                    AccountDeletionRequest(
+                        signedIn.accountId,
+                        signedIn.sessionEpoch,
+                        signedIn.profileGeneration,
+                    )
+                ),
+            )
+            assertEquals(1, deletion.deleteCalls)
+            assertEquals(profile, source.session)
+            assertEquals(0, source.clearCalls)
+            assertEquals(0, resetter.resetCalls)
+            assertTrue(gateway.state.value is AccountState.AccountDeletionPending)
+        }
+
+    @Test
     fun `a fresh controller reconstructs data choice and only explicit sign out clears session`() =
         runTest {
             val source = Source()
@@ -835,6 +925,7 @@ class PersistedAccountGatewayTest {
         result: InstallationValidationResult = InstallationValidationResult.Validated,
         resetter: TestResetter? = null,
         gate: AccountSessionOperationGate = AccountSessionOperationGate(),
+        deletionManager: AccountDeletionManager = UnavailableAccountDeletionManager,
     ) =
         PersistedAccountGateway(
             source,
@@ -844,7 +935,24 @@ class PersistedAccountGatewayTest {
             },
             resetter ?: TestResetter(reader),
             gate,
+            deletionManager,
         )
+
+    private class RecordingDeletionManager : AccountDeletionManager {
+        var deleteCalls = 0
+        var result: AccountDeletionResult = AccountDeletionResult.Unavailable
+
+        override suspend fun recoverAtStartup() = AccountDeletionResult.Idle
+
+        override suspend fun delete(request: AccountDeletionRequest): AccountDeletionResult {
+            deleteCalls++
+            return result
+        }
+
+        override suspend fun retry() = AccountDeletionResult.Idle
+
+        override suspend fun pending(): AccountDeletionProgress? = null
+    }
 
     private class Reader : AccountContextReader {
         var context =
@@ -871,7 +979,8 @@ class PersistedAccountGatewayTest {
         var result: LocalProfileResetResult = LocalProfileResetResult.Committed(true)
 
         override suspend fun resetLocalProfile(
-            pendingSignOutUid: String?
+            pendingSignOutUid: String?,
+            expectedProfileGeneration: Long?,
         ): LocalProfileResetResult {
             resetCalls++
             if (result is LocalProfileResetResult.Committed) {

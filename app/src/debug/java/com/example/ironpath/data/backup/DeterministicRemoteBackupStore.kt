@@ -63,6 +63,38 @@ internal constructor(
             }
         }
 
+    override suspend fun purgeAccount(accountId: AccountId): RemoteAccountPurge =
+        withContext(Dispatchers.IO) {
+            try {
+                locked(accountId) { file ->
+                    val existing = read(file)
+                    if (!existing.deleted) {
+                        check(existing.generation < Long.MAX_VALUE)
+                        save(
+                            file,
+                            State(generation = existing.generation + 1, deleted = true),
+                            DebugRemoteWritePhase.AccountPurgeCommitted,
+                        )
+                    }
+                    val verified = read(file)
+                    check(
+                        verified.deleted &&
+                            verified.backupIds.isEmpty() &&
+                            verified.manifests.isEmpty() &&
+                            verified.latestId == null &&
+                            verified.activeId == null
+                    )
+                    val temporary = File(file.parentFile, "${file.name}.tmp")
+                    check(!temporary.exists() || temporary.delete())
+                }
+                RemoteAccountPurge.Completed
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                RemoteAccountPurge.Failed(BackupFailureReason.ServiceUnavailable)
+            }
+        }
+
     override suspend fun publish(
         accountId: AccountId,
         expectedGeneration: Long,
@@ -76,8 +108,12 @@ internal constructor(
                 require(expectedGeneration >= 0)
                 require(sourceInstallationId.isNotBlank() && sourceInstallationId.length <= 128)
                 locked(accountId) { file ->
-                    publish(file, expectedGeneration, sourceInstallationId, captured)
+                    if (read(file).deleted)
+                        RemoteBackupPublish.Failed(BackupFailureReason.PermissionDenied)
+                    else publish(file, expectedGeneration, sourceInstallationId, captured)
                 }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
             } catch (failure: Exception) {
                 RemoteBackupPublish.Failed(reason(failure))
             }
@@ -243,6 +279,7 @@ internal constructor(
                             decodeSnapshot(manifest.getValue("snapshot").jsonObject),
                         )
                     },
+                    root["deleted"]?.jsonPrimitive?.content?.toBooleanStrictOrNull() ?: false,
                 )
                 .also(::validate)
         } catch (failure: ProtocolFailure) {
@@ -255,6 +292,15 @@ internal constructor(
     }
 
     private fun validate(state: State) {
+        if (state.deleted) {
+            require(
+                state.backupIds.isEmpty() &&
+                    state.manifests.isEmpty() &&
+                    state.latestId == null &&
+                    state.activeId == null
+            )
+            return
+        }
         require(state.generation >= 0 && state.backupIds.size <= 4)
         require(state.backupIds.distinct() == state.backupIds)
         require(state.backupIds.all { it.isNotBlank() && it.length <= 128 })
@@ -371,6 +417,7 @@ internal constructor(
         put("latestId", state.latestId?.let(::JsonPrimitive) ?: JsonNull)
         put("activeId", state.activeId?.let(::JsonPrimitive) ?: JsonNull)
         put("backupIds", JsonArray(state.backupIds.map(::JsonPrimitive)))
+        put("deleted", state.deleted)
         put(
             "manifests",
             JsonObject(
@@ -456,6 +503,7 @@ internal constructor(
         val activeId: String? = null,
         val backupIds: List<String> = emptyList(),
         val manifests: Map<String, Manifest> = emptyMap(),
+        val deleted: Boolean = false,
     )
 
     private data class Manifest(
@@ -501,4 +549,5 @@ internal enum class DebugRemoteWritePhase {
     RetentionChunksDeleted,
     RetentionManifestDeleted,
     RetentionRegistryUpdated,
+    AccountPurgeCommitted,
 }
