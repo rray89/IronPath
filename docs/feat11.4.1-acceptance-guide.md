@@ -20,3 +20,15 @@ Start with an unclaimed local profile that has no included training rows and a c
 2. Submit Keep-data sign-out, then sign back into the same demo account. The training data and its account ownership should still be present; no backup or restore should start automatically.
 3. Open sign-out again, select **Remove data from this device**, choose **CONTINUE**, then confirm **REMOVE DATA AND SIGN OUT**. The active workout and local training data should be gone. On the second dialog, **BACK** returns to the choice without signing out.
 4. Verify the remote backup remains after removal. The adapter is deterministic and does not contact Google, Firebase, or a live cloud service; remote preservation and reset recovery are also covered by the automated Room and journey tests.
+
+## BOSS acceptance — 2026-09-29
+
+BOSS accepted feat11.4.1 after a physical-device walkthrough with the review APK whose SHA-256 is `4c91b7b5efbd8471bc573c666c89abe6589a88dc3f7bfdc76bc515592e7979f5` (commit `c61acd4677347a47ff14efa6a681991e45b41a58`). The reported walkthrough covered:
+
+- Sign-in retention.
+- Keeping the device empty while preserving the existing remote backup.
+- Canceling restore and confirming restore.
+- Signing out while keeping local data.
+- Signing out while removing local data, then signing in again.
+
+The walkthrough used the deterministic demo adapter; no live Google or Firebase service was involved.

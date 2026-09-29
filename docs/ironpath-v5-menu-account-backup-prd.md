@@ -1,8 +1,8 @@
 # IronPath v5 Menu, Account, and Backup PRD
 
 Date: 2026-07-26
-Last updated: 2026-09-24
-Status: Feat11.3 Experience Direction merged in PR #53; feat11.3.1 First Usable Slice accepted by BOSS on September 18, 2026 (RRA-59, PR #55); feat11.3.3 functional First Usable Slice accepted by BOSS on September 24, 2026 (RRA-63)
+Last updated: 2026-09-29
+Status: Feat11.3 Experience Direction merged in PR #53; feat11.3.1 First Usable Slice accepted by BOSS on September 18, 2026 (RRA-59, PR #55); feat11.3.3 functional First Usable Slice accepted by BOSS on September 24, 2026 (RRA-63); feat11.4.1 account choices and explicit sign-out accepted by BOSS on September 29, 2026 (RRA-64, PR #59)
 
 ## Purpose
 
