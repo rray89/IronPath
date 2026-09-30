@@ -8,12 +8,14 @@ import com.example.ironpath.data.local.entity.PlannedWorkout
 import com.example.ironpath.data.local.entity.WorkoutStatus
 import com.example.ironpath.data.repository.PlanRepository
 import com.example.ironpath.data.repository.SessionRepository
+import com.example.ironpath.domain.account.ProfileGenerationToken
 import com.example.ironpath.domain.session.StartPlannedWorkoutUseCase
 import com.example.ironpath.domain.time.TimeProvider
 import com.example.ironpath.ui.navigation.Route
 import dagger.hilt.android.lifecycle.HiltViewModel
 import java.time.LocalDate
 import javax.inject.Inject
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -29,6 +31,7 @@ constructor(
     private val sessionRepository: SessionRepository,
     private val startPlannedWorkout: StartPlannedWorkoutUseCase,
     private val timeProvider: TimeProvider,
+    private val profileGenerationToken: ProfileGenerationToken? = null,
 ) : ViewModel() {
 
     private val workoutId: String = savedStateHandle.get<String>(Route.WORKOUT_ID_ARG).orEmpty()
@@ -38,6 +41,9 @@ constructor(
     private var startInProgress = false
 
     init {
+        profileGenerationToken?.let { token ->
+            viewModelScope.launch { runCatching { token.initialize() } }
+        }
         loadPreview()
     }
 
@@ -45,12 +51,18 @@ constructor(
         val state = _uiState.value as? WorkoutPreviewUiState.Ready ?: return
         if (!state.canStart) return
         if (startInProgress) return
+        val expectedProfileGeneration = profileGenerationToken?.current()
+        if (profileGenerationToken != null && expectedProfileGeneration == null) return
         startInProgress = true
 
         viewModelScope.launch {
             try {
-                startPlannedWorkout(state.workout)
+                startPlannedWorkout(state.workout, expectedProfileGeneration)
                 onStarted()
+            } catch (cancellation: CancellationException) {
+                throw cancellation
+            } catch (_: Exception) {
+                // The captured profile generation became stale while this request was queued.
             } finally {
                 startInProgress = false
             }

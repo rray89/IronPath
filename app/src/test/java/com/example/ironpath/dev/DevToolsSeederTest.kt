@@ -1,8 +1,11 @@
 package com.example.ironpath.dev
 
 import androidx.room.withTransaction
+import com.example.ironpath.data.account.AccountSessionOperationGate
 import com.example.ironpath.data.backup.RoomBackupStore
 import com.example.ironpath.data.local.IronPathDatabase
+import com.example.ironpath.data.local.StaleProfileGenerationException
+import com.example.ironpath.data.local.dao.AccountDeletionDao
 import com.example.ironpath.data.local.dao.HistoryDao
 import com.example.ironpath.data.local.entity.LoggedExercise
 import com.example.ironpath.data.local.entity.LoggedSet
@@ -33,6 +36,7 @@ import org.junit.Test
 class DevToolsSeederTest {
 
     private lateinit var database: IronPathDatabase
+    private lateinit var accountDeletionDao: AccountDeletionDao
     private lateinit var historyDao: HistoryDao
     private lateinit var onboardingRepository: OnboardingRepository
     private lateinit var backupStore: RoomBackupStore
@@ -42,6 +46,7 @@ class DevToolsSeederTest {
     @Before
     fun setUp() {
         database = mockk(relaxed = true)
+        accountDeletionDao = mockk()
         historyDao = mockk(relaxed = true)
         onboardingRepository = mockk()
         backupStore = mockk(relaxed = true)
@@ -49,6 +54,8 @@ class DevToolsSeederTest {
         recordRepository = mockk(relaxed = true)
 
         every { database.historyDao() } returns historyDao
+        every { database.accountDeletionDao() } returns accountDeletionDao
+        coEvery { accountDeletionDao.getJournal() } returns null
         coEvery { historyDao.countLogsWithSourcePlannedWorkoutId(any()) } returns 0
         coEvery { onboardingRepository.reset() } returns true
         coEvery { planRepository.getActivePlan() } returns null
@@ -209,22 +216,63 @@ class DevToolsSeederTest {
     }
 
     @Test
-    fun `clearAllData resets onboarding before clearing Room`() = runTest {
+    fun `clearAllData validates the profile then resets onboarding before Room`() = runTest {
         val operations = mutableListOf<String>()
+        coEvery { backupStore.verifyProfileWritable(7) } coAnswers
+            {
+                operations += "guard"
+                Unit
+            }
         coEvery { onboardingRepository.reset() } coAnswers
             {
                 operations += "onboarding"
                 true
             }
-        coEvery { backupStore.resetLocalProfile() } coAnswers
+        coEvery { backupStore.resetLocalProfile(null, 7) } coAnswers
             {
                 operations += "room"
                 com.example.ironpath.data.backup.LocalProfileResetResult.Committed(true)
             }
 
-        seeder().clearAllData()
+        seeder().clearAllData(7)
 
-        assertEquals(listOf("onboarding", "room"), operations)
+        assertEquals(listOf("guard", "onboarding", "room"), operations)
+    }
+
+    @Test
+    fun `clearAllData does not reset onboarding for a stale profile`() = runTest {
+        coEvery { backupStore.verifyProfileWritable(7) } throws StaleProfileGenerationException()
+
+        var thrown: StaleProfileGenerationException? = null
+        try {
+            seeder().clearAllData(7)
+        } catch (error: StaleProfileGenerationException) {
+            thrown = error
+        }
+
+        assertTrue(thrown is StaleProfileGenerationException)
+        coVerify(exactly = 0) { onboardingRepository.reset() }
+        coVerify(exactly = 0) { backupStore.resetLocalProfile(any(), any()) }
+    }
+
+    @Test
+    fun `clearAllData does not reset onboarding while an account operation is active`() = runTest {
+        val gate = AccountSessionOperationGate().apply { closeAdmission() }
+
+        var thrown: IllegalStateException? = null
+        try {
+            seeder(operationGate = gate).clearAllData(7)
+        } catch (error: IllegalStateException) {
+            thrown = error
+        }
+
+        assertEquals(
+            "An account operation is in progress or the signed-in profile changed",
+            thrown?.message,
+        )
+        coVerify(exactly = 0) { backupStore.verifyProfileWritable(any()) }
+        coVerify(exactly = 0) { onboardingRepository.reset() }
+        coVerify(exactly = 0) { backupStore.resetLocalProfile(any(), any()) }
     }
 
     @Test
@@ -279,6 +327,7 @@ class DevToolsSeederTest {
     private fun seeder(
         timeProvider: FakeTimeProvider = FakeTimeProvider(),
         idProvider: FakeIdProvider = FakeIdProvider(),
+        operationGate: AccountSessionOperationGate = AccountSessionOperationGate(),
     ) =
         DevToolsSeeder(
             database = database,
@@ -288,6 +337,7 @@ class DevToolsSeederTest {
             recordRepository = recordRepository,
             timeProvider = timeProvider,
             idProvider = idProvider,
+            operationGate = operationGate,
         )
 
     private companion object {

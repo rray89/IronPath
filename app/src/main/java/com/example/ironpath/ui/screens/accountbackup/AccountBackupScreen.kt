@@ -14,6 +14,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Text
@@ -22,8 +23,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.unit.dp
@@ -61,6 +64,18 @@ fun AccountBackupScreen(
             accountStatusDetail(state),
             modifier = Modifier.testTag(TestTags.ACCOUNT_STATUS)
         )
+        if (state == AccountState.DeletingAccount || manual.accountDeletion.busy) {
+            LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+            Text(
+                "Deleting the demo account and all data. Keep IronPath open while this finishes.",
+                modifier =
+                    Modifier.semantics {
+                        stateDescription = "Account deletion in progress"
+                        liveRegion = LiveRegionMode.Polite
+                    },
+                style = MaterialTheme.typography.bodyMedium,
+            )
+        }
         val profile =
             when (state) {
                 is AccountState.AwaitingDataChoice -> state.profile
@@ -102,6 +117,19 @@ fun AccountBackupScreen(
                 ) {
                     Text("FINISH SIGN OUT")
                 }
+            is AccountState.AccountDeletionPending -> {
+                AccountSection(
+                    "Deletion needs retry",
+                    "Deletion stopped at ${state.progress.stage.name.lowercase().replace('_', ' ')}. Retry to finish the same operation.",
+                )
+                Button(
+                    onClick = manualActions.retryAccountDeletion,
+                    enabled = !manual.accountDeletion.busy,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text("RETRY DELETION")
+                }
+            }
             is AccountState.RecoverableError ->
                 Button(onClick = onRetry, modifier = Modifier.fillMaxWidth()) { Text("TRY AGAIN") }
             else -> Unit
@@ -122,6 +150,18 @@ fun AccountBackupScreen(
                 modifier = Modifier.fillMaxWidth(),
             ) {
                 Text("SIGN OUT")
+            }
+        }
+        if (
+            (state is AccountState.SignedIn && state.canDeleteAccount) ||
+                (state is AccountState.AwaitingDataChoice && state.canDeleteUnclaimedData)
+        ) {
+            TextButton(
+                onClick = manualActions.openDeleteReview,
+                enabled = !manual.busy && !manual.signOutBusy,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text("DELETE ACCOUNT")
             }
         }
         Text(
@@ -244,6 +284,66 @@ fun AccountBackupScreen(
             )
         }
     }
+    manual.accountDeletion.target
+        ?.takeIf { !manual.accountDeletion.busy }
+        ?.let { target ->
+            val localDataScope =
+                if (target.request.expectedLocalOwnerUid == null)
+                    "all unclaimed local training data"
+                else "all local training data owned by this account"
+            if (target.confirmingIdentity) {
+                AlertDialog(
+                    onDismissRequest = manualActions.dismissDeleteReview,
+                    title = { Text("Confirm account deletion") },
+                    text = {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text("Confirm you are signed in as ${target.displayName}.")
+                            Text(target.email)
+                            Text(
+                                "This permanently deletes this demo IronPath account, all of its demo backups, $localDataScope, and any workout in progress. This cannot be undone. Your Google account is not affected."
+                            )
+                        }
+                    },
+                    confirmButton = {
+                        TextButton(
+                            onClick = manualActions.confirmAccountDeletion,
+                            enabled = !manual.accountDeletion.busy,
+                        ) {
+                            Text("DELETE ACCOUNT AND ALL DATA")
+                        }
+                    },
+                    dismissButton = {
+                        TextButton(
+                            onClick = manualActions.dismissDeleteReview,
+                            enabled = !manual.accountDeletion.busy,
+                        ) {
+                            Text("CANCEL")
+                        }
+                    },
+                )
+            } else {
+                AlertDialog(
+                    onDismissRequest = manualActions.dismissDeleteReview,
+                    title = { Text("Delete account and data?") },
+                    text = {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text("You are signed in as ${target.displayName} (${target.email}).")
+                            Text(
+                                "Deleting this demo IronPath account removes all of its demo backups, $localDataScope, and any workout in progress. This cannot be undone. Your Google account is not affected."
+                            )
+                        }
+                    },
+                    confirmButton = {
+                        TextButton(onClick = manualActions.continueAccountDeletion) {
+                            Text("CONTINUE")
+                        }
+                    },
+                    dismissButton = {
+                        TextButton(onClick = manualActions.dismissDeleteReview) { Text("CANCEL") }
+                    },
+                )
+            }
+        }
 }
 
 @Composable
@@ -288,7 +388,8 @@ internal fun accountStatusLabel(state: AccountState): String =
         AccountState.NeedsReauthentication -> "Needs sign-in"
         is AccountState.SignOutPending -> "Sign-out needs completion"
         AccountState.SigningOut -> "Signing out"
-        AccountState.DeletingAccount -> "Account unavailable"
+        AccountState.DeletingAccount -> "Deleting account and data"
+        is AccountState.AccountDeletionPending -> "Deletion needs retry"
     }
 
 internal fun accountStatusDetail(state: AccountState): String =
@@ -324,6 +425,8 @@ internal fun accountStatusDetail(state: AccountState): String =
             "This local profile is associated with the signed-in demo account. Training data remains on this device; sign-in does not imply a shared backup."
         is AccountState.SignOutPending ->
             "Training data removal is complete. Finish sign-out to clear this account session."
+        is AccountState.AccountDeletionPending ->
+            "Deletion is paused at ${state.progress.stage.name.lowercase().replace('_', ' ')}. Retry the same operation to finish cleanup."
         is AccountState.RecoverableError ->
             when (state.reason) {
                 AccountFailureReason.LocalStateUnavailable ->

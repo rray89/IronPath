@@ -13,10 +13,7 @@ class SharedPreferencesOnboardingRepository
 @Inject
 constructor(@param:ApplicationContext private val context: Context) : OnboardingRepository {
     override suspend fun isCompleted(): Boolean =
-        withContext(Dispatchers.IO) {
-            runCatching { preferences().getBoolean(KEY_ONBOARDING_COMPLETED, false) }
-                .getOrDefault(false)
-        }
+        withContext(Dispatchers.IO) { preferences().getBoolean(KEY_ONBOARDING_COMPLETED, false) }
 
     @SuppressLint("UseKtx") // SharedPreferences.edit(commit = true) does not expose commit failure.
     override suspend fun complete(): Boolean =

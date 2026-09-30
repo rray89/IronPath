@@ -1,6 +1,7 @@
 package com.example.ironpath.dev
 
 import androidx.room.withTransaction
+import com.example.ironpath.data.account.AccountSessionOperationGate
 import com.example.ironpath.data.backup.LocalProfileResetResult
 import com.example.ironpath.data.backup.RoomBackupStore
 import com.example.ironpath.data.local.IronPathDatabase
@@ -12,6 +13,7 @@ import com.example.ironpath.data.local.entity.PlannedWorkout
 import com.example.ironpath.data.local.entity.RecordSource
 import com.example.ironpath.data.local.entity.WeeklyPlan
 import com.example.ironpath.data.local.entity.WorkoutLog
+import com.example.ironpath.data.local.requireWritesAllowed
 import com.example.ironpath.data.onboarding.OnboardingRepository
 import com.example.ironpath.data.repository.PlanRepository
 import com.example.ironpath.data.repository.RecordRepository
@@ -34,10 +36,11 @@ constructor(
     private val recordRepository: RecordRepository,
     private val timeProvider: TimeProvider,
     private val idProvider: IdProvider,
+    private val operationGate: AccountSessionOperationGate,
 ) {
 
     /** Seed a 3-day Strength plan where today is one of the workout days. */
-    suspend fun seedPlanForToday() {
+    suspend fun seedPlanForToday(expectedProfileGeneration: Long? = null) {
         val today = timeProvider.today()
         val todayDow = today.dayOfWeek.value
         val existing = planRepository.getActivePlan()
@@ -47,11 +50,11 @@ constructor(
                 throw IllegalStateException("Today's workout already exists")
             }
         }
-        seedPlanWithAnchorDay(todayDow, today)
+        seedPlanWithAnchorDay(todayDow, today, expectedProfileGeneration)
     }
 
     /** Seed a 3-day Strength plan where tomorrow is one of the workout days. */
-    suspend fun seedPlanForTomorrow() {
+    suspend fun seedPlanForTomorrow(expectedProfileGeneration: Long? = null) {
         val tomorrow = timeProvider.today().plusDays(1)
         val tomorrowDow = tomorrow.dayOfWeek.value
         val existing = planRepository.getActivePlan()
@@ -61,11 +64,11 @@ constructor(
                 throw IllegalStateException("Tomorrow's workout already exists")
             }
         }
-        seedPlanWithAnchorDay(tomorrowDow, tomorrow)
+        seedPlanWithAnchorDay(tomorrowDow, tomorrow, expectedProfileGeneration)
     }
 
     /** Insert 5 workout log entries spread over the past 2 weeks. */
-    suspend fun seedHistoryLogs() {
+    suspend fun seedHistoryLogs(expectedProfileGeneration: Long? = null) {
         val now = timeProvider.epochMillis()
         val dayMs = 24 * 60 * 60 * 1000L
         val entries =
@@ -78,6 +81,7 @@ constructor(
             )
         val historyDao = database.historyDao()
         database.withTransaction {
+            database.requireWritesAllowed(expectedProfileGeneration)
             if (historyDao.countLogsWithSourcePlannedWorkoutId(DEV_HISTORY_SOURCE_ID) > 0) {
                 throw IllegalStateException("History logs already seeded")
             }
@@ -105,7 +109,7 @@ constructor(
     }
 
     /** Insert 5 personal records for common exercises. */
-    suspend fun seedRecords() {
+    suspend fun seedRecords(expectedProfileGeneration: Long? = null) {
         val today = timeProvider.today()
         val createdAt = timeProvider.epochMillis()
         val entries =
@@ -118,6 +122,7 @@ constructor(
             )
         try {
             database.withTransaction {
+                database.requireWritesAllowed(expectedProfileGeneration)
                 entries.forEach { (name, weightKg, achievedOn) ->
                     recordRepository.insertRecord(
                         PersonalRecord(
@@ -128,7 +133,8 @@ constructor(
                             achievedOn = achievedOn,
                             sourceType = RecordSource.Manual,
                             createdAt = createdAt,
-                        )
+                        ),
+                        expectedProfileGeneration,
                     )
                 }
             }
@@ -138,11 +144,21 @@ constructor(
     }
 
     /** Wipe all local data. */
-    suspend fun clearAllData() {
-        check(onboardingRepository.reset()) { "Failed to reset onboarding" }
-        check(backupStore.resetLocalProfile() is LocalProfileResetResult.Committed) {
-            "Failed to clear local training data"
-        }
+    suspend fun clearAllData(expectedProfileGeneration: Long? = null) {
+        val cleared =
+            operationGate.withManualOperation(waitForTurn = false, unavailable = false) {
+                backupStore.verifyProfileWritable(expectedProfileGeneration)
+                check(onboardingRepository.reset()) { "Failed to reset onboarding" }
+                check(
+                    backupStore.resetLocalProfile(
+                        expectedProfileGeneration = expectedProfileGeneration
+                    ) is LocalProfileResetResult.Committed
+                ) {
+                    "Failed to clear local training data"
+                }
+                true
+            }
+        check(cleared) { "An account operation is in progress or the signed-in profile changed" }
     }
 
     // -- Helpers --
@@ -152,7 +168,11 @@ constructor(
      * (1=Mon..7=Sun) is the first of the three workout days. This is a dev-only bypass of the
      * "generate next Monday" product rule.
      */
-    private suspend fun seedPlanWithAnchorDay(anchorDow: Int, anchorDate: LocalDate) {
+    private suspend fun seedPlanWithAnchorDay(
+        anchorDow: Int,
+        anchorDate: LocalDate,
+        expectedProfileGeneration: Long? = null,
+    ) {
         val thisMonday = anchorDate.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY))
         val thisSunday = thisMonday.plusDays(6)
 
@@ -205,7 +225,7 @@ constructor(
             }
         }
 
-        planRepository.createPlan(plan, workouts, exercises)
+        planRepository.createPlan(plan, workouts, exercises, expectedProfileGeneration)
     }
 
     private fun wrapDow(d: Int): Int = ((d - 1) % 7) + 1

@@ -7,6 +7,7 @@ import com.example.ironpath.data.local.entity.PersonalRecord
 import com.example.ironpath.data.repository.HistoryRepository
 import com.example.ironpath.data.repository.PlanRepository
 import com.example.ironpath.data.repository.RecordRepository
+import com.example.ironpath.domain.account.ProfileGenerationToken
 import com.example.ironpath.domain.identity.IdProvider
 import com.example.ironpath.domain.time.TimeProvider
 import com.example.ironpath.domain.validation.ValidatedRecordDraft
@@ -31,6 +32,7 @@ constructor(
     private val planRepository: PlanRepository,
     private val timeProvider: TimeProvider,
     private val idProvider: IdProvider,
+    private val profileGenerationToken: ProfileGenerationToken? = null,
 ) : ViewModel() {
 
     private val _selectedTab = MutableStateFlow(HistoryTab.Logs)
@@ -58,6 +60,12 @@ constructor(
     // Exercise name suggestions from both plans and existing records
     private val _exerciseSuggestions = MutableStateFlow<List<String>>(emptyList())
     val exerciseSuggestions: StateFlow<List<String>> = _exerciseSuggestions.asStateFlow()
+
+    init {
+        profileGenerationToken?.let { token ->
+            viewModelScope.launch { runCatching { token.initialize() } }
+        }
+    }
 
     fun selectTab(tab: HistoryTab) {
         _selectedTab.value = tab
@@ -92,6 +100,8 @@ constructor(
 
     fun saveRecord(draft: ValidatedRecordDraft, onSaved: () -> Unit) {
         if (isSavingRecord) return
+        val expectedProfileGeneration = profileGenerationToken?.current()
+        if (profileGenerationToken != null && expectedProfileGeneration == null) return
         isSavingRecord = true
         _addRecordError.value = null
         viewModelScope.launch {
@@ -107,7 +117,7 @@ constructor(
                             note = draft.note,
                             createdAt = timeProvider.epochMillis(),
                         )
-                    recordRepository.insertRecord(record)
+                    recordRepository.insertRecord(record, expectedProfileGeneration)
                 } catch (cancellation: CancellationException) {
                     throw cancellation
                 } catch (_: SQLiteConstraintException) {

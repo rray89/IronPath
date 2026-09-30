@@ -260,6 +260,7 @@ class AccountBackupViewModelTest {
                 }
             val viewModel = viewModel(gateway)
             advanceUntilIdle()
+            assertEquals(0L, viewModel.manual.value.profileResetEpoch)
 
             viewModel.openSignOutReview()
             viewModel.chooseSignOutChoice(SignOutDataChoice.RemoveData)
@@ -278,6 +279,7 @@ class AccountBackupViewModelTest {
             assertTrue(
                 viewModel.manual.value.feedback?.contains("Training data was removed") == true
             )
+            assertEquals(1L, viewModel.manual.value.profileResetEpoch)
 
             gateway.state.value = AccountState.SignOutPending(profile.id, profile, sessionEpoch = 8)
             viewModel.retrySignOut()
@@ -290,6 +292,7 @@ class AccountBackupViewModelTest {
                 viewModel.manual.value.feedback?.contains("Training data was removed") == true
             )
             assertFalse(viewModel.manual.value.feedback?.contains("remain on this device") == true)
+            assertEquals(2L, viewModel.manual.value.profileResetEpoch)
         }
 
     @Test
@@ -318,6 +321,261 @@ class AccountBackupViewModelTest {
             assertTrue(feedback.contains("Check account and training data status"))
             assertFalse(feedback.contains("remain available"))
         }
+
+    @Test
+    fun `delete review supports owned accounts and unclaimed data but rejects another owner`() =
+        runTest {
+            val profile =
+                AccountProfile(
+                    AccountId("demo-incarnation-4"),
+                    "Demo Athlete",
+                    "athlete@example.invalid"
+                )
+            val gateway =
+                Gateway().apply {
+                    state.value =
+                        AccountState.SignedIn(
+                            profile.id,
+                            profile,
+                            sessionEpoch = 9,
+                            profileGeneration = 12,
+                            canDeleteAccount = true,
+                        )
+                }
+            val viewModel = viewModel(gateway)
+            advanceUntilIdle()
+
+            viewModel.openDeleteReview()
+            val target = viewModel.manual.value.accountDeletion.target!!
+            assertEquals(
+                AccountDeletionRequest(profile.id, sessionEpoch = 9, profileGeneration = 12),
+                target.request,
+            )
+            assertEquals(profile.displayName, target.displayName)
+            assertEquals(profile.email, target.email)
+            viewModel.dismissDeleteReview()
+
+            assertNull(viewModel.manual.value.accountDeletion.target)
+            assertTrue(gateway.deletionRequests.isEmpty())
+            assertEquals(0, gateway.deletionRetries)
+
+            gateway.state.value =
+                AccountState.SignedIn(
+                    profile.id,
+                    profile,
+                    sessionEpoch = 9,
+                    profileGeneration = 12,
+                    canDeleteAccount = false,
+                )
+            viewModel.openDeleteReview()
+            assertNull(viewModel.manual.value.accountDeletion.target)
+            gateway.state.value =
+                AccountState.AwaitingDataChoice(
+                    accountId = profile.id,
+                    context =
+                        DataChoiceContext(
+                            LocalOwnership.Unclaimed,
+                            localDataIsEmpty = false,
+                            remoteSnapshot = RemoteSnapshotPresence.Absent,
+                            conflict = null,
+                        ),
+                    profile = profile,
+                    sessionEpoch = 9,
+                    profileGeneration = 12,
+                    canDeleteUnclaimedData = true,
+                )
+            viewModel.openDeleteReview()
+            val unclaimedTarget = viewModel.manual.value.accountDeletion.target!!
+            assertEquals(
+                AccountDeletionRequest(
+                    profile.id,
+                    sessionEpoch = 9,
+                    profileGeneration = 12,
+                    expectedLocalOwnerUid = null,
+                ),
+                unclaimedTarget.request,
+            )
+            viewModel.continueAccountDeletion()
+            viewModel.confirmAccountDeletion()
+            advanceUntilIdle()
+            assertEquals(listOf(unclaimedTarget.request), gateway.deletionRequests)
+
+            gateway.state.value =
+                AccountState.AwaitingDataChoice(
+                    accountId = profile.id,
+                    context =
+                        DataChoiceContext(
+                            LocalOwnership.Account(AccountId("another-owner")),
+                            localDataIsEmpty = true,
+                            remoteSnapshot = RemoteSnapshotPresence.Absent,
+                            conflict = null,
+                        ),
+                    profile = profile,
+                    sessionEpoch = 9,
+                    profileGeneration = 12,
+                )
+            viewModel.openDeleteReview()
+            assertNull(viewModel.manual.value.accountDeletion.target)
+        }
+
+    @Test
+    fun `deletion requires identity confirmation and rejects a changed profile generation`() =
+        runTest {
+            val profile =
+                AccountProfile(
+                    AccountId("demo-incarnation-4"),
+                    "Demo Athlete",
+                    "athlete@example.invalid"
+                )
+            val gateway =
+                Gateway().apply {
+                    state.value =
+                        AccountState.SignedIn(
+                            profile.id,
+                            profile,
+                            sessionEpoch = 9,
+                            profileGeneration = 12,
+                            canDeleteAccount = true,
+                        )
+                }
+            val viewModel = viewModel(gateway)
+            advanceUntilIdle()
+            viewModel.openDeleteReview()
+
+            viewModel.confirmAccountDeletion()
+            assertTrue(gateway.deletionRequests.isEmpty())
+            viewModel.continueAccountDeletion()
+            gateway.state.value =
+                AccountState.SignedIn(
+                    profile.id,
+                    profile,
+                    sessionEpoch = 9,
+                    profileGeneration = 13,
+                    canDeleteAccount = true,
+                )
+            viewModel.confirmAccountDeletion()
+
+            assertTrue(gateway.deletionRequests.isEmpty())
+            assertNull(viewModel.manual.value.accountDeletion.target)
+            assertTrue(viewModel.manual.value.feedback.orEmpty().contains("profile changed"))
+        }
+
+    @Test
+    fun `deletion success clears backup presentation and can be acknowledged for navigation`() =
+        runTest {
+            val profile =
+                AccountProfile(
+                    AccountId("demo-incarnation-4"),
+                    "Demo Athlete",
+                    "athlete@example.invalid"
+                )
+            val gateway =
+                Gateway().apply {
+                    state.value =
+                        AccountState.SignedIn(
+                            profile.id,
+                            profile,
+                            sessionEpoch = 9,
+                            profileGeneration = 12,
+                            canDeleteAccount = true,
+                        )
+                    deletionAction = {
+                        state.value = AccountState.LocalOnly
+                        AccountActionResult.Completed
+                    }
+                }
+            val backup = Backup().apply { undoAvailable.value = true }
+            val viewModel = viewModel(gateway, backup)
+            advanceUntilIdle()
+            viewModel.openDeleteReview()
+            viewModel.continueAccountDeletion()
+            viewModel.confirmAccountDeletion()
+            advanceUntilIdle()
+
+            assertEquals(
+                listOf(AccountDeletionRequest(profile.id, 9, 12)),
+                gateway.deletionRequests,
+            )
+            assertEquals(
+                13L,
+                viewModel.manual.value.accountDeletion.completionTargetGeneration,
+            )
+            assertEquals(1L, viewModel.manual.value.profileResetEpoch)
+            assertNull(viewModel.manual.value.review)
+            assertNull(viewModel.manual.value.latest)
+            assertFalse(viewModel.manual.value.undoAvailable)
+            assertEquals(BackupStatus.LocalOnly, viewModel.manual.value.status)
+            assertTrue(
+                viewModel.manual.value.feedback
+                    .orEmpty()
+                    .contains("Google account was not affected")
+            )
+            viewModel.acknowledgeDeletionNavigation(12L)
+            assertEquals(
+                13L,
+                viewModel.manual.value.accountDeletion.completionTargetGeneration,
+            )
+            viewModel.acknowledgeDeletionNavigation(13L)
+            assertNull(viewModel.manual.value.accountDeletion.completionTargetGeneration)
+        }
+
+    @Test
+    fun `pending deletion exposes same-operation retry and a recreated screen restores it`() =
+        runTest {
+            val progress =
+                AccountDeletionProgress(
+                    operationId = "operation-1",
+                    accountId = AccountId("demo-incarnation-4"),
+                    sessionEpoch = 9,
+                    profileGeneration = 12,
+                    stage = AccountDeletionStage.PREPARED,
+                )
+            val gateway =
+                Gateway().apply {
+                    state.value = AccountState.AccountDeletionPending(progress)
+                    retryAction = {
+                        state.value = AccountState.LocalOnly
+                        AccountActionResult.Completed
+                    }
+                }
+            val viewModel = viewModel(gateway)
+            advanceUntilIdle()
+
+            assertTrue(viewModel.manual.value.accountDeletion.retryAvailable)
+            assertEquals(progress, viewModel.manual.value.accountDeletion.progress)
+            viewModel.retryAccountDeletion()
+            advanceUntilIdle()
+
+            assertEquals(1, gateway.deletionRetries)
+            assertEquals(
+                13L,
+                viewModel.manual.value.accountDeletion.completionTargetGeneration,
+            )
+            assertNull(viewModel.manual.value.accountDeletion.progress)
+        }
+
+    @Test
+    fun `startup recovery clears stale deletion retry from the recreated screen`() = runTest {
+        val progress =
+            AccountDeletionProgress(
+                operationId = "operation-1",
+                accountId = AccountId("demo-incarnation-4"),
+                sessionEpoch = 9,
+                profileGeneration = 12,
+                stage = AccountDeletionStage.PREPARED,
+            )
+        val gateway =
+            Gateway().apply { state.value = AccountState.AccountDeletionPending(progress) }
+        val viewModel = viewModel(gateway)
+        advanceUntilIdle()
+        assertTrue(viewModel.manual.value.accountDeletion.retryAvailable)
+
+        gateway.state.value = AccountState.LocalOnly
+        advanceUntilIdle()
+
+        assertEquals(AccountDeletionUiState(), viewModel.manual.value.accountDeletion)
+        assertFalse(viewModel.manual.value.busy)
+    }
 
     private fun viewModel(
         gateway: Gateway,
@@ -350,6 +608,12 @@ class AccountBackupViewModelTest {
         var cancelResult: AccountActionResult = AccountActionResult.Completed
         var signOutResult: AccountActionResult = AccountActionResult.Unavailable
         val signOutRequests = mutableListOf<SignOutRequest>()
+        val deletionRequests = mutableListOf<AccountDeletionRequest>()
+        var deletionRetries = 0
+        var deletionAction: (AccountDeletionRequest) -> AccountActionResult = {
+            AccountActionResult.Unavailable
+        }
+        var retryAction: () -> AccountActionResult = { AccountActionResult.Unavailable }
         var signInStateAfterSuccess: AccountState? = null
         var signOutStateAfterFailure: AccountState? = null
 
@@ -387,6 +651,16 @@ class AccountBackupViewModelTest {
         }
 
         override suspend fun deleteAccount(): AccountActionResult = AccountActionResult.Unavailable
+
+        override suspend fun deleteAccount(request: AccountDeletionRequest): AccountActionResult {
+            deletionRequests += request
+            return deletionAction(request)
+        }
+
+        override suspend fun retryAccountDeletion(): AccountActionResult {
+            deletionRetries++
+            return retryAction()
+        }
     }
 
     private class Backup : BackupCoordinator {

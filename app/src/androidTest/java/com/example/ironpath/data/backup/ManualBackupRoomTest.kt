@@ -2,6 +2,12 @@ package com.example.ironpath.data.backup
 
 import androidx.room.withTransaction
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import com.example.ironpath.data.local.StaleProfileGenerationException
+import com.example.ironpath.data.performance.PerformanceTracer
+import com.example.ironpath.data.repository.HistoryRepository
+import com.example.ironpath.data.repository.PlanRepository
+import com.example.ironpath.data.repository.RecordRepository
+import com.example.ironpath.data.repository.SessionRepository
 import com.example.ironpath.domain.account.AccountId
 import com.example.ironpath.domain.backup.RemoteBackupSummary
 import com.example.ironpath.testutil.RoomTestDatabaseRule
@@ -16,6 +22,97 @@ import org.junit.runner.RunWith
 @RunWith(AndroidJUnit4::class)
 class ManualBackupRoomTest {
     @get:Rule val databaseRule = RoomTestDatabaseRule()
+
+    @Test
+    fun oldProfileGenerationCannotWritePlanOrCommitBackupAfterProfileReset() = runBlocking {
+        val database = databaseRule.database
+        val store = RoomBackupStore(database, SequenceIdProvider("installation"))
+        val staleCapture = store.capture()
+
+        assertTrue(
+            store.resetLocalProfile(
+                expectedProfileGeneration = staleCapture.metadata.profileGeneration
+            ) is LocalProfileResetResult.Committed
+        )
+
+        val repository = PlanRepository(database.planDao(), database, store)
+        var staleWrite: Exception? = null
+        try {
+            repository.createPlan(
+                TestData.plan(id = "stale-plan"),
+                listOf(TestData.workout(id = "stale-workout", planId = "stale-plan")),
+                listOf(
+                    TestData.plannedExercise(
+                        id = "stale-exercise",
+                        workoutId = "stale-workout",
+                    )
+                ),
+                expectedProfileGeneration = staleCapture.metadata.profileGeneration,
+            )
+        } catch (failure: Exception) {
+            staleWrite = failure
+        }
+        assertTrue(staleWrite is StaleProfileGenerationException)
+        assertNull(database.planDao().getActivePlan())
+        val sessions =
+            SessionRepository(
+                database.sessionDao(),
+                database.historyDao(),
+                database.planDao(),
+                database,
+                PerformanceTracer(),
+                store,
+            )
+        assertTrue(
+            failureOf {
+                sessions.startSession(
+                    TestData.session(id = "stale-session"),
+                    emptyList(),
+                    staleCapture.metadata.profileGeneration,
+                )
+            }
+                is StaleProfileGenerationException
+        )
+        assertTrue(
+            failureOf {
+                HistoryRepository(database.historyDao(), database, store)
+                    .insertLog(
+                        TestData.log(id = "stale-log"),
+                        staleCapture.metadata.profileGeneration,
+                    )
+            }
+                is StaleProfileGenerationException
+        )
+        assertTrue(
+            failureOf {
+                RecordRepository(database.recordDao(), database, store)
+                    .insertRecord(
+                        TestData.record(id = "stale-record"),
+                        staleCapture.metadata.profileGeneration,
+                    )
+            }
+                is StaleProfileGenerationException
+        )
+        assertNull(database.sessionDao().getActiveSession())
+        assertTrue(database.backupDao().getWorkoutLogs().isEmpty())
+        assertNull(database.recordDao().getRecordById("stale-record"))
+        assertFalse(
+            store.recordBackup(
+                staleCapture,
+                AccountId("owner"),
+                artifact(staleCapture.bundle),
+            )
+        )
+
+        val newGeneration = store.capture().metadata.profileGeneration
+        repository.createPlan(
+            TestData.plan(id = "fresh-plan"),
+            listOf(TestData.workout(id = "fresh-workout", planId = "fresh-plan")),
+            listOf(TestData.plannedExercise(id = "fresh-exercise", workoutId = "fresh-workout")),
+            expectedProfileGeneration = newGeneration,
+        )
+        assertEquals("fresh-plan", database.planDao().getActivePlan()?.id)
+    }
 
     @Test
     fun completedBackupPersistsBaselineAndLaterLocalEditsRemainDirty() = runBlocking {
@@ -167,4 +264,12 @@ class ManualBackupRoomTest {
             snapshot
         )
     }
+
+    private suspend fun failureOf(block: suspend () -> Unit): Exception? =
+        try {
+            block()
+            null
+        } catch (failure: Exception) {
+            failure
+        }
 }

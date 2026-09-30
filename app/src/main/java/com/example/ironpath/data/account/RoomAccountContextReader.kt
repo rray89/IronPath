@@ -29,6 +29,7 @@ class RoomAccountContextReader @Inject constructor(private val database: IronPat
                 localDataIsEmpty = !dao.hasIncludedData(),
                 pendingSignOutUid = metadata.pendingSignOutUid,
                 activeWorkoutPresent = database.sessionDao().getActiveSession() != null,
+                profileGeneration = metadata.profileGeneration,
                 conflict =
                     PersistedConflictContext(
                         metadata.lastObservedRemoteBackupId,

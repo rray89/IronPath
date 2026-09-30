@@ -10,6 +10,9 @@ interface AccountGateway {
     /** Reconstruct local identity/lineage without inspecting remote storage. */
     suspend fun refreshLocal(): AccountActionResult = refresh()
 
+    /** Reconcile in-memory account state after startup has recovered the deletion journal. */
+    suspend fun reconcileAfterDeletionRecovery(): AccountActionResult = refreshLocal()
+
     suspend fun cancelDataChoice(): AccountActionResult
 
     suspend fun recoverUnreadableSession(): AccountActionResult = AccountActionResult.Unavailable
@@ -21,6 +24,11 @@ interface AccountGateway {
     suspend fun signOut(request: SignOutRequest): AccountActionResult
 
     suspend fun deleteAccount(): AccountActionResult
+
+    suspend fun deleteAccount(request: AccountDeletionRequest): AccountActionResult =
+        AccountActionResult.Unavailable
+
+    suspend fun retryAccountDeletion(): AccountActionResult = AccountActionResult.Unavailable
 }
 
 sealed interface AccountState {
@@ -40,12 +48,17 @@ sealed interface AccountState {
         val context: DataChoiceContext,
         val profile: AccountProfile? = null,
         val sessionEpoch: Long = 0,
+        val profileGeneration: Long = 0,
+        /** Only unclaimed local data may be deleted while account setup is unresolved. */
+        val canDeleteUnclaimedData: Boolean = false,
     ) : AccountState
 
     data class SignedIn(
         val accountId: AccountId,
         val profile: AccountProfile? = null,
         val sessionEpoch: Long = 0,
+        val profileGeneration: Long = 0,
+        val canDeleteAccount: Boolean = false,
     ) : AccountState
 
     /** Local removal committed; only clearing this same account's session may be retried. */
@@ -60,6 +73,8 @@ sealed interface AccountState {
     data object SigningOut : AccountState
 
     data object DeletingAccount : AccountState
+
+    data class AccountDeletionPending(val progress: AccountDeletionProgress) : AccountState
 
     data class RecoverableError(
         val reason: AccountFailureReason,

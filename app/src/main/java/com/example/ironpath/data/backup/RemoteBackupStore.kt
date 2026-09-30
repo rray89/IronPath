@@ -8,12 +8,24 @@ import com.example.ironpath.domain.backup.RemoteBackupSummary
 interface RemoteBackupStore {
     suspend fun latest(accountId: AccountId): RemoteBackupRead
 
+    /** Permanently fences this account incarnation and removes all of its backup state. */
+    suspend fun purgeAccount(accountId: AccountId): RemoteAccountPurge =
+        RemoteAccountPurge.Unavailable
+
     suspend fun publish(
         accountId: AccountId,
         expectedGeneration: Long,
         sourceInstallationId: String,
         snapshot: EncodedBackupSnapshot,
     ): RemoteBackupPublish
+}
+
+sealed interface RemoteAccountPurge {
+    data object Completed : RemoteAccountPurge
+
+    data object Unavailable : RemoteAccountPurge
+
+    data class Failed(val reason: BackupFailureReason) : RemoteAccountPurge
 }
 
 data class RemoteBackupArtifact(

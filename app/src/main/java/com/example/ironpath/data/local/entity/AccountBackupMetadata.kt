@@ -18,6 +18,8 @@ data class AccountBackupMetadata(
     val requiresLineageReviewAfterUndo: Boolean = false,
     /** Account whose data removal committed before its persisted session was cleared. */
     val pendingSignOutUid: String? = null,
+    /** Changes whenever this device starts a new local profile after destructive cleanup. */
+    val profileGeneration: Long = 0,
 ) {
     companion object {
         const val SINGLETON_ID = 1

@@ -27,6 +27,7 @@ constructor(
     private val installationGuard: InstallationGuard,
     private val localProfileResetter: LocalProfileResetter,
     private val operationGate: AccountSessionOperationGate,
+    private val deletionManager: AccountDeletionManager = UnavailableAccountDeletionManager,
 ) : AccountGateway {
     private val mutableState = MutableStateFlow<AccountState>(AccountState.Loading)
     override val state: StateFlow<AccountState> = mutableState
@@ -39,10 +40,27 @@ constructor(
 
     override suspend fun refreshLocal(): AccountActionResult = refreshContext(inspectRemote = false)
 
+    override suspend fun reconcileAfterDeletionRecovery(): AccountActionResult {
+        mutex.withLock {
+            if (mutableState.value == AccountState.DeletingAccount) {
+                canCancel = false
+                mutableState.value = AccountState.Loading
+            }
+        }
+        return refreshContext(inspectRemote = false)
+    }
+
     private suspend fun refreshContext(inspectRemote: Boolean): AccountActionResult =
         mutex.withLock {
             if (mutableState.value.isTransitioning())
                 return@withLock AccountActionResult.Unavailable
+            val pendingDeletion = deletionManager.pending()
+            if (pendingDeletion != null) {
+                operationGate.closeAdmission()
+                canCancel = false
+                mutableState.value = AccountState.AccountDeletionPending(pendingDeletion)
+                return@withLock AccountActionResult.Completed
+            }
             safely {
                 val profile = readSession()
                 val local =
@@ -100,7 +118,9 @@ constructor(
             mutex.withLock {
                 if (
                     mutableState.value.isTransitioning() ||
-                        mutableState.value is AccountState.SignOutPending
+                        mutableState.value is AccountState.SignOutPending ||
+                        mutableState.value is AccountState.AccountDeletionPending ||
+                        deletionManager.pending() != null
                 )
                     return AccountActionResult.Unavailable
                 val preparation = safely {
@@ -436,6 +456,255 @@ constructor(
                     operationGate.reopenAdmission()
             }
             throw cancelled
+        }
+    }
+
+    override suspend fun deleteAccount(request: AccountDeletionRequest): AccountActionResult {
+        val plan =
+            mutex.withLock {
+                val candidate =
+                    when (val current = mutableState.value) {
+                        is AccountState.SignedIn -> {
+                            if (!current.canDeleteAccount) return AccountActionResult.Unavailable
+                            DeletionCandidate(
+                                current,
+                                current.accountId,
+                                current.sessionEpoch,
+                                current.profileGeneration,
+                                current.accountId.opaqueValue,
+                            )
+                        }
+                        is AccountState.AwaitingDataChoice -> {
+                            if (
+                                !current.canDeleteUnclaimedData ||
+                                    current.context.ownership !is LocalOwnership.Unclaimed
+                            )
+                                return AccountActionResult.Unavailable
+                            DeletionCandidate(
+                                current,
+                                current.accountId,
+                                current.sessionEpoch,
+                                current.profileGeneration,
+                                null,
+                            )
+                        }
+                        else -> return AccountActionResult.Unavailable
+                    }
+                if (
+                    candidate.accountId != request.accountId ||
+                        candidate.sessionEpoch != request.sessionEpoch ||
+                        candidate.profileGeneration != request.profileGeneration ||
+                        candidate.expectedLocalOwnerUid != request.expectedLocalOwnerUid
+                )
+                    return AccountActionResult.Cancelled
+                canCancel = false
+                mutableState.value = AccountState.DeletingAccount
+                DeletionPlan(++generation, candidate.priorState)
+            }
+        return try {
+            operationGate.withSessionMutation { previousEpoch, mutationEpoch ->
+                withContext(NonCancellable) {
+                    mutex.withLock {
+                        if (
+                            generation != plan.generation ||
+                                mutableState.value != AccountState.DeletingAccount
+                        )
+                            return@withLock AccountSessionOperationGate.MutationResult(
+                                AccountActionResult.Cancelled,
+                                reopenAdmission = true,
+                            )
+                        if (previousEpoch != request.sessionEpoch) {
+                            restorePriorSignOutState(plan.priorState)
+                            return@withLock AccountSessionOperationGate.MutationResult(
+                                AccountActionResult.Cancelled,
+                                reopenAdmission = true,
+                            )
+                        }
+                        val persisted = sessions.readSession()
+                        val local = localContext.read()
+                        if (
+                            persisted?.id != request.accountId ||
+                                local.ownerUid != request.expectedLocalOwnerUid ||
+                                local.profileGeneration != request.profileGeneration ||
+                                local.pendingSignOutUid != null
+                        ) {
+                            restorePriorSignOutState(plan.priorState)
+                            return@withLock AccountSessionOperationGate.MutationResult(
+                                AccountActionResult.Cancelled,
+                                reopenAdmission = true,
+                            )
+                        }
+                        when (val deletion = deletionManager.delete(request)) {
+                            AccountDeletionResult.Completed -> {
+                                generation++
+                                observedRemote = null
+                                canCancel = false
+                                mutableState.value = AccountState.LocalOnly
+                                operationGate.advanceSessionEpoch()
+                                AccountSessionOperationGate.MutationResult(
+                                    AccountActionResult.Completed,
+                                    reopenAdmission = true,
+                                )
+                            }
+                            is AccountDeletionResult.RetryRequired -> {
+                                canCancel = false
+                                mutableState.value =
+                                    AccountState.AccountDeletionPending(deletion.progress)
+                                AccountSessionOperationGate.MutationResult(
+                                    AccountActionResult.Failed(
+                                        AccountFailureReason.ServiceUnavailable
+                                    ),
+                                    reopenAdmission = false,
+                                )
+                            }
+                            AccountDeletionResult.Idle,
+                            AccountDeletionResult.Unavailable -> {
+                                restorePriorSignOutState(plan.priorState)
+                                AccountSessionOperationGate.MutationResult(
+                                    AccountActionResult.Unavailable,
+                                    reopenAdmission = true,
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        } catch (cancelled: CancellationException) {
+            withContext(NonCancellable) {
+                var pendingReadSucceeded = false
+                var pending: AccountDeletionProgress? = null
+                try {
+                    pending = deletionManager.pending()
+                    pendingReadSucceeded = true
+                } catch (_: Exception) {
+                    // Keep writes fenced if the durable journal cannot be inspected.
+                }
+                mutex.withLock {
+                    if (
+                        generation == plan.generation &&
+                            mutableState.value == AccountState.DeletingAccount
+                    ) {
+                        when {
+                            !pendingReadSucceeded -> {
+                                operationGate.closeAdmission()
+                                mutableState.value =
+                                    AccountState.RecoverableError(
+                                        AccountFailureReason.LocalStateUnavailable
+                                    )
+                            }
+                            pending != null -> {
+                                operationGate.closeAdmission()
+                                mutableState.value =
+                                    AccountState.AccountDeletionPending(checkNotNull(pending))
+                            }
+                            else -> restorePriorSignOutState(plan.priorState)
+                        }
+                    }
+                }
+            }
+            throw cancelled
+        } catch (_: Exception) {
+            val pending = deletionManager.pending()
+            mutex.withLock {
+                if (pending != null) {
+                    operationGate.closeAdmission()
+                    mutableState.value = AccountState.AccountDeletionPending(pending)
+                } else {
+                    mutableState.value =
+                        AccountState.RecoverableError(AccountFailureReason.LocalStateUnavailable)
+                    operationGate.reopenAdmission()
+                }
+            }
+            AccountActionResult.Failed(AccountFailureReason.LocalStateUnavailable)
+        }
+    }
+
+    override suspend fun retryAccountDeletion(): AccountActionResult {
+        val previousProgress =
+            mutex.withLock {
+                val pending =
+                    mutableState.value as? AccountState.AccountDeletionPending
+                        ?: return AccountActionResult.Unavailable
+                canCancel = false
+                mutableState.value = AccountState.DeletingAccount
+                pending.progress
+            }
+        return try {
+            when (val deletion = withContext(NonCancellable) { deletionManager.retry() }) {
+                AccountDeletionResult.Completed,
+                AccountDeletionResult.Idle -> {
+                    mutex.withLock {
+                        generation++
+                        observedRemote = null
+                        mutableState.value = AccountState.LocalOnly
+                    }
+                    operationGate.advanceSessionEpoch()
+                    operationGate.reopenAdmission()
+                    AccountActionResult.Completed
+                }
+                is AccountDeletionResult.RetryRequired -> {
+                    mutex.withLock {
+                        mutableState.value = AccountState.AccountDeletionPending(deletion.progress)
+                    }
+                    AccountActionResult.Failed(AccountFailureReason.ServiceUnavailable)
+                }
+                AccountDeletionResult.Unavailable -> {
+                    val pending = deletionManager.pending()
+                    mutex.withLock {
+                        mutableState.value =
+                            pending?.let(AccountState::AccountDeletionPending)
+                                ?: AccountState.RecoverableError(
+                                    AccountFailureReason.LocalStateUnavailable
+                                )
+                    }
+                    AccountActionResult.Unavailable
+                }
+            }
+        } catch (cancelled: CancellationException) {
+            withContext(NonCancellable) {
+                var pendingReadSucceeded = false
+                var pending: AccountDeletionProgress? = null
+                try {
+                    pending = deletionManager.pending()
+                    pendingReadSucceeded = true
+                } catch (_: Exception) {
+                    // Retain the last progress and keep writes fenced until it is readable.
+                }
+                mutex.withLock {
+                    if (mutableState.value == AccountState.DeletingAccount) {
+                        when {
+                            !pendingReadSucceeded -> {
+                                operationGate.closeAdmission()
+                                mutableState.value =
+                                    AccountState.AccountDeletionPending(previousProgress)
+                            }
+                            pending != null -> {
+                                operationGate.closeAdmission()
+                                mutableState.value =
+                                    AccountState.AccountDeletionPending(checkNotNull(pending))
+                            }
+                            else -> {
+                                generation++
+                                observedRemote = null
+                                mutableState.value = AccountState.LocalOnly
+                                operationGate.advanceSessionEpoch()
+                                operationGate.reopenAdmission()
+                            }
+                        }
+                    }
+                }
+            }
+            throw cancelled
+        } catch (_: Exception) {
+            val pending = deletionManager.pending()
+            mutex.withLock {
+                if (pending != null)
+                    mutableState.value = AccountState.AccountDeletionPending(pending)
+                else
+                    mutableState.value =
+                        AccountState.RecoverableError(AccountFailureReason.LocalStateUnavailable)
+            }
+            AccountActionResult.Failed(AccountFailureReason.LocalStateUnavailable)
         }
     }
 
@@ -818,6 +1087,19 @@ constructor(
         val resumeRemoval: Boolean,
     )
 
+    private data class DeletionPlan(
+        val generation: Long,
+        val priorState: AccountState,
+    )
+
+    private data class DeletionCandidate(
+        val priorState: AccountState,
+        val accountId: AccountId,
+        val sessionEpoch: Long,
+        val profileGeneration: Long,
+        val expectedLocalOwnerUid: String?,
+    )
+
     private fun AccountState.isTransitioning(): Boolean =
         this == AccountState.SigningIn ||
             this == AccountState.SavingSignIn ||
@@ -899,9 +1181,23 @@ constructor(
         mutableState.value =
             when (resolved) {
                 is AccountState.SignedIn ->
-                    resolved.copy(profile = profile, sessionEpoch = sessionEpoch)
+                    resolved.copy(
+                        profile = profile,
+                        sessionEpoch = sessionEpoch,
+                        profileGeneration = local.profileGeneration,
+                        canDeleteAccount =
+                            profile?.id?.opaqueValue == local.ownerUid &&
+                                local.pendingSignOutUid == null,
+                    )
                 is AccountState.AwaitingDataChoice ->
-                    resolved.copy(profile = profile, sessionEpoch = sessionEpoch)
+                    resolved.copy(
+                        profile = profile,
+                        sessionEpoch = sessionEpoch,
+                        profileGeneration = local.profileGeneration,
+                        canDeleteUnclaimedData =
+                            resolved.context.ownership is LocalOwnership.Unclaimed &&
+                                local.pendingSignOutUid == null,
+                    )
                 else -> resolved
             }
     }

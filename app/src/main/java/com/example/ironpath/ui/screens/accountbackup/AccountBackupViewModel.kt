@@ -4,6 +4,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.ironpath.domain.account.AccountActionResult
 import com.example.ironpath.domain.account.AccountContextReader
+import com.example.ironpath.domain.account.AccountDeletionProgress
+import com.example.ironpath.domain.account.AccountDeletionRequest
 import com.example.ironpath.domain.account.AccountGateway
 import com.example.ironpath.domain.account.AccountState
 import com.example.ironpath.domain.account.LocalOwnership
@@ -55,6 +57,34 @@ constructor(
                     accountGateway.refreshLocal()
                     backup.refreshStatus()
                 }
+        }
+        viewModelScope.launch {
+            state.collect { accountState ->
+                when (accountState) {
+                    AccountState.DeletingAccount ->
+                        mutableManual.update {
+                            it.copy(
+                                busy = true,
+                                accountDeletion = it.accountDeletion.copy(busy = true),
+                            )
+                        }
+                    is AccountState.AccountDeletionPending ->
+                        showDeletionRetry(accountState.progress)
+                    else ->
+                        mutableManual.update {
+                            if (
+                                it.accountDeletion.progress != null ||
+                                    it.accountDeletion.retryAvailable
+                            )
+                                it.copy(
+                                    busy = false,
+                                    feedback = null,
+                                    accountDeletion = AccountDeletionUiState(),
+                                )
+                            else it
+                        }
+                }
+            }
         }
     }
 
@@ -254,6 +284,252 @@ constructor(
         )
     }
 
+    fun openDeleteReview() {
+        if (manual.value.busy || manual.value.signOutBusy) return
+        val current = state.value
+        val request =
+            when (current) {
+                is AccountState.SignedIn -> {
+                    if (!current.canDeleteAccount) return
+                    AccountDeletionRequest(
+                        current.accountId,
+                        current.sessionEpoch,
+                        current.profileGeneration,
+                        expectedLocalOwnerUid = current.accountId.opaqueValue,
+                    )
+                }
+                is AccountState.AwaitingDataChoice -> {
+                    if (
+                        !current.canDeleteUnclaimedData ||
+                            current.context.ownership !is LocalOwnership.Unclaimed
+                    )
+                        return
+                    AccountDeletionRequest(
+                        current.accountId,
+                        current.sessionEpoch,
+                        current.profileGeneration,
+                        expectedLocalOwnerUid = null,
+                    )
+                }
+                else -> return
+            }
+        val profile =
+            when (current) {
+                is AccountState.SignedIn -> current.profile
+                is AccountState.AwaitingDataChoice -> current.profile
+            } ?: return
+        mutableManual.update {
+            it.copy(
+                accountDeletion =
+                    AccountDeletionUiState(
+                        target =
+                            AccountDeletionTarget(
+                                request,
+                                profile.displayName,
+                                profile.email,
+                            )
+                    ),
+                feedback = null,
+            )
+        }
+    }
+
+    fun dismissDeleteReview() {
+        if (manual.value.accountDeletion.busy || manual.value.accountDeletion.retryAvailable) return
+        mutableManual.update {
+            it.copy(accountDeletion = AccountDeletionUiState(), feedback = null)
+        }
+    }
+
+    fun continueAccountDeletion() {
+        if (manual.value.accountDeletion.busy) return
+        mutableManual.update { current ->
+            current.copy(
+                accountDeletion =
+                    current.accountDeletion.target?.let {
+                        current.accountDeletion.copy(target = it.copy(confirmingIdentity = true))
+                    } ?: current.accountDeletion
+            )
+        }
+    }
+
+    fun confirmAccountDeletion() {
+        val deletion = manual.value.accountDeletion
+        val target = deletion.target ?: return
+        if (!target.confirmingIdentity || deletion.busy || manual.value.signOutBusy) return
+        if (!state.value.matchesDeletionRequest(target.request)) {
+            mutableManual.update {
+                it.copy(
+                    accountDeletion = AccountDeletionUiState(),
+                    feedback =
+                        "The signed-in account or local profile changed. Review the account before deleting it.",
+                )
+            }
+            return
+        }
+        mutableManual.update {
+            it.copy(
+                busy = true,
+                feedback = null,
+                accountDeletion = it.accountDeletion.copy(busy = true),
+            )
+        }
+        viewModelScope.launch { performAccountDeletion(target.request, retry = false) }
+    }
+
+    private fun AccountState.matchesDeletionRequest(request: AccountDeletionRequest): Boolean =
+        when (this) {
+            is AccountState.SignedIn ->
+                canDeleteAccount &&
+                    accountId == request.accountId &&
+                    sessionEpoch == request.sessionEpoch &&
+                    profileGeneration == request.profileGeneration &&
+                    accountId.opaqueValue == request.expectedLocalOwnerUid
+            is AccountState.AwaitingDataChoice ->
+                canDeleteUnclaimedData &&
+                    context.ownership is LocalOwnership.Unclaimed &&
+                    accountId == request.accountId &&
+                    sessionEpoch == request.sessionEpoch &&
+                    profileGeneration == request.profileGeneration &&
+                    request.expectedLocalOwnerUid == null
+            else -> false
+        }
+
+    fun retryAccountDeletion() {
+        if (!manual.value.accountDeletion.retryAvailable || manual.value.accountDeletion.busy)
+            return
+        mutableManual.update {
+            it.copy(
+                busy = true,
+                feedback = null,
+                accountDeletion = it.accountDeletion.copy(busy = true),
+            )
+        }
+        viewModelScope.launch { performAccountDeletion(null, retry = true) }
+    }
+
+    fun acknowledgeDeletionNavigation(targetGeneration: Long) {
+        if (manual.value.accountDeletion.completionTargetGeneration == targetGeneration) {
+            mutableManual.update {
+                it.copy(
+                    accountDeletion = it.accountDeletion.copy(completionTargetGeneration = null)
+                )
+            }
+        }
+    }
+
+    private suspend fun performAccountDeletion(
+        request: AccountDeletionRequest?,
+        retry: Boolean,
+    ) {
+        val sourceProfileGeneration =
+            request?.profileGeneration
+                ?: (state.value as? AccountState.AccountDeletionPending)
+                    ?.progress
+                    ?.profileGeneration
+                ?: manual.value.accountDeletion.progress?.profileGeneration
+        val completionTargetGeneration =
+            sourceProfileGeneration?.let { source ->
+                runCatching { Math.addExact(source, 1L) }.getOrNull()
+            }
+        try {
+            val result =
+                if (retry) accountGateway.retryAccountDeletion()
+                else accountGateway.deleteAccount(checkNotNull(request))
+            when (result) {
+                AccountActionResult.Completed -> {
+                    mutableManual.update {
+                        it.copy(
+                            busy = false,
+                            profileResetEpoch = it.profileResetEpoch + 1,
+                            latest = null,
+                            undoAvailable = false,
+                            status = BackupStatus.LocalOnly,
+                            feedback =
+                                "The demo IronPath account, all demo backups, and this device's training data were deleted. Your Google account was not affected.",
+                            accountDeletion =
+                                it.accountDeletion.copy(
+                                    target = null,
+                                    busy = false,
+                                    progress = null,
+                                    retryAvailable = false,
+                                    completionTargetGeneration = completionTargetGeneration,
+                                ),
+                        )
+                    }
+                    backup.refreshStatus()
+                }
+                AccountActionResult.Cancelled -> {
+                    mutableManual.update {
+                        it.copy(
+                            busy = false,
+                            accountDeletion = AccountDeletionUiState(),
+                            feedback =
+                                "The account or local profile changed. No different account was deleted.",
+                        )
+                    }
+                }
+                AccountActionResult.Unavailable -> {
+                    val pending = state.value as? AccountState.AccountDeletionPending
+                    if (pending != null) showDeletionRetry(pending.progress)
+                    else
+                        mutableManual.update {
+                            it.copy(
+                                busy = false,
+                                accountDeletion = AccountDeletionUiState(),
+                                feedback =
+                                    "Account deletion is unavailable in the current account state.",
+                            )
+                        }
+                }
+                is AccountActionResult.Failed -> {
+                    val pending = state.value as? AccountState.AccountDeletionPending
+                    if (pending != null) showDeletionRetry(pending.progress)
+                    else
+                        mutableManual.update {
+                            it.copy(
+                                busy = false,
+                                accountDeletion = it.accountDeletion.copy(busy = false),
+                                feedback =
+                                    "Account deletion could not finish. Check the account state before trying again.",
+                            )
+                        }
+                }
+            }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            val pending = state.value as? AccountState.AccountDeletionPending
+            if (pending != null) showDeletionRetry(pending.progress)
+            else
+                mutableManual.update {
+                    it.copy(
+                        busy = false,
+                        accountDeletion = it.accountDeletion.copy(busy = false),
+                        feedback =
+                            "Account deletion could not finish. Check the account state before trying again.",
+                    )
+                }
+        }
+    }
+
+    private fun showDeletionRetry(progress: AccountDeletionProgress) {
+        mutableManual.update {
+            it.copy(
+                busy = true,
+                feedback =
+                    "Deletion is paused at ${progress.stage.name.lowercase().replace('_', ' ')}. Retry to finish the same operation.",
+                accountDeletion =
+                    it.accountDeletion.copy(
+                        target = null,
+                        busy = false,
+                        progress = progress,
+                        retryAvailable = true,
+                    ),
+            )
+        }
+    }
+
     private fun performSignOut(request: SignOutRequest) {
         val dataWasRemoved =
             request.choice == SignOutDataChoice.RemoveData ||
@@ -272,6 +548,9 @@ constructor(
                         mutableManual.update {
                             it.copy(
                                 signOutBusy = false,
+                                profileResetEpoch =
+                                    if (dataWasRemoved) it.profileResetEpoch + 1
+                                    else it.profileResetEpoch,
                                 signOutReview = null,
                                 review = null,
                                 latest = null,
@@ -486,6 +765,10 @@ constructor(
     }
 
     fun leave(onLeave: () -> Unit) {
+        if (manual.value.accountDeletion.target != null) {
+            dismissDeleteReview()
+            return
+        }
         if (manual.value.signOutReview != null) {
             dismissSignOutReview()
             return
@@ -494,7 +777,9 @@ constructor(
             manual.value.busy ||
                 manual.value.signOutBusy ||
                 state.value == AccountState.SigningOut ||
-                state.value is AccountState.SignOutPending
+                state.value is AccountState.SignOutPending ||
+                state.value == AccountState.DeletingAccount ||
+                state.value is AccountState.AccountDeletionPending
         )
             return
         if (manual.value.review != null) {
@@ -534,7 +819,8 @@ constructor(
     }
 
     private fun runManual(action: suspend () -> Unit) {
-        if (manual.value.busy || manual.value.signOutBusy) return
+        if (manual.value.busy || manual.value.signOutBusy || manual.value.accountDeletion.busy)
+            return
         mutableManual.update { it.copy(busy = true, feedback = null) }
         viewModelScope.launch {
             try {

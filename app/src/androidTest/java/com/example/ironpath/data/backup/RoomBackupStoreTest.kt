@@ -1,6 +1,8 @@
 package com.example.ironpath.data.backup
 
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import com.example.ironpath.data.local.StaleProfileGenerationException
+import com.example.ironpath.data.local.entity.AccountBackupMetadata
 import com.example.ironpath.data.performance.PerformanceTracer
 import com.example.ironpath.data.repository.PlanRepository
 import com.example.ironpath.data.repository.RecordRepository
@@ -299,6 +301,47 @@ class RoomBackupStoreTest {
         assertEquals(1L, restored.metadata.lastCompleteLocalRevision)
         assertTrue(restored.metadata.requiresLineageReviewAfterUndo)
         assertNull(reopenedStore.captureUndo(account, installationId))
+    }
+
+    @Test
+    fun undoAfterProfileResetPreservesGenerationAndRejectsOldScreenWrites() = runBlocking {
+        val database = databaseRule.database
+        val store = RoomBackupStore(database, SequenceIdProvider("profile-reset"))
+        val account = AccountId("demo-after-reset")
+        database
+            .backupDao()
+            .insertMetadataIfAbsent(
+                AccountBackupMetadata(
+                    installationId = "installation-before-reset",
+                    profileGeneration = 0,
+                )
+            )
+
+        assertEquals(
+            LocalProfileResetResult.Committed(installationMarkerUpdated = true),
+            store.resetLocalProfile(expectedProfileGeneration = 0),
+        )
+        val resetMetadata = checkNotNull(database.backupDao().getMetadata())
+        assertEquals(1L, resetMetadata.profileGeneration)
+
+        val target =
+            remoteArtifact(
+                    bundleWithPlan(1, TestData.plan(id = "restored-after-reset")),
+                    backupId = "backup-after-reset",
+                    generation = 1,
+                    sourceInstallationId = "another-device",
+                )
+                .toValidatedRestore(account.opaqueValue)
+        assertTrue(store.restore(store.capture(), account, target, null))
+        val undo = checkNotNull(store.captureUndo(account, resetMetadata.installationId))
+        assertTrue(store.undo(store.capture(), account, undo))
+
+        assertEquals(1L, database.backupDao().getMetadata()?.profileGeneration)
+        val staleFailure = runCatching {
+            store.verifyProfileWritable(expectedProfileGeneration = 0)
+        }
+        assertTrue(staleFailure.exceptionOrNull() is StaleProfileGenerationException)
+        store.verifyProfileWritable(expectedProfileGeneration = 1)
     }
 
     @Test

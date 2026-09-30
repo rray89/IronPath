@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.example.ironpath.data.local.entity.PlannedWorkout
 import com.example.ironpath.data.repository.PlanRepository
 import com.example.ironpath.data.repository.SessionRepository
+import com.example.ironpath.domain.account.ProfileGenerationToken
 import com.example.ironpath.domain.planner.AiPlanDraftReviewState
 import com.example.ironpath.domain.planner.AiPlanReviewEditor
 import com.example.ironpath.domain.planner.ExerciseCatalogEntry
@@ -43,6 +44,7 @@ constructor(
     private val timeProvider: TimeProvider,
     private val aiPlanReviewEditor: AiPlanReviewEditor,
     private val validatedPlanDraftMapper: ValidatedPlanDraftMapper,
+    private val profileGenerationToken: ProfileGenerationToken? = null,
 ) : ViewModel() {
 
     private var acceptInProgress = false
@@ -55,6 +57,12 @@ constructor(
     val aiReviewState: StateFlow<AiPlanReviewUiState?> = _aiReviewState.asStateFlow()
     private var mappedAiPlan: GeneratedPlan? = null
     private var pendingAiReview: ValidatedPlanDraft? = null
+
+    init {
+        profileGenerationToken?.let { token ->
+            viewModelScope.launch { runCatching { token.initialize() } }
+        }
+    }
 
     // -- Persisted plan observation --
     private val activePlan = planRepository.observeActivePlan()
@@ -155,6 +163,8 @@ constructor(
 
     fun acceptPlan(onAccepted: () -> Unit) {
         if (acceptInProgress) return
+        val expectedProfileGeneration = profileGenerationToken?.current()
+        if (profileGenerationToken != null && expectedProfileGeneration == null) return
         val aiReview = _aiReviewState.value
         if (aiReview != null) {
             acceptAiPlan(aiReview, onAccepted)
@@ -169,6 +179,7 @@ constructor(
                     plan = generated.plan,
                     workouts = generated.workouts,
                     exercises = generated.exercises,
+                    expectedProfileGeneration = expectedProfileGeneration,
                 )
                 saved = true
                 pendingAiReview = null
@@ -190,6 +201,8 @@ constructor(
         onAccepted: () -> Unit,
     ) {
         if (!reviewState.canAccept) return
+        val expectedProfileGeneration = profileGenerationToken?.current()
+        if (profileGenerationToken != null && expectedProfileGeneration == null) return
         val validatedPlan =
             (reviewState.review as? AiPlanDraftReviewState.Valid)?.validatedPlan ?: return
         val generated =
@@ -202,6 +215,7 @@ constructor(
                     plan = generated.plan,
                     workouts = generated.workouts,
                     exercises = generated.exercises,
+                    expectedProfileGeneration = expectedProfileGeneration,
                 )
                 pendingAiReview = null
                 clearAiReview()

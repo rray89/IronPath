@@ -6,18 +6,19 @@ import io.mockk.every
 import io.mockk.mockk
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertThrows
 import org.junit.Test
 
 class SharedPreferencesOnboardingRepositoryTest {
 
     @Test
-    fun `read failure returns incomplete`() = runTest {
+    fun `read failure propagates`() {
         val preferences = mockk<SharedPreferences>()
         every { preferences.getBoolean(any(), any()) } throws IllegalStateException("unreadable")
 
         val repository = repository(preferences)
 
-        assertFalse(repository.isCompleted())
+        assertThrows(IllegalStateException::class.java) { runTest { repository.isCompleted() } }
     }
 
     @Test

@@ -410,7 +410,7 @@ class ManualBackupJourneyTest {
     }
 
     @Test
-    fun signOutKeepsOwnedDataByDefault_thenRemovesOnlyLocalDataAfterConfirmation() {
+    fun signOutKeepsOwnedDataByDefault_thenResetsLocalDataAndCreatesFreshHistoryScreen() {
         waitForText("CONTINUE ON THIS DEVICE")
         composeRule.onNodeWithText("CONTINUE ON THIS DEVICE").performScrollTo().performClick()
         waitForText("No workout plan yet")
@@ -431,6 +431,8 @@ class ManualBackupJourneyTest {
         seedLocalTrainingData()
         val beforeSignIn = runBlocking { local.capture() }
 
+        composeRule.onNodeWithTag(TestTags.bottomNav(Route.HISTORY)).performClick()
+        composeRule.onNodeWithTag(TestTags.bottomNav(Route.HISTORY)).assertIsSelected()
         composeRule.onNodeWithContentDescription("Menu").performClick()
         composeRule.onNodeWithText("Back up your training data").performClick()
         waitForText("YOUR ACCOUNT")
@@ -469,7 +471,8 @@ class ManualBackupJourneyTest {
         composeRule.onNodeWithText("CONTINUE").performClick()
         waitForDialogText("Remove training data?")
         composeRule.onNodeWithText("REMOVE DATA AND SIGN OUT").performClick()
-        waitForAccountStatus("Local only")
+        waitForText("No workout plan yet")
+        composeRule.onNodeWithTag(TestTags.bottomNav(Route.HOME)).assertIsSelected()
 
         assertNull(session.session)
         assertNull(runBlocking { database.sessionDao().getActiveSession() })
@@ -486,7 +489,30 @@ class ManualBackupJourneyTest {
         assertTrue(removedLocalData.bundle.loggedExercises.isEmpty())
         assertTrue(removedLocalData.bundle.loggedSets.isEmpty())
         assertTrue(removedLocalData.bundle.personalRecords.isEmpty())
+        assertEquals(1L, removedLocalData.metadata.profileGeneration)
         assertEquals(backupBeforeSignOut, latest(accountId))
+
+        waitForText("No workout plan yet")
+        composeRule.onNodeWithTag(TestTags.bottomNav(Route.HOME)).assertIsSelected()
+        composeRule.onNodeWithTag(TestTags.bottomNav(Route.HISTORY)).performClick()
+        waitForText("No workout logs yet")
+        composeRule.onNodeWithText("RECORDS").performClick()
+        waitForText("No records yet")
+        composeRule.onNodeWithText("ADD RECORD").performClick()
+        waitForText("ADD RECORD")
+        composeRule
+            .onNodeWithTag(TestTags.RECORD_NAME)
+            .performScrollTo()
+            .performTextReplacement("Post-reset squat")
+        composeRule
+            .onNodeWithTag(TestTags.RECORD_WEIGHT)
+            .performScrollTo()
+            .performTextReplacement("100")
+        composeRule.onNodeWithText("SAVE").performScrollTo().performClick()
+        waitForText("Post-reset squat")
+        val postReset = runBlocking { local.capture() }
+        assertEquals("Post-reset squat", postReset.bundle.personalRecords.single().exerciseName)
+        assertEquals(1L, postReset.metadata.profileGeneration)
     }
 
     private fun seedLocalTrainingData(): ManualBackupCapture = runBlocking {

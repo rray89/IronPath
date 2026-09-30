@@ -1,12 +1,12 @@
 package com.example.ironpath.data.repository
 
-import androidx.room.withTransaction
 import com.example.ironpath.data.backup.BackupChangeTracker
 import com.example.ironpath.data.local.IronPathDatabase
 import com.example.ironpath.data.local.dao.HistoryDao
 import com.example.ironpath.data.local.entity.LoggedExercise
 import com.example.ironpath.data.local.entity.LoggedSet
 import com.example.ironpath.data.local.entity.WorkoutLog
+import com.example.ironpath.data.local.withProfileWrite
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.flow.Flow
@@ -24,8 +24,8 @@ constructor(
 
     suspend fun getLogById(id: String): WorkoutLog? = historyDao.getLogById(id)
 
-    suspend fun insertLog(log: WorkoutLog) =
-        database.withTransaction {
+    suspend fun insertLog(log: WorkoutLog, expectedProfileGeneration: Long? = null) =
+        database.withProfileWrite(expectedProfileGeneration) {
             historyDao.insertLog(log)
             backupChangeTracker.markIncludedDataChanged()
         }
