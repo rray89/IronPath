@@ -9,6 +9,7 @@ import com.example.ironpath.domain.account.AccountProfile
 import com.example.ironpath.domain.account.AccountSessionAdapter
 import com.example.ironpath.domain.account.CredentialResult
 import com.example.ironpath.domain.account.RemoteSnapshotPresence
+import com.example.ironpath.domain.account.UnreadableAccountSessionException
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.io.File
 import java.io.FileNotFoundException
@@ -40,7 +41,7 @@ constructor(@ApplicationContext context: Context, private val remote: RemoteBack
             when (identifier) {
                 PROFILE.id.opaqueValue -> PROFILE
                 "" -> null
-                else -> error("Unknown deterministic session")
+                else -> throw UnreadableAccountSessionException()
             }
         }
 
@@ -51,6 +52,21 @@ constructor(@ApplicationContext context: Context, private val remote: RemoteBack
         }
 
     override suspend fun clearSession(): Boolean = withContext(Dispatchers.IO) { writeSession("") }
+
+    override suspend fun clearUnreadableSession(): Boolean =
+        withContext(Dispatchers.IO) {
+            val identifier =
+                try {
+                    sessionFile.readFully().toString(Charsets.UTF_8)
+                } catch (missing: FileNotFoundException) {
+                    return@withContext !sessionFile.baseFile.exists()
+                } catch (_: Exception) {
+                    return@withContext false
+                }
+            if (identifier == PROFILE.id.opaqueValue) return@withContext false
+            if (identifier.isEmpty()) return@withContext true
+            writeSession("")
+        }
 
     private fun writeSession(identifier: String): Boolean {
         val output = sessionFile.startWrite()
@@ -72,7 +88,8 @@ constructor(@ApplicationContext context: Context, private val remote: RemoteBack
                 RemoteSnapshotPresence.Complete(
                     result.backup.summary.backupId,
                     result.backup.generation,
-                    result.backup.summary.sourceInstallationId
+                    result.backup.summary.sourceInstallationId,
+                    result.backup.snapshot.contentDigest,
                 )
             is RemoteBackupRead.Failed -> error("Demo backup state is unavailable")
         }

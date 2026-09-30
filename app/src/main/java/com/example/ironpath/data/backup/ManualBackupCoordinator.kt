@@ -1,7 +1,9 @@
 package com.example.ironpath.data.backup
 
+import com.example.ironpath.data.account.AccountSessionOperationGate
 import com.example.ironpath.domain.account.AccountId
 import com.example.ironpath.domain.account.AccountSessionAdapter
+import com.example.ironpath.domain.account.RemoteSnapshotPresence
 import com.example.ironpath.domain.backup.*
 import com.example.ironpath.domain.identity.IdProvider
 import javax.inject.Inject
@@ -21,6 +23,7 @@ internal constructor(
     private val sessions: AccountSessionAdapter,
     private val installationGuard: InstallationGuard,
     private val idProvider: IdProvider,
+    private val operationGate: AccountSessionOperationGate,
     private val dispatcher: CoroutineDispatcher,
 ) : BackupCoordinator {
     @Inject
@@ -30,7 +33,16 @@ internal constructor(
         sessions: AccountSessionAdapter,
         installationGuard: InstallationGuard,
         idProvider: IdProvider,
-    ) : this(localStore, remote, sessions, installationGuard, idProvider, Dispatchers.Default)
+        operationGate: AccountSessionOperationGate,
+    ) : this(
+        localStore,
+        remote,
+        sessions,
+        installationGuard,
+        idProvider,
+        operationGate,
+        Dispatchers.Default,
+    )
 
     override val status = MutableStateFlow<BackupStatus>(BackupStatus.LocalOnly)
     override val latestSummary = MutableStateFlow<RemoteBackupSummary?>(null)
@@ -40,6 +52,7 @@ internal constructor(
     private val localCodec = BackupSnapshotCodec(preserveDanglingProvenance = true)
     private var pending: Pending? = null
     private var lastRemoteObservation: Pair<AccountId, RemoteBackupRead>? = null
+    private var observedSessionEpoch: Long? = null
 
     private data class Pending(
         val id: String,
@@ -146,6 +159,53 @@ internal constructor(
                     fail(BackupFailureReason.StalePreview)
                 updateStatus(localStore.capture(), RemoteBackupRead.Complete(completed))
             }
+            BackupActionResult.Completed
+        }
+
+    override suspend fun associateEmptyProfile(
+        accountId: AccountId,
+        sessionEpoch: Long,
+        expectedInstallationId: String,
+        expectedLocalChangeRevision: Long,
+        expectedRemoteSnapshot: RemoteSnapshotPresence.Complete,
+    ): BackupActionResult =
+        locked(
+            BackupActionResult.Unavailable,
+            { BackupActionResult.Failed(it) },
+            expectedSessionEpoch = sessionEpoch,
+        ) {
+            val (account, captured) = authorizedCapture()
+            if (account != accountId) fail(BackupFailureReason.ReauthenticationRequired)
+            if (
+                captured.metadata.installationId != expectedInstallationId ||
+                    captured.metadata.localChangeRevision != expectedLocalChangeRevision
+            )
+                fail(BackupFailureReason.StalePreview)
+            if (captured.activeSessionId != null) fail(BackupFailureReason.ActiveSessionPresent)
+            if (codec.encode(captured.bundle).entityCounts.values.any { it > 0 })
+                fail(BackupFailureReason.StalePreview)
+            requireSession(account)
+            val currentRemote =
+                readRemote(account) as? RemoteBackupRead.Complete
+                    ?: fail(BackupFailureReason.ConcurrentRemoteChange)
+            val currentArtifact = currentRemote.backup
+            if (
+                currentArtifact.summary.backupId != expectedRemoteSnapshot.backupId ||
+                    currentArtifact.generation != expectedRemoteSnapshot.generation ||
+                    currentArtifact.summary.sourceInstallationId !=
+                        expectedRemoteSnapshot.sourceInstallationId ||
+                    (expectedRemoteSnapshot.contentDigest != null &&
+                        currentArtifact.snapshot.contentDigest !=
+                            expectedRemoteSnapshot.contentDigest)
+            )
+                fail(BackupFailureReason.ConcurrentRemoteChange)
+            if (!localStore.associateEmpty(captured, account))
+                fail(BackupFailureReason.StalePreview)
+
+            val associated = localStore.capture()
+            if (associated.metadata.ownerUid != account.opaqueValue)
+                fail(BackupFailureReason.OwnershipMismatch)
+            updateStatus(associated, lastObservationFor(account, associated))
             BackupActionResult.Completed
         }
 
@@ -482,6 +542,8 @@ internal constructor(
         val account =
             sessions.readSession()?.id ?: fail(BackupFailureReason.ReauthenticationRequired)
         val captured = localStore.capture()
+        if (captured.metadata.pendingSignOutUid != null)
+            fail(BackupFailureReason.ReauthenticationRequired)
         requireOwner(captured, account)
         return account to captured
     }
@@ -567,7 +629,30 @@ internal constructor(
         unavailable: T,
         failed: (BackupFailureReason) -> T,
         waitForTurn: Boolean = false,
+        expectedSessionEpoch: Long? = null,
         block: suspend () -> T
+    ): T =
+        operationGate.withManualOperation(waitForTurn, unavailable) { sessionEpoch ->
+            if (observedSessionEpoch != sessionEpoch) {
+                pending = null
+                lastRemoteObservation = null
+                latestSummary.value = null
+                undoAvailable.value = false
+                status.value = BackupStatus.LocalOnly
+                observedSessionEpoch = sessionEpoch
+            }
+            lockedWithinCoordinator(unavailable, failed, waitForTurn) {
+                if (expectedSessionEpoch != null && expectedSessionEpoch != sessionEpoch)
+                    fail(BackupFailureReason.ReauthenticationRequired)
+                block()
+            }
+        }
+
+    private suspend fun <T> lockedWithinCoordinator(
+        unavailable: T,
+        failed: (BackupFailureReason) -> T,
+        waitForTurn: Boolean,
+        block: suspend () -> T,
     ): T {
         // Preserve observed-state refreshes and preview revocation while another operation owns
         // the lock. Duplicate preview/confirmation commands still return without queuing.

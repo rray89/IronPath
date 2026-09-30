@@ -67,6 +67,57 @@ class RoomBackupStoreTest {
     }
 
     @Test
+    fun associateEmptyProfileChangesOnlyOwnerAndKeepsLineageMetadataUnchanged() = runBlocking {
+        val database = databaseRule.database
+        val store = RoomBackupStore(database, SequenceIdProvider("installation"))
+        val captured = store.capture()
+        val original = captured.metadata
+
+        assertTrue(store.associateEmpty(captured, AccountId("account")))
+
+        assertEquals(original.copy(ownerUid = "account"), database.backupDao().getMetadata())
+        assertEquals(captured.bundle, store.capture().bundle)
+        assertTrue(database.backupDao().getBaselineChunks().isEmpty())
+    }
+
+    @Test
+    fun associateEmptyProfileRechecksActiveWorkoutPendingSignOutAndForeignOwner() = runBlocking {
+        val database = databaseRule.database
+        val store = RoomBackupStore(database, SequenceIdProvider("installation"))
+        val original = store.capture()
+        val active = TestData.session(id = "associate-active-session")
+        database.sessionDao().startNewSession(active, emptyList())
+
+        assertFalse(store.associateEmpty(original, AccountId("account")))
+        assertEquals(active, database.sessionDao().getActiveSession())
+        assertNull(checkNotNull(database.backupDao().getMetadata()).ownerUid)
+
+        database.sessionDao().deleteSession(active.id)
+        val cleanCapture = store.capture()
+        val cleanMetadata = checkNotNull(database.backupDao().getMetadata())
+        database
+            .backupDao()
+            .updateMetadata(cleanMetadata.copy(pendingSignOutUid = "another-account"))
+        assertFalse(store.associateEmpty(cleanCapture, AccountId("account")))
+        assertNull(checkNotNull(database.backupDao().getMetadata()).ownerUid)
+
+        database
+            .backupDao()
+            .updateMetadata(
+                checkNotNull(database.backupDao().getMetadata()).copy(pendingSignOutUid = null)
+            )
+        database
+            .backupDao()
+            .updateMetadata(
+                checkNotNull(database.backupDao().getMetadata()).copy(ownerUid = "another-account")
+            )
+        val foreignCapture = store.capture()
+        val foreignMetadata = checkNotNull(database.backupDao().getMetadata())
+        assertFalse(store.associateEmpty(foreignCapture, AccountId("account")))
+        assertEquals(foreignMetadata, database.backupDao().getMetadata())
+    }
+
+    @Test
     fun restore_requiresExplicitActiveSessionDiscardThenAtomicallyReplacesIncludedData() =
         runBlocking {
             val database = databaseRule.database
@@ -449,7 +500,10 @@ class RoomBackupStoreTest {
             assertNotNull(database.backupDao().getRestoreUndoMetadata())
             assertTrue(database.backupDao().getRestoreUndoChunks().isNotEmpty())
 
-            store.resetLocalProfile()
+            assertEquals(
+                LocalProfileResetResult.Committed(installationMarkerUpdated = true),
+                store.resetLocalProfile(pendingSignOutUid = "owner-a"),
+            )
 
             assertNull(database.planDao().getActivePlan())
             assertNull(database.sessionDao().getActiveSession())
@@ -463,10 +517,20 @@ class RoomBackupStoreTest {
             assertNull(reset.lastObservedRemoteDigest)
             assertNull(reset.lastObservedSourceInstallationId)
             assertNull(reset.lastObservedRemoteCompletedAt)
+            assertEquals("owner-a", reset.pendingSignOutUid)
             assertNull(database.backupDao().getRestoreUndoMetadata())
             assertTrue(database.backupDao().getRestoreUndoChunks().isEmpty())
-            assertTrue(store.capture().bundle.personalRecords.isEmpty())
+            val clearedBundle = store.capture().bundle
+            assertTrue(clearedBundle.weeklyPlans.isEmpty())
+            assertTrue(clearedBundle.plannedWorkouts.isEmpty())
+            assertTrue(clearedBundle.plannedExercises.isEmpty())
+            assertTrue(clearedBundle.workoutLogs.isEmpty())
+            assertTrue(clearedBundle.loggedExercises.isEmpty())
+            assertTrue(clearedBundle.loggedSets.isEmpty())
+            assertTrue(clearedBundle.personalRecords.isEmpty())
             assertEquals(reset.installationId, sentinel.installationId)
+            assertTrue(store.clearPendingSignOut("owner-a"))
+            assertNull(database.backupDao().getMetadata()?.pendingSignOutUid)
             assertEquals(InstallationValidationResult.Validated, store.validateInstallation())
         }
 

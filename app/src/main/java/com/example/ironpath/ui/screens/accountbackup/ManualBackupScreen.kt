@@ -22,6 +22,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import com.example.ironpath.domain.account.AccountState
 import com.example.ironpath.domain.account.LocalOwnership
+import com.example.ironpath.domain.account.RemoteSnapshotPresence
 import com.example.ironpath.domain.backup.*
 import com.example.ironpath.ui.theme.SurfaceContainerHigh
 import java.time.Instant
@@ -34,9 +35,48 @@ internal fun ManualBackupOverview(
     account: AccountState,
     ui: ManualBackupUiState,
     actions: ManualBackupActions,
-    onRefresh: () -> Unit
+    onRefresh: () -> Unit,
+    onDecideLater: () -> Unit,
 ) {
     DemoBackupNotice()
+    if (shouldOfferEmptyBackupChoice(account)) {
+        AccountSection(
+            backupStatusLabel(ui.status),
+            "The complete backup is unchanged until you confirm a restore."
+        )
+        ui.latest?.let { latest ->
+            AccountSection(
+                "LATEST COMPLETE DEMO BACKUP",
+                "${completionTime(latest.completedAtEpochMillis)}\n${countSummary(latest.entityCounts)}"
+            )
+        }
+        Text(
+            "A complete backup is available. Restore it, keep this device empty, or decide later. Keeping this device empty does not change the backup."
+        )
+        OutlinedButton(
+            onClick = actions.previewRestore,
+            enabled = !ui.busy && !ui.signOutBusy,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Text("RESTORE BACKUP")
+        }
+        OutlinedButton(
+            onClick = actions.keepDeviceEmpty,
+            enabled = !ui.busy && !ui.signOutBusy,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Text("KEEP THIS DEVICE EMPTY")
+        }
+        TextButton(
+            onClick = onDecideLater,
+            enabled = !ui.busy && !ui.signOutBusy,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Text("DECIDE LATER")
+        }
+        ui.feedback?.let { Feedback(it) }
+        return
+    }
     val eligible =
         when (account) {
             is AccountState.SignedIn -> true
@@ -104,6 +144,15 @@ internal fun ManualBackupOverview(
         TextButton(onClick = onRefresh, enabled = !ui.busy, modifier = Modifier.fillMaxWidth()) {
             Text("REFRESH BACKUP STATUS")
         }
+}
+
+internal fun shouldOfferEmptyBackupChoice(account: AccountState): Boolean {
+    val pending = account as? AccountState.AwaitingDataChoice ?: return false
+    return pending.context.ownership is LocalOwnership.Unclaimed &&
+        pending.context.localDataIsEmpty &&
+        !pending.context.activeWorkoutPresent &&
+        pending.context.conflict != null &&
+        pending.context.remoteSnapshot is RemoteSnapshotPresence.Complete
 }
 
 @Composable

@@ -8,6 +8,7 @@ import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
+import org.junit.Assert.fail
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -61,6 +62,22 @@ class SessionDaoTest {
             listOf(replacementExercise),
             dao.getExercisesForSession(replacementSession.id),
         )
+    }
+
+    @Test
+    fun startPlannedSession_rejectsAWorkoutRemovedBeforeSessionCreation() = runBlocking {
+        val current = TestData.session(id = "current-session", workoutId = "current-workout")
+        dao.startNewSession(current, emptyList())
+        val stale = TestData.session(id = "stale-session", workoutId = "deleted-workout")
+
+        try {
+            dao.startPlannedSession(stale, emptyList())
+            fail("Expected a removed planned workout to reject session creation")
+        } catch (expected: IllegalStateException) {
+            assertEquals("Planned workout deleted-workout no longer exists", expected.message)
+        }
+
+        assertEquals(current, dao.getActiveSession())
     }
 
     @Test

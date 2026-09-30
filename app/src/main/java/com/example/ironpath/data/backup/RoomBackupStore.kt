@@ -9,6 +9,7 @@ import com.example.ironpath.domain.account.AccountId
 import com.example.ironpath.domain.identity.IdProvider
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.json.Json
@@ -25,7 +26,7 @@ constructor(
     private val database: IronPathDatabase,
     private val idProvider: IdProvider,
     private val sentinel: InstallationSentinel = NonPersistentInstallationSentinel,
-) : BackupChangeTracker, ManualBackupLocalStore {
+) : BackupChangeTracker, ManualBackupLocalStore, LocalProfileResetter {
     private val installationValidationMutex = Mutex()
     private val codec = BackupSnapshotCodec()
     private val undoCodec = BackupSnapshotCodec(preserveDanglingProvenance = true)
@@ -51,9 +52,12 @@ constructor(
         database.withTransaction {
             val current = checkNotNull(database.backupDao().getMetadata())
             if (
-                !sameAuthority(current, captured, accountId) ||
+                captured.activeSessionId != null ||
+                    current.pendingSignOutUid != null ||
+                    !sameAuthority(current, captured, accountId) ||
                     !sameContent(current, captured) ||
-                    database.backupDao().hasIncludedData()
+                    database.backupDao().hasIncludedData() ||
+                    database.sessionDao().getActiveSession() != null
             )
                 return@withTransaction false
             database.backupDao().updateMetadata(current.copy(ownerUid = accountId.opaqueValue))
@@ -425,26 +429,48 @@ constructor(
             true
         }
 
-    suspend fun resetLocalProfile() {
+    override suspend fun resetLocalProfile(
+        pendingSignOutUid: String?,
+    ): LocalProfileResetResult {
         installationValidationMutex.withLock {
-            val resetMetadata = AccountBackupMetadata(installationId = idProvider.newId())
-            check(writeSentinel(sentinel, resetMetadata.installationId)) {
-                "Installation sentinel could not be updated before local reset"
+            val resetMetadata =
+                AccountBackupMetadata(
+                    installationId = idProvider.newId(),
+                    pendingSignOutUid = pendingSignOutUid,
+                )
+            try {
+                database.withTransaction {
+                    val backupDao = database.backupDao()
+                    backupDao.deleteActiveSessions()
+                    backupDao.deletePersonalRecords()
+                    backupDao.deleteWorkoutLogs()
+                    backupDao.deleteWeeklyPlans()
+                    backupDao.deleteBaselineChunks()
+                    backupDao.deleteRestoreUndoChunks()
+                    backupDao.deleteRestoreUndoMetadata()
+                    backupDao.insertMetadataIfAbsent(resetMetadata)
+                    backupDao.updateMetadata(resetMetadata)
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                // The database transaction rolls back, and the sentinel remains unchanged.
+                return LocalProfileResetResult.NotCommitted
             }
-            database.withTransaction {
-                val backupDao = database.backupDao()
-                backupDao.deleteActiveSessions()
-                backupDao.deletePersonalRecords()
-                backupDao.deleteWorkoutLogs()
-                backupDao.deleteWeeklyPlans()
-                backupDao.deleteBaselineChunks()
-                backupDao.deleteRestoreUndoChunks()
-                backupDao.deleteRestoreUndoMetadata()
-                backupDao.insertMetadataIfAbsent(resetMetadata)
-                backupDao.updateMetadata(resetMetadata)
-            }
+            return LocalProfileResetResult.Committed(
+                installationMarkerUpdated = writeSentinel(sentinel, resetMetadata.installationId)
+            )
         }
     }
+
+    override suspend fun clearPendingSignOut(uid: String): Boolean =
+        database.withTransaction {
+            val backupDao = database.backupDao()
+            val current = backupDao.getMetadata() ?: return@withTransaction false
+            if (current.pendingSignOutUid != uid) return@withTransaction false
+            backupDao.updateMetadata(current.copy(pendingSignOutUid = null))
+            true
+        }
 
     suspend fun validateInstallation(): InstallationValidationResult =
         installationValidationMutex.withLock {

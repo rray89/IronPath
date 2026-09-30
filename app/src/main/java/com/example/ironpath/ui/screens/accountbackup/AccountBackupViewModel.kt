@@ -6,6 +6,10 @@ import com.example.ironpath.domain.account.AccountActionResult
 import com.example.ironpath.domain.account.AccountContextReader
 import com.example.ironpath.domain.account.AccountGateway
 import com.example.ironpath.domain.account.AccountState
+import com.example.ironpath.domain.account.LocalOwnership
+import com.example.ironpath.domain.account.RemoteSnapshotPresence
+import com.example.ironpath.domain.account.SignOutDataChoice
+import com.example.ironpath.domain.account.SignOutRequest
 import com.example.ironpath.domain.backup.*
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
@@ -55,7 +59,7 @@ constructor(
     }
 
     fun signIn() {
-        if (manual.value.busy) return
+        if (manual.value.busy || manual.value.signOutBusy) return
         viewModelScope.launch {
             val result = accountGateway.startGoogleSignIn()
             backup.refreshStatus()
@@ -63,8 +67,37 @@ constructor(
         }
     }
 
+    fun recoverUnreadableSession() {
+        val recoverable = state.value as? AccountState.RecoverableError ?: return
+        if (
+            !recoverable.canRecoverUnreadableSession ||
+                manual.value.busy ||
+                manual.value.signOutBusy
+        )
+            return
+        viewModelScope.launch {
+            mutableManual.update { it.copy(signOutBusy = true, feedback = null) }
+            val result = accountGateway.recoverUnreadableSession()
+            backup.refreshStatus()
+            mutableManual.update {
+                it.copy(
+                    signOutBusy = false,
+                    feedback =
+                        when (result) {
+                            AccountActionResult.Completed ->
+                                "The unreadable demo session was cleared. Training data remains on this device."
+                            AccountActionResult.Cancelled,
+                            AccountActionResult.Unavailable,
+                            is AccountActionResult.Failed ->
+                                "The unreadable demo session could not be cleared. Try again."
+                        },
+                )
+            }
+        }
+    }
+
     fun refresh() {
-        if (manual.value.busy) return
+        if (manual.value.busy || manual.value.signOutBusy) return
         mutableManual.update { it.copy(feedback = null) }
         viewModelScope.launch {
             accountGateway.refresh()
@@ -86,6 +119,226 @@ constructor(
 
     private fun AccountState.isEligibleForLatestBackupLookup() =
         this is AccountState.SignedIn || this is AccountState.AwaitingDataChoice
+
+    fun keepDeviceEmpty() {
+        val pending = state.value as? AccountState.AwaitingDataChoice ?: return
+        val reviewedProfile = pending.context.conflict ?: return
+        val expectedRemoteSnapshot =
+            pending.context.remoteSnapshot as? RemoteSnapshotPresence.Complete ?: return
+        if (
+            pending.context.ownership !is LocalOwnership.Unclaimed ||
+                !pending.context.localDataIsEmpty ||
+                pending.context.activeWorkoutPresent ||
+                manual.value.busy ||
+                manual.value.signOutBusy
+        )
+            return
+        runManual {
+            when (
+                val result =
+                    backup.associateEmptyProfile(
+                        pending.accountId,
+                        pending.sessionEpoch,
+                        reviewedProfile.currentInstallationId,
+                        reviewedProfile.localChangeRevision,
+                        expectedRemoteSnapshot,
+                    )
+            ) {
+                BackupActionResult.Completed -> {
+                    accountGateway.refreshLocal()
+                    backup.refreshStatus()
+                    mutableManual.update {
+                        it.copy(
+                            feedback =
+                                "This device will stay empty. The complete demo backup remains available to restore."
+                        )
+                    }
+                }
+                is BackupActionResult.Failed -> showFailure(result.reason)
+                BackupActionResult.Cancelled ->
+                    mutableManual.update {
+                        it.copy(
+                            feedback = "The account changed before this device could be associated."
+                        )
+                    }
+                BackupActionResult.Unavailable -> unavailable()
+                is BackupActionResult.ActiveSessionRequiresConfirmation ->
+                    showFailure(BackupFailureReason.ActiveSessionPresent)
+            }
+        }
+    }
+
+    fun openSignOutReview() {
+        if (manual.value.busy || manual.value.signOutBusy) return
+        val current = state.value
+        val target =
+            when (current) {
+                is AccountState.SignedIn -> SignOutTarget(current.accountId, current.sessionEpoch)
+                is AccountState.AwaitingDataChoice ->
+                    SignOutTarget(current.accountId, current.sessionEpoch)
+                else -> return
+            }
+        mutableManual.update {
+            it.copy(
+                signOutReview = SignOutReviewUiState(target),
+                feedback = null,
+            )
+        }
+    }
+
+    fun dismissSignOutReview() {
+        if (!manual.value.signOutBusy) {
+            mutableManual.update { it.copy(signOutReview = null) }
+        }
+    }
+
+    fun chooseSignOutChoice(choice: SignOutDataChoice) {
+        if (manual.value.signOutBusy) return
+        mutableManual.update { state ->
+            state.copy(
+                signOutReview =
+                    state.signOutReview?.copy(
+                        choice = choice,
+                        confirmingRemoval = false,
+                    )
+            )
+        }
+    }
+
+    fun requestRemoveConfirmation() {
+        if (manual.value.signOutBusy) return
+        mutableManual.update { state ->
+            state.copy(
+                signOutReview =
+                    state.signOutReview
+                        ?.takeIf { it.choice == SignOutDataChoice.RemoveData }
+                        ?.copy(confirmingRemoval = true)
+            )
+        }
+    }
+
+    fun dismissRemoveConfirmation() {
+        if (manual.value.signOutBusy) return
+        mutableManual.update { state ->
+            state.copy(signOutReview = state.signOutReview?.copy(confirmingRemoval = false))
+        }
+    }
+
+    fun confirmSignOut(removeDataConfirmed: Boolean = false) {
+        val review = manual.value.signOutReview ?: return
+        if (manual.value.signOutBusy) return
+        if (
+            review.choice == SignOutDataChoice.RemoveData &&
+                (!removeDataConfirmed || !review.confirmingRemoval)
+        )
+            return
+        val request =
+            SignOutRequest(
+                accountId = review.target.accountId,
+                sessionEpoch = review.target.sessionEpoch,
+                choice = review.choice,
+                removeDataConfirmed = removeDataConfirmed,
+            )
+        performSignOut(request)
+    }
+
+    fun retrySignOut() {
+        if (manual.value.signOutBusy) return
+        val pending = state.value as? AccountState.SignOutPending ?: return
+        performSignOut(
+            SignOutRequest(
+                accountId = pending.accountId,
+                sessionEpoch = pending.sessionEpoch,
+                choice = SignOutDataChoice.KeepData,
+            )
+        )
+    }
+
+    private fun performSignOut(request: SignOutRequest) {
+        val dataWasRemoved =
+            request.choice == SignOutDataChoice.RemoveData ||
+                state.value is AccountState.SignOutPending
+        mutableManual.update {
+            it.copy(
+                signOutBusy = true,
+                signOutReview = it.signOutReview?.copy(confirmingRemoval = false),
+                feedback = null,
+            )
+        }
+        viewModelScope.launch {
+            try {
+                when (val result = accountGateway.signOut(request)) {
+                    AccountActionResult.Completed -> {
+                        mutableManual.update {
+                            it.copy(
+                                signOutBusy = false,
+                                signOutReview = null,
+                                review = null,
+                                latest = null,
+                                undoAvailable = false,
+                                status = BackupStatus.LocalOnly,
+                                feedback =
+                                    if (dataWasRemoved)
+                                        "Signed out. Training data was removed from this device. The remote backup was not changed."
+                                    else
+                                        "Signed out. Training data and its account ownership remain on this device."
+                            )
+                        }
+                        backup.refreshStatus()
+                    }
+                    AccountActionResult.Cancelled -> {
+                        mutableManual.update {
+                            it.copy(
+                                signOutBusy = false,
+                                signOutReview = null,
+                                feedback =
+                                    "The account changed before sign-out. No other account was cleared."
+                            )
+                        }
+                        refresh()
+                    }
+                    AccountActionResult.Unavailable -> {
+                        mutableManual.update {
+                            it.copy(
+                                signOutBusy = false,
+                                signOutReview = null,
+                                feedback = "Sign-out is unavailable in the current account state."
+                            )
+                        }
+                    }
+                    is AccountActionResult.Failed -> {
+                        val pending = state.value is AccountState.SignOutPending
+                        mutableManual.update {
+                            it.copy(
+                                signOutBusy = false,
+                                signOutReview = null,
+                                review = null,
+                                latest = if (pending) null else it.latest,
+                                undoAvailable = if (pending) false else it.undoAvailable,
+                                feedback =
+                                    if (pending)
+                                        "Training data was removed. Finish sign-out to verify and clear this account session."
+                                    else
+                                        "Sign-out could not finish. Check account and training data status before trying again."
+                            )
+                        }
+                        backup.refreshStatus()
+                    }
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                mutableManual.update {
+                    it.copy(
+                        signOutBusy = false,
+                        signOutReview = null,
+                        feedback =
+                            "Sign-out could not finish. Check the account state and try again."
+                    )
+                }
+            }
+        }
+    }
 
     fun previewBackup() = runManual {
         discardReview()
@@ -233,7 +486,17 @@ constructor(
     }
 
     fun leave(onLeave: () -> Unit) {
-        if (manual.value.busy) return
+        if (manual.value.signOutReview != null) {
+            dismissSignOutReview()
+            return
+        }
+        if (
+            manual.value.busy ||
+                manual.value.signOutBusy ||
+                state.value == AccountState.SigningOut ||
+                state.value is AccountState.SignOutPending
+        )
+            return
         if (manual.value.review != null) {
             runManual {
                 discardReview()
@@ -245,7 +508,6 @@ constructor(
             val current = state.value
             val cancellationRequired =
                 current == AccountState.SigningIn ||
-                    current is AccountState.AwaitingDataChoice ||
                     (current is AccountState.RecoverableError && current.canCancelDataChoice)
             if (current == AccountState.CancellingDataChoice) return@launch
             if (
@@ -272,7 +534,7 @@ constructor(
     }
 
     private fun runManual(action: suspend () -> Unit) {
-        if (manual.value.busy) return
+        if (manual.value.busy || manual.value.signOutBusy) return
         mutableManual.update { it.copy(busy = true, feedback = null) }
         viewModelScope.launch {
             try {

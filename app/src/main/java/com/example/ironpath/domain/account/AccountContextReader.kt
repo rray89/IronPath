@@ -12,4 +12,6 @@ data class LocalAccountContext(
     val ownerUid: String?,
     val localDataIsEmpty: Boolean,
     val conflict: PersistedConflictContext,
+    val pendingSignOutUid: String? = null,
+    val activeWorkoutPresent: Boolean = false,
 )

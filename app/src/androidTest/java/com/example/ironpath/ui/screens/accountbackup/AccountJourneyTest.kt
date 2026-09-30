@@ -26,7 +26,6 @@ import javax.inject.Inject
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
-import org.junit.Assert.assertNull
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
@@ -45,7 +44,7 @@ class AccountJourneyTest {
     @Before fun inject() = hiltRule.inject()
 
     @Test
-    fun localWorkoutDataAndPendingIdentity_surviveRecreationUntilExplicitCancel() {
+    fun localWorkoutDataAndAuthenticatedIdentity_surviveBackAndActivityRecreation() {
         waitForText("CONTINUE ON THIS DEVICE")
         composeRule.onNodeWithText("CONTINUE ON THIS DEVICE").performScrollTo().performClick()
         waitForText("No workout plan yet")
@@ -66,7 +65,26 @@ class AccountJourneyTest {
         assertNotNull(session.session)
         Espresso.pressBack()
         waitForText("No workout plan yet")
-        assertNull(session.session)
+        assertNotNull(session.session)
+        runBlocking {
+            assertEquals(before, database.backupDao().getMetadata())
+            assertEquals(
+                listOf("account-journey-log"),
+                database.backupDao().getWorkoutLogs().map { it.id }
+            )
+        }
+
+        composeRule.activityRule.scenario.recreate()
+        waitForText("No workout plan yet")
+        assertNotNull(session.session)
+        composeRule.onNodeWithContentDescription("Menu").performClick()
+        composeRule.onNodeWithText("Back up your training data").performClick()
+        waitForText("YOUR ACCOUNT")
+        waitForPendingChoice()
+        assertNotNull(session.session)
+        composeRule.onNodeWithText("DECIDE LATER").performScrollTo().performClick()
+        waitForText("No workout plan yet")
+        assertNotNull(session.session)
         runBlocking {
             assertEquals(before, database.backupDao().getMetadata())
             assertEquals(

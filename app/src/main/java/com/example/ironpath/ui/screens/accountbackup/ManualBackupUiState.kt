@@ -1,5 +1,7 @@
 package com.example.ironpath.ui.screens.accountbackup
 
+import com.example.ironpath.domain.account.AccountId
+import com.example.ironpath.domain.account.SignOutDataChoice
 import com.example.ironpath.domain.backup.*
 
 sealed interface ManualReview {
@@ -32,6 +34,16 @@ data class ManualBackupUiState(
     val destructiveConfirmed: Boolean = false,
     val activeWorkoutDiscardConfirmed: Boolean = false,
     val feedback: String? = null,
+    val signOutReview: SignOutReviewUiState? = null,
+    val signOutBusy: Boolean = false,
+)
+
+data class SignOutTarget(val accountId: AccountId, val sessionEpoch: Long)
+
+data class SignOutReviewUiState(
+    val target: SignOutTarget,
+    val choice: SignOutDataChoice = SignOutDataChoice.KeepData,
+    val confirmingRemoval: Boolean = false,
 )
 
 data class ManualBackupActions(
@@ -44,6 +56,15 @@ data class ManualBackupActions(
     val confirmActiveWorkoutDiscard: (Boolean) -> Unit = {},
     val holdGuidance: () -> Unit = {},
     val confirm: () -> Unit = {},
+    val keepDeviceEmpty: () -> Unit = {},
+    val recoverUnreadableSession: () -> Unit = {},
+    val openSignOutReview: () -> Unit = {},
+    val dismissSignOutReview: () -> Unit = {},
+    val chooseSignOutChoice: (SignOutDataChoice) -> Unit = {},
+    val requestRemoveConfirmation: () -> Unit = {},
+    val dismissRemoveConfirmation: () -> Unit = {},
+    val confirmSignOut: (Boolean) -> Unit = {},
+    val retrySignOut: () -> Unit = {},
 )
 
 internal fun backupFailureMessage(reason: BackupFailureReason): String =

@@ -12,11 +12,13 @@ interface AccountGateway {
 
     suspend fun cancelDataChoice(): AccountActionResult
 
+    suspend fun recoverUnreadableSession(): AccountActionResult = AccountActionResult.Unavailable
+
     suspend fun startGoogleSignIn(): AccountActionResult
 
     suspend fun reauthenticate(): AccountActionResult
 
-    suspend fun signOut(): AccountActionResult
+    suspend fun signOut(request: SignOutRequest): AccountActionResult
 
     suspend fun deleteAccount(): AccountActionResult
 }
@@ -28,16 +30,30 @@ sealed interface AccountState {
 
     data object SigningIn : AccountState
 
+    /** A credential was selected and the durable demo session is being saved. */
+    data object SavingSignIn : AccountState
+
     data object CancellingDataChoice : AccountState
 
     data class AwaitingDataChoice(
         val accountId: AccountId,
         val context: DataChoiceContext,
         val profile: AccountProfile? = null,
+        val sessionEpoch: Long = 0,
     ) : AccountState
 
-    data class SignedIn(val accountId: AccountId, val profile: AccountProfile? = null) :
-        AccountState
+    data class SignedIn(
+        val accountId: AccountId,
+        val profile: AccountProfile? = null,
+        val sessionEpoch: Long = 0,
+    ) : AccountState
+
+    /** Local removal committed; only clearing this same account's session may be retried. */
+    data class SignOutPending(
+        val accountId: AccountId,
+        val profile: AccountProfile? = null,
+        val sessionEpoch: Long = 0,
+    ) : AccountState
 
     data object NeedsReauthentication : AccountState
 
@@ -48,10 +64,23 @@ sealed interface AccountState {
     data class RecoverableError(
         val reason: AccountFailureReason,
         val canCancelDataChoice: Boolean = false,
+        val canRecoverUnreadableSession: Boolean = false,
     ) : AccountState
 }
 
 data class AccountProfile(val id: AccountId, val displayName: String, val email: String)
+
+enum class SignOutDataChoice {
+    KeepData,
+    RemoveData,
+}
+
+data class SignOutRequest(
+    val accountId: AccountId,
+    val sessionEpoch: Long,
+    val choice: SignOutDataChoice,
+    val removeDataConfirmed: Boolean = false,
+)
 
 @JvmInline
 value class AccountId(val opaqueValue: String) {
@@ -65,6 +94,7 @@ data class DataChoiceContext(
     val localDataIsEmpty: Boolean,
     val remoteSnapshot: RemoteSnapshotPresence,
     val conflict: PersistedConflictContext?,
+    val activeWorkoutPresent: Boolean = false,
 )
 
 sealed interface LocalOwnership {
@@ -80,6 +110,7 @@ sealed interface RemoteSnapshotPresence {
         val backupId: String,
         val generation: Long,
         val sourceInstallationId: String,
+        val contentDigest: String? = null,
     ) : RemoteSnapshotPresence
 }
 
@@ -118,6 +149,7 @@ object AccountStateResolver {
         localDataIsEmpty: Boolean = false,
         remoteSnapshot: RemoteSnapshotPresence = RemoteSnapshotPresence.Absent,
         conflict: PersistedConflictContext? = null,
+        activeWorkoutPresent: Boolean = false,
     ): AccountState =
         when {
             authenticatedUid == null -> AccountState.LocalOnly
@@ -135,6 +167,7 @@ object AccountStateResolver {
                             localDataIsEmpty = localDataIsEmpty,
                             remoteSnapshot = remoteSnapshot,
                             conflict = conflict,
+                            activeWorkoutPresent = activeWorkoutPresent,
                         ),
                 )
         }

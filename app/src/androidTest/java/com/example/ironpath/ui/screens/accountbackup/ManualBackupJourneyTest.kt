@@ -63,6 +63,96 @@ class ManualBackupJourneyTest {
     @Before fun inject() = hiltRule.inject()
 
     @Test
+    fun emptyUnclaimedDeviceCanDecideLaterKeepEmptyAndRestoreWithoutChangingRemoteBackup() {
+        waitForText("CONTINUE ON THIS DEVICE")
+        composeRule.onNodeWithText("CONTINUE ON THIS DEVICE").performScrollTo().performClick()
+        waitForText("No workout plan yet")
+        val original = runBlocking { local.capture() }
+        assertNull(original.metadata.ownerUid)
+        assertTrue(original.bundle.allStableIds().isEmpty())
+
+        val accountId = AccountId("test-athlete")
+        val remoteBundle =
+            original.bundle.copy(
+                personalRecords =
+                    listOf(
+                        TestData.record(id = "choice-remote-deadlift"),
+                        TestData.record(
+                            id = "choice-remote-squat",
+                            exerciseName = "Squat",
+                            normalizedExerciseName = "squat",
+                            weightKg = 120.0,
+                        ),
+                    ),
+            )
+        val publish = runBlocking {
+            remote.publish(
+                accountId,
+                0,
+                "choice-source-installation",
+                BackupSnapshotCodec().encode(remoteBundle),
+            )
+        }
+        assertTrue(publish is RemoteBackupPublish.Completed)
+        val remoteBefore = (publish as RemoteBackupPublish.Completed).backup
+
+        composeRule.onNodeWithContentDescription("Menu").performClick()
+        composeRule.onNodeWithText("Back up your training data").performClick()
+        waitForText("YOUR ACCOUNT")
+        composeRule.onNodeWithText("SIGN IN WITH GOOGLE").performScrollTo().performClick()
+        waitForAccountStatus("Data choice required")
+        waitForText("RESTORE BACKUP")
+        composeRule.onNodeWithText("RESTORE BACKUP").performScrollTo().performClick()
+        waitForText("WHOLE-BACKUP RESTORE REVIEW")
+        composeRule.onNodeWithContentDescription("Back").performClick()
+        waitForText("YOUR ACCOUNT")
+        assertEquals(original, runBlocking { local.capture() })
+        assertEquals(remoteBefore, latest(accountId))
+
+        composeRule.onNodeWithText("DECIDE LATER").performScrollTo().performClick()
+        waitForText("No workout plan yet")
+        assertEquals(accountId, session.session?.id)
+        assertEquals(original, runBlocking { local.capture() })
+        assertEquals(remoteBefore, latest(accountId))
+
+        composeRule.activityRule.scenario.recreate()
+        waitForText("No workout plan yet")
+        assertEquals(accountId, session.session?.id)
+        composeRule.onNodeWithContentDescription("Menu").performClick()
+        composeRule.onNodeWithText("Back up your training data").performClick()
+        waitForText("YOUR ACCOUNT")
+        waitForText("KEEP THIS DEVICE EMPTY")
+        assertEquals(original, runBlocking { local.capture() })
+        assertEquals(remoteBefore, latest(accountId))
+
+        composeRule.onNodeWithText("KEEP THIS DEVICE EMPTY").performScrollTo().performClick()
+        waitForDialogText("This device will stay empty.")
+        val associated = runBlocking { local.capture() }
+        assertEquals(original.metadata.copy(ownerUid = accountId.opaqueValue), associated.metadata)
+        assertEquals(original.bundle, associated.bundle)
+        assertEquals(original.baseline, associated.baseline)
+        assertEquals(remoteBefore, latest(accountId))
+        composeRule.onNodeWithText("KEEP THIS DEVICE EMPTY").assertDoesNotExist()
+
+        composeRule.onNodeWithText("PREVIEW WHOLE-BACKUP RESTORE").performScrollTo().performClick()
+        waitForText("WHOLE-BACKUP RESTORE REVIEW")
+        composeRule
+            .onNodeWithText("PRESS AND HOLD TO RESTORE")
+            .performScrollTo()
+            .performTouchInput { longClick(durationMillis = 1_000) }
+        waitForText(
+            "The latest complete demo backup replaced the included training data. One local undo is available."
+        )
+        val restored = runBlocking { local.capture() }
+        assertEquals(
+            setOf("choice-remote-deadlift", "choice-remote-squat"),
+            restored.bundle.personalRecords.map { it.id }.toSet(),
+        )
+        assertEquals(remoteBefore, latest(accountId))
+        assertNotNull(runBlocking { database.backupDao().getRestoreUndoMetadata() })
+    }
+
+    @Test
     fun explicitBackupAndConflictSync_preserveCancelledPreviewAndPersistAcrossRecreation() {
         waitForText("CONTINUE ON THIS DEVICE")
         composeRule.onNodeWithText("CONTINUE ON THIS DEVICE").performScrollTo().performClick()
@@ -319,6 +409,86 @@ class ManualBackupJourneyTest {
         assertEquals(mergedRemote, latest(accountId))
     }
 
+    @Test
+    fun signOutKeepsOwnedDataByDefault_thenRemovesOnlyLocalDataAfterConfirmation() {
+        waitForText("CONTINUE ON THIS DEVICE")
+        composeRule.onNodeWithText("CONTINUE ON THIS DEVICE").performScrollTo().performClick()
+        waitForText("No workout plan yet")
+        val activeSession = TestData.session(id = "signout-active-session")
+        runBlocking {
+            database
+                .sessionDao()
+                .startNewSession(
+                    activeSession,
+                    listOf(
+                        TestData.sessionExercise(
+                            id = "signout-active-exercise",
+                            sessionId = activeSession.id,
+                        )
+                    ),
+                )
+        }
+        seedLocalTrainingData()
+        val beforeSignIn = runBlocking { local.capture() }
+
+        composeRule.onNodeWithContentDescription("Menu").performClick()
+        composeRule.onNodeWithText("Back up your training data").performClick()
+        waitForText("YOUR ACCOUNT")
+        composeRule.onNodeWithText("SIGN IN WITH GOOGLE").performScrollTo().performClick()
+        waitForAccountStatus("Data choice required")
+        val accountId = requireNotNull(session.session).id
+        composeRule.onNodeWithText("BACK UP NOW").performScrollTo().performClick()
+        waitForText("MANUAL BACKUP PREVIEW")
+        composeRule.onNodeWithText("CONFIRM MANUAL BACKUP").performScrollTo().performClick()
+        waitForText("Manual backup complete in demo storage.")
+        waitForAccountStatus("Signed in")
+        val backupBeforeSignOut = latest(accountId)
+        val ownedLocalData = runBlocking { local.capture() }
+        assertEquals(accountId.opaqueValue, ownedLocalData.metadata.ownerUid)
+        assertEquals(beforeSignIn.bundle, ownedLocalData.bundle)
+        assertEquals(activeSession.id, ownedLocalData.activeSessionId)
+
+        composeRule.onNodeWithText("SIGN OUT").performScrollTo().performClick()
+        waitForDialogText("Keep data on this device")
+        composeRule.onNodeWithText("Keep data on this device").assertIsSelected()
+        composeRule.onAllNodesWithText("SIGN OUT").onLast().performClick()
+        waitForAccountStatus("Local only")
+
+        assertNull(session.session)
+        assertEquals(ownedLocalData, runBlocking { local.capture() })
+        assertEquals(backupBeforeSignOut, latest(accountId))
+
+        composeRule.onNodeWithText("SIGN IN WITH GOOGLE").performScrollTo().performClick()
+        waitForAccountStatus("Signed in")
+        assertEquals(accountId, session.session?.id)
+        assertEquals(ownedLocalData, runBlocking { local.capture() })
+
+        composeRule.onNodeWithText("SIGN OUT").performScrollTo().performClick()
+        waitForDialogText("Remove data from this device")
+        composeRule.onNodeWithText("Remove data from this device").performClick()
+        composeRule.onNodeWithText("CONTINUE").performClick()
+        waitForDialogText("Remove training data?")
+        composeRule.onNodeWithText("REMOVE DATA AND SIGN OUT").performClick()
+        waitForAccountStatus("Local only")
+
+        assertNull(session.session)
+        assertNull(runBlocking { database.sessionDao().getActiveSession() })
+        val removedLocalData = runBlocking { local.capture() }
+        assertNull(removedLocalData.metadata.ownerUid)
+        assertNotEquals(
+            ownedLocalData.metadata.installationId,
+            removedLocalData.metadata.installationId
+        )
+        assertTrue(removedLocalData.bundle.weeklyPlans.isEmpty())
+        assertTrue(removedLocalData.bundle.plannedWorkouts.isEmpty())
+        assertTrue(removedLocalData.bundle.plannedExercises.isEmpty())
+        assertTrue(removedLocalData.bundle.workoutLogs.isEmpty())
+        assertTrue(removedLocalData.bundle.loggedExercises.isEmpty())
+        assertTrue(removedLocalData.bundle.loggedSets.isEmpty())
+        assertTrue(removedLocalData.bundle.personalRecords.isEmpty())
+        assertEquals(backupBeforeSignOut, latest(accountId))
+    }
+
     private fun seedLocalTrainingData(): ManualBackupCapture = runBlocking {
         database.withTransaction {
             database.historyDao().insertLog(TestData.log(id = LOG_ID, workoutId = null))
@@ -435,6 +605,16 @@ class ManualBackupJourneyTest {
         composeRule.waitUntil(5_000) {
             composeRule.onAllNodesWithTag(tag).fetchSemanticsNodes().isNotEmpty()
         }
+    }
+
+    private fun waitForDialogText(text: String) {
+        composeRule.waitUntil(5_000) {
+            composeRule
+                .onAllNodesWithText(text, substring = true)
+                .fetchSemanticsNodes()
+                .isNotEmpty()
+        }
+        composeRule.onNodeWithText(text, substring = true).assertIsDisplayed()
     }
 
     private fun waitForAccountStatus(status: String) {
