@@ -46,7 +46,8 @@ device APK hash, and confirmed the app launched.
 
 The manual walkthrough covered:
 
-1. Create record A and back it up to the Demo Athlete account.
+1. Use or create record A and back it up to the Demo Athlete account, then open History
+   and return Home before deletion to preserve the prior navigation state.
 2. Cancel at both deletion confirmation layers and verify nothing changes.
 3. Confirm deletion; verify the account session, backup, and local training data are
    cleared and IronPath returns Home.
