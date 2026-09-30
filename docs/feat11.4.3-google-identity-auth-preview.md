@@ -31,9 +31,9 @@ artifacts. The build validates it and generates resources under the app build di
 generation task does not use the Gradle build cache. A relative, missing, malformed, incomplete, or
 wrong-package file fails the auth preview build without printing its values.
 
-No Firebase project, OAuth client, or live service was provisioned for this implementation. A
-private configuration file was not supplied to the implementation build, so real Google sign-in
-has not been exercised.
+The original implementation build did not use a private Firebase configuration. A separate
+configured preview build was later used for the product acceptance recorded below. No Firebase
+configuration values are stored in this repository.
 
 ## Behavior and limits
 
@@ -58,22 +58,30 @@ private Firebase preview configuration is supplied. Confirm Cloud backup is desc
 unavailable, and no backup, restore, data association, demo preview, or Google account deletion
 action is offered.
 
-### Google identity flow with supplied configuration
+### Configured Google identity flow — accepted 2026-09-30
 
-After an authorized private configuration file is available, rebuild with the absolute-path command
-above and verify the following on a review device:
+BOSS confirmed all six steps passed on Seeker using a separately configured `authpreview` build from
+revision `d88803917cfc57695a1825904f58006220fc494b`. The installed APK SHA-256 was
+`f3f450d918bb926e45a72730f81985a86bf13a40b045b4a29145327882120cf7`. Configuration remained
+private outside the repository.
 
-1. Sign in with Google and confirm the displayed name/email comes from the authenticated Firebase
-   user. Confirm no workout data, owner UID, backup lineage, or undo state changes during sign-in.
-2. Restart IronPath and confirm the Firebase identity is restored from the local session while Cloud
+1. Open the preview, continue on this device, complete first-use setup, and create personal Record A.
+2. Open the account entry and start Google sign-in. Cancel the Google chooser once; verify the app
+   remains signed out and Record A remains. Start sign-in again, select the Google account, and
+   verify the displayed identity matches it while Record A remains.
+3. Remove the preview from recents and reopen it. Verify the identity and Record A persist and Cloud
    backup remains unavailable.
-3. Sign out with Keep selected and confirm the Firebase identity clears while workouts and their
-   existing local ownership remain unchanged.
-4. Sign in again, then sign out with Remove selected. Confirm the explicit removal prompt, local
-   workout reset, and completed sign-out. Confirm this does not delete the Google account.
+4. Sign out with Keep selected. Verify the identity clears and Record A remains. Sign in again and
+   verify Record A still remains.
+5. Sign out with Remove selected. On the removal prompt choose Back, then cancel; verify the session
+   and Record A are unchanged. Repeat, confirm Remove data and sign out, and verify the session is
+   cleared and Record A is gone.
+6. Sign in again with the same Google account. Verify Records is empty and no old demo backup
+   appears. Restart the preview and verify the identity remains while Records stays empty.
 
-The configured Google identity flow has not been exercised in this build because no private
-configuration file was supplied.
+This acceptance covers Google identity, local session persistence, and the app's local Keep/Remove
+data behavior. It does not cover cloud backup, restore, training-data association, or deletion of a
+Firebase or Google account.
 
 The build command is:
 
