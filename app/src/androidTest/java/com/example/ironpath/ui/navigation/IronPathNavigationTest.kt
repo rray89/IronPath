@@ -1,7 +1,9 @@
 package com.example.ironpath.ui.navigation
 
 import androidx.activity.compose.setContent
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.semantics.getOrNull
@@ -46,6 +48,7 @@ import com.example.ironpath.data.local.dao.PlanDao
 import com.example.ironpath.data.local.dao.SessionDao
 import com.example.ironpath.data.local.entity.WorkoutStatus
 import com.example.ironpath.domain.account.AccountContextReader
+import com.example.ironpath.domain.account.AccountState
 import com.example.ironpath.domain.time.TimeProvider
 import com.example.ironpath.testutil.FakeAccountSessionAdapter
 import com.example.ironpath.testutil.FakeOnboardingRepository
@@ -56,6 +59,8 @@ import com.example.ironpath.ui.testing.TestTags
 import com.example.ironpath.ui.theme.IronPathTheme
 import dagger.hilt.android.testing.HiltAndroidRule
 import dagger.hilt.android.testing.HiltAndroidTest
+import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicReference
 import javax.inject.Inject
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.runBlocking
@@ -63,6 +68,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Rule
@@ -105,22 +111,32 @@ class IronPathNavigationTest {
         waitForRoute(Route.ENTRY)
     }
 
-    private fun setAccountContent(viewModelOverride: AccountBackupViewModel? = null) {
+    private fun setAccountContent(
+        viewModelOverride: AccountBackupViewModel? = null,
+        onAccountSignInOverride: (() -> Unit)? = null,
+        onAccountStateComposed: ((AccountBackupViewModel, AccountState) -> Unit)? = null,
+    ) {
         composeRule.runOnUiThread {
             composeRule.activity.setContent {
                 IronPathTheme {
                     val accountViewModel =
                         viewModelOverride ?: hiltViewModel<AccountBackupViewModel>()
-                    val accountState by accountViewModel.state.collectAsStateWithLifecycle()
-                    IronPathApp(
-                        timeProvider = timeProvider,
-                        navController = navController,
-                        onCompleteOnboarding = onboardingRepository::complete,
-                        accountState = accountState,
-                        onAccountSignIn = accountViewModel::signIn,
-                        onAccountRetry = accountViewModel::refresh,
-                        onAccountLeave = accountViewModel::leave,
-                    )
+                    key(accountViewModel) {
+                        val accountState by accountViewModel.state.collectAsStateWithLifecycle()
+                        SideEffect {
+                            onAccountStateComposed?.invoke(accountViewModel, accountState)
+                        }
+                        IronPathApp(
+                            timeProvider = timeProvider,
+                            navController = navController,
+                            onCompleteOnboarding = onboardingRepository::complete,
+                            accountState = accountState,
+                            onAccountSignIn =
+                                onAccountSignInOverride ?: accountViewModel::signIn,
+                            onAccountRetry = accountViewModel::refresh,
+                            onAccountLeave = accountViewModel::leave,
+                        )
+                    }
                 }
             }
         }
@@ -157,12 +173,20 @@ class IronPathNavigationTest {
 
     @Test
     fun accountShell_delayedStartup_keepsSignInDisabledUntilLocalContextIsReady() {
-        // Room startup is not tracked by Compose idling. Hold its result until the loading
-        // button has been observed, independently of the host machine's speed.
+        // Room startup is not tracked by Compose idling. Hold its result until the test confirms
+        // that this ViewModel is mounted and its local-context read is waiting at the gate.
         val releaseContext = CompletableDeferred<Unit>()
+        val readEntered = CompletableDeferred<Unit>()
+        val mountedAccountState =
+            AtomicReference<Pair<AccountBackupViewModel, AccountState>?>(null)
+        val signInCallbackCount = AtomicInteger()
         val gatedContext =
             object : AccountContextReader by accountContext {
-                override suspend fun read() = accountContext.read().also { releaseContext.await() }
+                override suspend fun read() =
+                    accountContext.read().also {
+                        readEntered.complete(Unit)
+                        releaseContext.await()
+                    }
             }
         val viewModel =
             composeRule.runOnIdle {
@@ -188,16 +212,46 @@ class IronPathNavigationTest {
                 )["delayed-account-startup", AccountBackupViewModel::class.java]
             }
         try {
-            setAccountContent(viewModel)
+            setAccountContent(
+                viewModelOverride = viewModel,
+                onAccountSignInOverride = {
+                    signInCallbackCount.incrementAndGet()
+                    viewModel.signIn()
+                },
+                onAccountStateComposed = { mountedViewModel, accountState ->
+                    mountedAccountState.set(mountedViewModel to accountState)
+                },
+            )
+            composeRule.waitUntil(timeoutMillis = 5_000) {
+                readEntered.isCompleted &&
+                    mountedAccountState.get()?.let { (mountedViewModel, accountState) ->
+                        mountedViewModel === viewModel && accountState == AccountState.Loading
+                    } == true
+            }
+            composeRule.runOnIdle {
+                assertSame(viewModel, mountedAccountState.get()?.first)
+                assertEquals(AccountState.Loading, mountedAccountState.get()?.second)
+                assertEquals(AccountState.Loading, viewModel.state.value)
+                assertTrue(readEntered.isCompleted)
+                assertFalse(releaseContext.isCompleted)
+                assertEquals(Route.ENTRY, navController.currentDestination?.route)
+            }
             composeRule.onNodeWithText("SIGN IN WITH GOOGLE").assertIsNotEnabled().performClick()
-            assertEquals(Route.ENTRY, currentRoute())
+            composeRule.runOnIdle {
+                assertEquals(Route.ENTRY, navController.currentDestination?.route)
+                assertEquals(AccountState.Loading, viewModel.state.value)
+                assertFalse(releaseContext.isCompleted)
+            }
+            composeRule.onNodeWithText("SIGN IN WITH GOOGLE").assertIsNotEnabled()
             assertNull(accountSession.session)
+            assertEquals(0, signInCallbackCount.get())
             composeRule.onNodeWithText("CONTINUE ON THIS DEVICE").assertIsEnabled()
 
             releaseContext.complete(Unit)
             waitForEnabledText("SIGN IN WITH GOOGLE")
             composeRule.onNodeWithText("SIGN IN WITH GOOGLE").assertIsEnabled().performClick()
             waitForRoute("account_backup")
+            assertEquals(1, signInCallbackCount.get())
             waitForPendingAccountChoice()
             assertFalse(onboardingRepository.completed)
             composeRule.onNodeWithContentDescription("Back").performClick()
