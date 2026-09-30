@@ -91,66 +91,76 @@ constructor(
                 return@withLock AccountActionResult.Unavailable
             val pendingDeletion = deletionManager.pending()
             if (pendingDeletion != null) {
+                return@withLock publishPendingDeletion(pendingDeletion)
+            }
+            safely { refreshSessionContext(inspectRemote) }
+        }
+
+    private fun publishPendingDeletion(progress: AccountDeletionProgress): AccountActionResult {
+        operationGate.closeAdmission()
+        canCancel = false
+        mutableState.value = AccountState.AccountDeletionPending(progress)
+        return AccountActionResult.Completed
+    }
+
+    private suspend fun refreshSessionContext(inspectRemote: Boolean): AccountActionResult {
+        val profile = readSession()
+        val local =
+            try {
+                localContext.read()
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                canCancel = false
+                return fail(AccountFailureReason.LocalStateUnavailable)
+            }
+        if (!capabilities.canAssociateLocalData) {
+            publishIdentityOnlySession(profile, local, operationGate.sessionEpoch)
+            return AccountActionResult.Completed
+        }
+
+        val pending = local.pendingSignOutUid
+        return when {
+            pending != null && profile?.id?.opaqueValue == pending -> {
                 operationGate.closeAdmission()
                 canCancel = false
-                mutableState.value = AccountState.AccountDeletionPending(pendingDeletion)
-                return@withLock AccountActionResult.Completed
+                mutableState.value =
+                    AccountState.SignOutPending(
+                        AccountId(pending),
+                        profile,
+                        operationGate.sessionEpoch,
+                    )
+                AccountActionResult.Completed
             }
-            safely {
-                val profile = readSession()
-                val local =
-                    try {
-                        localContext.read()
-                    } catch (cancelled: CancellationException) {
-                        throw cancelled
-                    } catch (_: Exception) {
-                        canCancel = false
-                        return@safely fail(AccountFailureReason.LocalStateUnavailable)
-                    }
-                val pending = local.pendingSignOutUid
-                if (!capabilities.canAssociateLocalData) {
-                    publishIdentityOnlySession(profile, local, operationGate.sessionEpoch)
-                    return@safely AccountActionResult.Completed
-                }
-                when {
-                    pending != null && profile?.id?.opaqueValue == pending -> {
-                        operationGate.closeAdmission()
-                        canCancel = false
-                        mutableState.value =
-                            AccountState.SignOutPending(
-                                AccountId(pending),
-                                profile,
-                                operationGate.sessionEpoch,
-                            )
-                        AccountActionResult.Completed
-                    }
-                    pending != null && profile == null -> {
-                        check(localProfileResetter.clearPendingSignOut(pending))
-                        observedRemote = null
-                        canCancel = false
-                        mutableState.value = AccountState.LocalOnly
-                        operationGate.reopenAdmission()
-                        AccountActionResult.Completed
-                    }
-                    pending != null -> {
-                        // The old account is no longer the persisted session. Its removal is
-                        // already committed, so retire only the journal and reconstruct the new
-                        // account without clearing or claiming its data.
-                        check(localProfileResetter.clearPendingSignOut(pending))
-                        validateInstallation()
-                        publishSession(profile, inspectRemote, localContext.read())
-                        reopenAdmissionIfStable()
-                        AccountActionResult.Completed
-                    }
-                    else -> {
-                        validateInstallation()
-                        publishSession(profile, inspectRemote, local)
-                        reopenAdmissionIfStable()
-                        AccountActionResult.Completed
-                    }
-                }
+            pending != null && profile == null -> {
+                check(localProfileResetter.clearPendingSignOut(pending))
+                observedRemote = null
+                canCancel = false
+                mutableState.value = AccountState.LocalOnly
+                operationGate.reopenAdmission()
+                AccountActionResult.Completed
             }
+            pending != null -> {
+                // The old account is no longer the persisted session. Its removal is already
+                // committed, so retire only the journal and reconstruct the new account without
+                // clearing or claiming its data.
+                check(localProfileResetter.clearPendingSignOut(pending))
+                publishRefreshedSession(profile, inspectRemote) { localContext.read() }
+            }
+            else -> publishRefreshedSession(profile, inspectRemote) { local }
         }
+    }
+
+    private suspend fun publishRefreshedSession(
+        profile: AccountProfile?,
+        inspectRemote: Boolean,
+        readLocalContext: suspend () -> LocalAccountContext,
+    ): AccountActionResult {
+        validateInstallation()
+        publishSession(profile, inspectRemote, readLocalContext())
+        reopenAdmissionIfStable()
+        return AccountActionResult.Completed
+    }
 
     override suspend fun startGoogleSignIn(): AccountActionResult {
         if (!capabilities.canSignIn) return AccountActionResult.Unavailable

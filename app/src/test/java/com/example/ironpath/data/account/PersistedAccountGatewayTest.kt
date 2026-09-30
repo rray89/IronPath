@@ -1169,6 +1169,57 @@ class PersistedAccountGatewayTest {
     }
 
     @Test
+    fun `stale removal journal rereads context after installation validation`() = runTest {
+        val other =
+            AccountProfile(AccountId("another-account"), "Other Athlete", "other@example.invalid")
+        val source = Source().apply { session = other }
+        val reader =
+            Reader().apply {
+                context =
+                    context.copy(
+                        localDataIsEmpty = true,
+                        pendingSignOutUid = profile.id.opaqueValue,
+                    )
+            }
+        val resetter = TestResetter(reader)
+        val guard =
+            object : InstallationGuard {
+                override suspend fun validate(): InstallationValidationResult {
+                    if (
+                        resetter.clearPendingCalls > 0 && reader.context.pendingSignOutUid == null
+                    ) {
+                        reader.context =
+                            reader.context.copy(
+                                conflict =
+                                    reader.context.conflict.copy(
+                                        currentInstallationId = "validated-installation"
+                                    )
+                            )
+                    }
+                    return InstallationValidationResult.Validated
+                }
+            }
+        val gateway =
+            PersistedAccountGateway(
+                source,
+                reader,
+                guard,
+                resetter,
+                AccountSessionOperationGate(),
+            )
+
+        assertEquals(AccountActionResult.Completed, gateway.refreshLocal())
+
+        val reconstructed = gateway.state.value as AccountState.AwaitingDataChoice
+        assertEquals(
+            "validated-installation",
+            checkNotNull(reconstructed.context.conflict).currentInstallationId,
+        )
+        assertNull(reader.context.pendingSignOutUid)
+        assertEquals(other, source.session)
+    }
+
+    @Test
     fun `reconstruction read failure after old journal cleanup stays refreshable`() = runTest {
         val other =
             AccountProfile(AccountId("another-account"), "Other Athlete", "other@example.invalid")

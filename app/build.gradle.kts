@@ -127,6 +127,8 @@ val generatedAuthPreviewResources = layout.buildDirectory.dir("generated/authPre
 
 val generateAuthPreviewFirebaseConfig =
     tasks.register<GenerateAuthPreviewFirebaseConfig>("generateAuthPreviewFirebaseConfig") {
+        group = "build setup"
+        description = "Generates Firebase resources for the auth preview variant."
         outputs.cacheIf("Private auth configuration must not enter the build cache") { false }
         configFile.set(authPreviewConfigFile)
         configProvided.set(authPreviewConfigFile != null)

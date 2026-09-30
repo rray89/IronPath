@@ -15,10 +15,14 @@ interface AccountSessionAdapter {
     suspend fun commitGoogleCredential(candidate: PendingGoogleCredential): CredentialCommitResult
 
     /** Drop a selected candidate when its gateway request is stale or cancelled. */
-    suspend fun discardGoogleCredential(candidate: PendingGoogleCredential) {}
+    suspend fun discardGoogleCredential(candidate: PendingGoogleCredential) {
+        // Adapters that do not retain candidate state have nothing to discard.
+    }
 
     /** Cancel only the matching provider chooser request. */
-    fun cancelGoogleCredentialRequest(requestId: Long) {}
+    fun cancelGoogleCredentialRequest(requestId: Long) {
+        // Adapters without an external chooser have no provider request to cancel.
+    }
 
     suspend fun readSession(): AccountProfile?
 

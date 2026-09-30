@@ -54,6 +54,7 @@ constructor(
             accountGateway.refreshLocal()
             refreshBackupStatus()
             localContext.changes
+                // A failed invalidation source gets one explicit refresh before collection stops.
                 .catch { emit(Unit) }
                 .collect {
                     accountGateway.refreshLocal()
