@@ -53,7 +53,8 @@ The manual walkthrough covered:
 4. Without restarting, open Records and successfully add record B.
 5. Sign in again as the same Demo Athlete; verify the old backup and record A do not
    return while record B remains.
-6. Restart the app, sign in again, and verify record B remains.
+6. Restart the app and verify the Demo Athlete session remains signed in, record B remains,
+   and record A and the old backup remain absent.
 
 This is manual product acceptance for the exact APK above. It is separate from automated
 test execution. The new account-deletion journey was compiled and packaged, but was not
