@@ -1,9 +1,15 @@
 package com.example.ironpath.domain.account
 
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.emptyFlow
 
 interface AccountGateway {
     val state: StateFlow<AccountState>
+
+    /** Provider session events. The caller must reconcile them through this gateway. */
+    val sessionChanges: Flow<Unit>
+        get() = emptyFlow()
 
     suspend fun refresh(): AccountActionResult
 
@@ -12,6 +18,9 @@ interface AccountGateway {
 
     /** Reconcile in-memory account state after startup has recovered the deletion journal. */
     suspend fun reconcileAfterDeletionRecovery(): AccountActionResult = refreshLocal()
+
+    /** Re-read a provider's local current session and update in-memory state. */
+    suspend fun reconcileSessionChange(): AccountActionResult = refreshLocal()
 
     suspend fun cancelDataChoice(): AccountActionResult
 

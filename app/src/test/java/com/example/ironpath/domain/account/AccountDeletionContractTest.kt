@@ -74,11 +74,13 @@ class AccountDeletionContractTest {
     ) : AccountSessionAdapter {
         var clears = 0
 
-        override suspend fun requestGoogleCredential() = CredentialResult.Cancelled
+        override suspend fun requestGoogleCredential(requestId: Long) = CredentialResult.Cancelled
+
+        override suspend fun commitGoogleCredential(
+            candidate: PendingGoogleCredential,
+        ) = CredentialCommitResult.Failed(AccountFailureReason.Unknown)
 
         override suspend fun readSession() = session
-
-        override suspend fun saveSession(profile: AccountProfile) = true
 
         override suspend fun clearSession(): Boolean {
             clears++

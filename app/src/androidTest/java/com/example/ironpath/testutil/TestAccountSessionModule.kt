@@ -15,22 +15,47 @@ class FakeAccountSessionAdapter
 constructor(private val remote: com.example.ironpath.data.backup.RemoteBackupStore) :
     AccountSessionAdapter {
     var session: AccountProfile? = null
-    var result: CredentialResult =
-        CredentialResult.Selected(
-            AccountProfile(AccountId("test-athlete"), "Test Athlete", "test@example.invalid")
-        )
+    private val candidates = mutableMapOf<PendingGoogleCredential, AccountProfile>()
+    private var selectedProfile =
+        AccountProfile(AccountId("test-athlete"), "Test Athlete", "test@example.invalid")
+    var result: CredentialResult = selected(selectedProfile)
+        set(value) {
+            field = value
+            if (value is CredentialResult.Selected) {
+                selectedProfile = candidates.remove(value.candidate) ?: selectedProfile
+            }
+        }
+
     private val deletedDemoAccounts = mutableSetOf<AccountId>()
     var failDemoAccountDeletion = false
     var failClearSession = false
 
-    override suspend fun requestGoogleCredential() = result
+    override suspend fun requestGoogleCredential(requestId: Long): CredentialResult =
+        when (val configured = result) {
+            is CredentialResult.Selected -> {
+                candidates.remove(configured.candidate)
+                selected(selectedProfile)
+            }
+            else -> configured
+        }
+
+    override suspend fun commitGoogleCredential(
+        candidate: PendingGoogleCredential,
+    ): CredentialCommitResult {
+        val selected =
+            candidates.remove(candidate)
+                ?: return CredentialCommitResult.Failed(
+                    AccountFailureReason.Unknown,
+                )
+        session = selected
+        return CredentialCommitResult.Authenticated(selected)
+    }
+
+    override suspend fun discardGoogleCredential(candidate: PendingGoogleCredential) {
+        candidates.remove(candidate)
+    }
 
     override suspend fun readSession() = session
-
-    override suspend fun saveSession(profile: AccountProfile): Boolean {
-        session = profile
-        return true
-    }
 
     override suspend fun clearSession(): Boolean {
         if (failClearSession) return false
@@ -64,6 +89,12 @@ constructor(private val remote: com.example.ironpath.data.backup.RemoteBackupSto
             is com.example.ironpath.data.backup.RemoteBackupRead.Failed ->
                 error("Isolated test remote unavailable")
         }
+
+    private fun selected(profile: AccountProfile): CredentialResult.Selected {
+        val candidate = PendingGoogleCredential()
+        candidates[candidate] = profile
+        return CredentialResult.Selected(candidate)
+    }
 }
 
 @Module

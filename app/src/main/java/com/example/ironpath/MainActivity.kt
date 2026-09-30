@@ -64,9 +64,11 @@ import androidx.navigation.compose.rememberNavController
 import com.example.ironpath.data.backup.InstallationGuard
 import com.example.ironpath.data.onboarding.OnboardingRepository
 import com.example.ironpath.domain.account.AccountContextReader
+import com.example.ironpath.domain.account.AccountCredentialActivityHost
 import com.example.ironpath.domain.account.AccountDeletionManager
 import com.example.ironpath.domain.account.AccountDeletionProgress
 import com.example.ironpath.domain.account.AccountDeletionResult
+import com.example.ironpath.domain.account.AccountExperienceCapabilities
 import com.example.ironpath.domain.account.AccountGateway
 import com.example.ironpath.domain.account.AccountState
 import com.example.ironpath.domain.time.TimeProvider
@@ -104,12 +106,20 @@ class MainActivity : ComponentActivity() {
 
     @Inject lateinit var accountGateway: AccountGateway
 
+    @Inject lateinit var accountExperienceCapabilities: AccountExperienceCapabilities
+
     @Inject lateinit var accountContextReader: AccountContextReader
+
+    @Inject lateinit var accountCredentialActivityHost: AccountCredentialActivityHost
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        accountCredentialActivityHost.attach(this)
         enableEdgeToEdge()
         setContent {
+            LaunchedEffect(accountGateway) {
+                accountGateway.sessionChanges.collect { accountGateway.reconcileSessionChange() }
+            }
             IronPathTheme {
                 var startup by remember { mutableStateOf<StartupState>(StartupState.Loading) }
                 var startupAttempt by remember { mutableIntStateOf(0) }
@@ -275,6 +285,7 @@ class MainActivity : ComponentActivity() {
                                 onboardingCompleted = current.onboardingCompleted,
                                 onCompleteOnboarding = onboardingRepository::complete,
                                 accountState = accountState,
+                                accountSignInAvailable = accountExperienceCapabilities.canSignIn,
                                 manualBackupState = manualState,
                                 manualBackupActions =
                                     ManualBackupActions(
@@ -344,6 +355,11 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    override fun onDestroy() {
+        accountCredentialActivityHost.detach(this)
+        super.onDestroy()
+    }
+
     private sealed interface StartupState {
         data object Loading : StartupState
 
@@ -388,6 +404,7 @@ fun IronPathApp(
     onboardingCompleted: Boolean = false,
     onCompleteOnboarding: suspend () -> Boolean = { true },
     accountState: AccountState = AccountState.LocalOnly,
+    accountSignInAvailable: Boolean = true,
     manualBackupState: ManualBackupUiState = ManualBackupUiState(),
     manualBackupActions: ManualBackupActions = ManualBackupActions(),
     onAccountSignIn: () -> Unit = {},
@@ -657,6 +674,7 @@ fun IronPathApp(
                         startDestination = startupRoute(onboardingCompleted),
                         onCompleteOnboarding = onCompleteOnboarding,
                         accountState = accountState,
+                        accountSignInAvailable = accountSignInAvailable,
                         onAccountSignIn = onAccountSignIn,
                         onAccountRetry = onAccountRetry,
                         manualBackupState = manualBackupState,

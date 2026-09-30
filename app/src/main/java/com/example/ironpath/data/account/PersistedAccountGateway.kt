@@ -28,6 +28,7 @@ constructor(
     private val localProfileResetter: LocalProfileResetter,
     private val operationGate: AccountSessionOperationGate,
     private val deletionManager: AccountDeletionManager = UnavailableAccountDeletionManager,
+    private val capabilities: AccountExperienceCapabilities = AccountExperienceCapabilities.Demo,
 ) : AccountGateway {
     private val mutableState = MutableStateFlow<AccountState>(AccountState.Loading)
     override val state: StateFlow<AccountState> = mutableState
@@ -35,8 +36,12 @@ constructor(
     private var generation = 0L
     @Volatile private var canCancel = false
     private var observedRemote: Pair<AccountId, RemoteSnapshotPresence>? = null
+    private var signOutAccountId: AccountId? = null
 
-    override suspend fun refresh(): AccountActionResult = refreshContext(inspectRemote = true)
+    override val sessionChanges = sessions.sessionChanges
+
+    override suspend fun refresh(): AccountActionResult =
+        refreshContext(inspectRemote = capabilities.inspectRemoteSessionState)
 
     override suspend fun refreshLocal(): AccountActionResult = refreshContext(inspectRemote = false)
 
@@ -49,6 +54,36 @@ constructor(
         }
         return refreshContext(inspectRemote = false)
     }
+
+    override suspend fun reconcileSessionChange(): AccountActionResult =
+        withContext(NonCancellable) {
+            operationGate.withSessionObservation { _ ->
+                val result =
+                    mutex.withLock {
+                        safely {
+                            val profile = readSession()
+                            val changed = mutableState.value.sessionAccountId() != profile?.id
+                            if (changed) {
+                                val local = localContext.read()
+                                generation++
+                                operationGate.advanceSessionEpoch()
+                                publishIdentityOnlySession(
+                                    profile,
+                                    local,
+                                    operationGate.sessionEpoch
+                                )
+                            }
+                            AccountActionResult.Completed
+                        }
+                    }
+                AccountSessionOperationGate.MutationResult(
+                    result,
+                    reopenAdmission =
+                        mutableState.value !is AccountState.SignOutPending &&
+                            mutableState.value !is AccountState.AccountDeletionPending,
+                )
+            }
+        }
 
     private suspend fun refreshContext(inspectRemote: Boolean): AccountActionResult =
         mutex.withLock {
@@ -73,6 +108,10 @@ constructor(
                         return@safely fail(AccountFailureReason.LocalStateUnavailable)
                     }
                 val pending = local.pendingSignOutUid
+                if (!capabilities.canAssociateLocalData) {
+                    publishIdentityOnlySession(profile, local, operationGate.sessionEpoch)
+                    return@safely AccountActionResult.Completed
+                }
                 when {
                     pending != null && profile?.id?.opaqueValue == pending -> {
                         operationGate.closeAdmission()
@@ -114,6 +153,7 @@ constructor(
         }
 
     override suspend fun startGoogleSignIn(): AccountActionResult {
+        if (!capabilities.canSignIn) return AccountActionResult.Unavailable
         val request =
             mutex.withLock {
                 if (
@@ -124,11 +164,11 @@ constructor(
                 )
                     return AccountActionResult.Unavailable
                 val preparation = safely {
-                    validateInstallation()
+                    if (capabilities.canAssociateLocalData) validateInstallation()
                     val existing = readSession()
                     val local = localContext.read()
                     if (local.pendingSignOutUid != null)
-                        fail(AccountFailureReason.LocalStateUnavailable)
+                        return@safely fail(AccountFailureReason.LocalStateUnavailable)
                     if (existing != null) {
                         publishSession(existing, local = local)
                         AccountActionResult.Unavailable
@@ -142,11 +182,19 @@ constructor(
                 ++generation
             }
         val expectedEpoch = operationGate.sessionEpoch
+        var returnedCandidate: PendingGoogleCredential? = null
         val credential =
             try {
-                sessions.requestGoogleCredential().also { currentCoroutineContext().ensureActive() }
+                sessions.requestGoogleCredential(request).also { selected ->
+                    if (selected is CredentialResult.Selected) {
+                        returnedCandidate = selected.candidate
+                    }
+                    currentCoroutineContext().ensureActive()
+                }
             } catch (cancelled: CancellationException) {
                 withContext(NonCancellable) {
+                    val candidate = returnedCandidate
+                    if (candidate != null) sessions.discardGoogleCredential(candidate)
                     mutex.withLock {
                         if (generation == request && mutableState.value == AccountState.SigningIn) {
                             generation++
@@ -190,34 +238,50 @@ constructor(
                     }
                 }
             }
-        if (!accepted) return AccountActionResult.Cancelled
+        if (!accepted) {
+            withContext(NonCancellable) { sessions.discardGoogleCredential(credential.candidate) }
+            return AccountActionResult.Cancelled
+        }
 
         return try {
-            withContext(NonCancellable) {
-                operationGate.withSessionMutation { previousEpoch, _ ->
-                    val result =
-                        mutex.withLock {
-                            if (
-                                generation != request ||
-                                    mutableState.value != AccountState.SavingSignIn
-                            )
-                                return@withLock AccountActionResult.Cancelled
-                            if (previousEpoch != expectedEpoch) {
-                                canCancel = false
-                                mutableState.value = AccountState.LocalOnly
-                                return@withLock AccountActionResult.Cancelled
+            try {
+                withContext(NonCancellable) {
+                    operationGate.withSessionMutation { previousEpoch, _ ->
+                        val result =
+                            mutex.withLock {
+                                if (
+                                    generation != request ||
+                                        mutableState.value != AccountState.SavingSignIn
+                                )
+                                    return@withLock AccountActionResult.Cancelled
+                                if (previousEpoch != expectedEpoch) {
+                                    canCancel = false
+                                    mutableState.value = AccountState.LocalOnly
+                                    return@withLock AccountActionResult.Cancelled
+                                }
+                                safely {
+                                    if (capabilities.canAssociateLocalData) validateInstallation()
+                                    val local = localContext.read()
+                                    check(local.pendingSignOutUid == null)
+                                    check(readSession() == null)
+                                    when (
+                                        val committed =
+                                            sessions.commitGoogleCredential(credential.candidate)
+                                    ) {
+                                        is CredentialCommitResult.Authenticated -> {
+                                            publishSession(committed.profile, local = local)
+                                            AccountActionResult.Completed
+                                        }
+                                        is CredentialCommitResult.Failed -> fail(committed.reason)
+                                    }
+                                }
                             }
-                            safely {
-                                validateInstallation()
-                                val local = localContext.read()
-                                check(local.pendingSignOutUid == null)
-                                check(readSession() == null)
-                                check(sessions.saveSession(credential.profile))
-                                publishSession(credential.profile, local = local)
-                                AccountActionResult.Completed
-                            }
-                        }
-                    AccountSessionOperationGate.MutationResult(result, reopenAdmission = true)
+                        AccountSessionOperationGate.MutationResult(result, reopenAdmission = true)
+                    }
+                }
+            } finally {
+                withContext(NonCancellable) {
+                    sessions.discardGoogleCredential(credential.candidate)
                 }
             }
         } catch (cancelled: CancellationException) {
@@ -242,7 +306,7 @@ constructor(
     }
 
     override suspend fun cancelDataChoice(): AccountActionResult {
-        val request =
+        val (request, chooserRequestId) =
             mutex.withLock {
                 if (
                     !canCancel ||
@@ -250,10 +314,13 @@ constructor(
                             mutableState.value != AccountState.SigningIn)
                 )
                     return AccountActionResult.Unavailable
+                val chooserRequestId =
+                    if (mutableState.value == AccountState.SigningIn) generation else null
                 canCancel = false
                 mutableState.value = AccountState.CancellingDataChoice
-                ++generation
+                (++generation) to chooserRequestId
             }
+        chooserRequestId?.let(sessions::cancelGoogleCredentialRequest)
         return try {
             operationGate.withSessionMutation { _, _ ->
                 val result =
@@ -273,6 +340,11 @@ constructor(
                                         local = localContext.read(),
                                     )
                                     return@safely AccountActionResult.Unavailable
+                                }
+                                if (chooserRequestId != null) {
+                                    observedRemote = null
+                                    mutableState.value = AccountState.LocalOnly
+                                    return@safely AccountActionResult.Completed
                                 }
                                 try {
                                     sessions.clearSession()
@@ -385,6 +457,7 @@ constructor(
                         )
                             return AccountActionResult.Cancelled
                         canCancel = false
+                        signOutAccountId = current.accountId
                         mutableState.value = AccountState.SigningOut
                         SignOutPlan(++generation, current, resumeRemoval = true)
                     }
@@ -397,6 +470,7 @@ constructor(
                         )
                             return AccountActionResult.Unavailable
                         canCancel = false
+                        signOutAccountId = current.accountId
                         mutableState.value = AccountState.SigningOut
                         SignOutPlan(++generation, current, resumeRemoval = false)
                     }
@@ -409,6 +483,7 @@ constructor(
                         )
                             return AccountActionResult.Unavailable
                         canCancel = false
+                        signOutAccountId = current.accountId
                         mutableState.value = AccountState.SigningOut
                         SignOutPlan(++generation, current, resumeRemoval = false)
                     }
@@ -460,6 +535,7 @@ constructor(
     }
 
     override suspend fun deleteAccount(request: AccountDeletionRequest): AccountActionResult {
+        if (!capabilities.canDeleteAccount) return AccountActionResult.Unavailable
         val plan =
             mutex.withLock {
                 val candidate =
@@ -620,6 +696,7 @@ constructor(
     }
 
     override suspend fun retryAccountDeletion(): AccountActionResult {
+        if (!capabilities.canDeleteAccount) return AccountActionResult.Unavailable
         val previousProgress =
             mutex.withLock {
                 val pending =
@@ -1116,6 +1193,10 @@ constructor(
         inspectRemote: Boolean = true,
         local: LocalAccountContext,
     ) {
+        if (!capabilities.canAssociateLocalData) {
+            publishIdentityOnlySession(profile, local, operationGate.sessionEpoch)
+            return
+        }
         // Until local ownership has been verified, a persisted identity is a pending setup.
         canCancel = false
         val pending = local.pendingSignOutUid
@@ -1186,7 +1267,8 @@ constructor(
                         sessionEpoch = sessionEpoch,
                         profileGeneration = local.profileGeneration,
                         canDeleteAccount =
-                            profile?.id?.opaqueValue == local.ownerUid &&
+                            capabilities.canDeleteAccount &&
+                                profile?.id?.opaqueValue == local.ownerUid &&
                                 local.pendingSignOutUid == null,
                     )
                 is AccountState.AwaitingDataChoice ->
@@ -1195,12 +1277,50 @@ constructor(
                         sessionEpoch = sessionEpoch,
                         profileGeneration = local.profileGeneration,
                         canDeleteUnclaimedData =
-                            resolved.context.ownership is LocalOwnership.Unclaimed &&
+                            capabilities.canDeleteAccount &&
+                                resolved.context.ownership is LocalOwnership.Unclaimed &&
                                 local.pendingSignOutUid == null,
                     )
                 else -> resolved
             }
     }
+
+    private fun publishIdentityOnlySession(
+        profile: AccountProfile?,
+        local: LocalAccountContext,
+        sessionEpoch: Long,
+    ) {
+        canCancel = false
+        observedRemote = null
+        val pendingUid = local.pendingSignOutUid
+        mutableState.value =
+            when {
+                pendingUid != null ->
+                    AccountState.SignOutPending(
+                        accountId = AccountId(pendingUid),
+                        profile = profile?.takeIf { it.id.opaqueValue == pendingUid },
+                        sessionEpoch = sessionEpoch,
+                    )
+                profile == null -> AccountState.LocalOnly
+                else ->
+                    AccountState.SignedIn(
+                        accountId = profile.id,
+                        profile = profile,
+                        sessionEpoch = sessionEpoch,
+                        profileGeneration = local.profileGeneration,
+                        canDeleteAccount = false,
+                    )
+            }
+    }
+
+    private fun AccountState.sessionAccountId(): AccountId? =
+        when (this) {
+            is AccountState.SignedIn -> accountId
+            is AccountState.AwaitingDataChoice -> accountId
+            is AccountState.SignOutPending -> accountId
+            AccountState.SigningOut -> signOutAccountId
+            else -> null
+        }
 
     private suspend fun readSession(): AccountProfile? =
         try {

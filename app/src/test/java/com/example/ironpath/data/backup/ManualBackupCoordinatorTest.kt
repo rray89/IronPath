@@ -1273,17 +1273,28 @@ class ManualBackupCoordinatorTest {
             AccountProfile(AccountId("owner"), "Demo", "demo@example.invalid")
         var profile: AccountProfile? = defaultProfile
         var credentialProfile: AccountProfile = defaultProfile
+        private val candidates = mutableMapOf<PendingGoogleCredential, AccountProfile>()
         var clearCalls = 0
         var onClear: () -> Unit = {}
 
         override suspend fun readSession() = profile
 
-        override suspend fun requestGoogleCredential() =
-            CredentialResult.Selected(credentialProfile)
+        override suspend fun requestGoogleCredential(requestId: Long): CredentialResult {
+            val candidate = PendingGoogleCredential()
+            candidates[candidate] = credentialProfile
+            return CredentialResult.Selected(candidate)
+        }
 
-        override suspend fun saveSession(profile: AccountProfile): Boolean {
-            this.profile = profile
-            return true
+        override suspend fun commitGoogleCredential(
+            candidate: PendingGoogleCredential,
+        ): CredentialCommitResult {
+            val selected =
+                candidates.remove(candidate)
+                    ?: return CredentialCommitResult.Failed(
+                        AccountFailureReason.Unknown,
+                    )
+            profile = selected
+            return CredentialCommitResult.Authenticated(selected)
         }
 
         override suspend fun clearSession(): Boolean {

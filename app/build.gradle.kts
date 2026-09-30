@@ -1,6 +1,96 @@
+import groovy.json.JsonSlurper
+import java.io.File
 import java.util.Locale
 import javax.xml.XMLConstants
+import org.gradle.api.DefaultTask
+import org.gradle.api.file.DirectoryProperty
+import org.gradle.api.file.RegularFileProperty
+import org.gradle.api.provider.Property
+import org.gradle.api.tasks.Input
+import org.gradle.api.tasks.InputFile
+import org.gradle.api.tasks.Optional
+import org.gradle.api.tasks.OutputDirectory
+import org.gradle.api.tasks.PathSensitive
+import org.gradle.api.tasks.PathSensitivity
+import org.gradle.api.tasks.TaskAction
 import org.gradle.testing.jacoco.tasks.JacocoReport
+
+abstract class GenerateAuthPreviewFirebaseConfig : DefaultTask() {
+    @get:InputFile
+    @get:Optional
+    @get:PathSensitive(PathSensitivity.NONE)
+    abstract val configFile: RegularFileProperty
+
+    @get:Input abstract val configProvided: Property<Boolean>
+
+    @get:OutputDirectory abstract val outputDirectory: DirectoryProperty
+
+    @TaskAction
+    fun generate() {
+        val privateConfig = configFile.orNull?.asFile
+        val values =
+            if (!configProvided.get()) {
+                emptyMap()
+            } else {
+                val config =
+                    privateConfig?.takeIf(File::isFile)
+                        ?: throw GradleException("The auth preview Firebase config is unavailable.")
+                val parsed =
+                    try {
+                        JsonSlurper().parse(config) as? Map<*, *>
+                    } catch (_: Exception) {
+                        null
+                    } ?: throw GradleException("The auth preview Firebase config is invalid.")
+                val requiredKeys =
+                    listOf(
+                        "androidPackage",
+                        "firebaseApplicationId",
+                        "apiKey",
+                        "projectId",
+                        "webClientId"
+                    )
+                val resolved =
+                    requiredKeys.associateWith { key -> (parsed[key] as? String)?.trim().orEmpty() }
+                if (
+                    resolved.values.any(String::isBlank) ||
+                        resolved["androidPackage"] != "com.example.ironpath.authpreview"
+                ) {
+                    throw GradleException(
+                        "The auth preview Firebase config is incomplete or targets another package."
+                    )
+                }
+                resolved
+            }
+        fun xmlEscape(value: String): String =
+            value
+                .replace("&", "&amp;")
+                .replace("<", "&lt;")
+                .replace(">", "&gt;")
+                .replace("\"", "&quot;")
+                .replace("'", "&apos;")
+        val resourceValues =
+            listOf(
+                "auth_preview_configured" to values.isNotEmpty().toString(),
+                "auth_preview_firebase_application_id" to values["firebaseApplicationId"].orEmpty(),
+                "auth_preview_firebase_api_key" to values["apiKey"].orEmpty(),
+                "auth_preview_firebase_project_id" to values["projectId"].orEmpty(),
+                "auth_preview_google_web_client_id" to values["webClientId"].orEmpty(),
+            )
+        val output = outputDirectory.get().file("values/auth_preview_firebase.xml").asFile
+        output.parentFile.mkdirs()
+        output.writeText(
+            buildString {
+                appendLine("<?xml version=\"1.0\" encoding=\"utf-8\"?>")
+                appendLine("<resources>")
+                resourceValues.forEach { (name, value) ->
+                    val tag = if (name == "auth_preview_configured") "bool" else "string"
+                    appendLine("    <$tag name=\"$name\">${xmlEscape(value)}</$tag>")
+                }
+                appendLine("</resources>")
+            },
+        )
+    }
+}
 
 plugins {
     jacoco
@@ -15,6 +105,33 @@ plugins {
 jacoco { toolVersion = "0.8.14" }
 
 val androidTestCoverageRequested = providers.gradleProperty("enableAndroidTestCoverage").isPresent
+val authPreviewConfigPath = providers.gradleProperty("ironpathAuthPreviewConfig").orNull
+val authPreviewConfigFile =
+    authPreviewConfigPath?.let { path ->
+        val suppliedFile = File(path)
+        if (!suppliedFile.isAbsolute) {
+            throw GradleException("ironpathAuthPreviewConfig must be an absolute path.")
+        }
+        suppliedFile
+    }
+
+if (authPreviewConfigFile != null) {
+    val repositoryRoot = rootProject.projectDir.canonicalFile.toPath().normalize()
+    val configuredPath = authPreviewConfigFile.canonicalFile.toPath().normalize()
+    if (configuredPath.startsWith(repositoryRoot)) {
+        throw GradleException("ironpathAuthPreviewConfig must be outside the repository.")
+    }
+}
+
+val generatedAuthPreviewResources = layout.buildDirectory.dir("generated/authPreviewFirebase/res")
+
+val generateAuthPreviewFirebaseConfig =
+    tasks.register<GenerateAuthPreviewFirebaseConfig>("generateAuthPreviewFirebaseConfig") {
+        outputs.cacheIf("Private auth configuration must not enter the build cache") { false }
+        configFile.set(authPreviewConfigFile)
+        configProvided.set(authPreviewConfigFile != null)
+        outputDirectory.set(generatedAuthPreviewResources)
+    }
 
 android {
     namespace = "com.example.ironpath"
@@ -56,6 +173,11 @@ android {
             isMinifyEnabled = false
             isShrinkResources = false
             signingConfig = signingConfigs.getByName("debug")
+        }
+        create("authpreview") {
+            initWith(getByName("debug"))
+            applicationIdSuffix = ".authpreview"
+            matchingFallbacks += listOf("debug")
         }
     }
     compileOptions {
@@ -116,6 +238,11 @@ android {
 }
 
 androidComponents {
+    onVariants(selector().withBuildType("authpreview")) { variant ->
+        variant.sources.res?.addGeneratedSourceDirectory(generateAuthPreviewFirebaseConfig) {
+            it.outputDirectory
+        }
+    }
     listOf("benchmarkRelease", "nonMinifiedRelease").forEach { buildType ->
         onVariants(selector().withBuildType(buildType)) { variant ->
             // Synthetic Baseline Profile build types don't consume build-type manifests through
@@ -184,6 +311,12 @@ dependencies {
     kspAndroidTest(libs.hilt.android.compiler)
     debugImplementation(libs.androidx.compose.ui.tooling)
     debugImplementation(libs.androidx.compose.ui.test.manifest)
+    add("authpreviewImplementation", platform(libs.firebase.bom))
+    add("authpreviewImplementation", libs.firebase.auth)
+    add("authpreviewImplementation", libs.androidx.credentials)
+    add("authpreviewImplementation", libs.androidx.credentials.play.services.auth)
+    add("authpreviewImplementation", libs.googleid)
+    add("authpreviewImplementation", libs.kotlinx.coroutines.play.services)
     baselineProfile(project(":benchmark"))
 }
 

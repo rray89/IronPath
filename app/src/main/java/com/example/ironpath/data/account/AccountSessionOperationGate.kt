@@ -67,6 +67,38 @@ class AccountSessionOperationGate @Inject constructor() {
         }
     }
 
+    /**
+     * Serializes an observed provider event before the gateway mutex without advancing the epoch
+     * automatically. The gateway advances it only when the locally reread identity changed.
+     */
+    suspend fun <T> withSessionObservation(
+        block: suspend (sessionEpoch: Long) -> MutationResult<T>,
+    ): T {
+        val wasClosed =
+            synchronized(admissionLock) {
+                val initial = admissionClosed
+                pendingSessionMutations++
+                admissionClosed = true
+                initial
+            }
+        var acquired = false
+        var reopenAdmission = !wasClosed
+        try {
+            mutex.lock()
+            acquired = true
+            val result = block(currentSessionEpoch)
+            reopenAdmission = result.reopenAdmission
+            return result.value
+        } finally {
+            if (acquired) mutex.unlock()
+            synchronized(admissionLock) {
+                pendingSessionMutations--
+                val canReopen = if (acquired) reopenAdmission else !wasClosed
+                if (canReopen && pendingSessionMutations == 0) admissionClosed = false
+            }
+        }
+    }
+
     /** Closes the gate for a recovered, durable sign-out that still has a stored session. */
     fun closeAdmission() {
         synchronized(admissionLock) { admissionClosed = true }
