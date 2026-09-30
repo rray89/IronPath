@@ -211,8 +211,7 @@ class MainActivity : ComponentActivity() {
                                         it != AccountState.SigningOut
                                 }
                             if (settledAccountState is AccountState.AccountDeletionPending) {
-                                startup =
-                                    StartupState.DeletionPending(settledAccountState.progress)
+                                startup = StartupState.DeletionPending(settledAccountState.progress)
                                 return@collect
                             }
                             startup = readReadyProfile(expectedGeneration = observedGeneration)
@@ -232,7 +231,8 @@ class MainActivity : ComponentActivity() {
                     StartupState.VerifyingProfile ->
                         AccountDeletionStartupScreen(
                             title = "Checking local profile",
-                            detail = "Verifying the current training profile and onboarding status.",
+                            detail =
+                                "Verifying the current training profile and onboarding status.",
                         )
                     StartupState.ProfileVerificationUnavailable ->
                         AccountDeletionStartupScreen(
@@ -373,9 +373,7 @@ class MainActivity : ComponentActivity() {
             Text(title, style = MaterialTheme.typography.headlineMedium)
             Text(detail, style = MaterialTheme.typography.bodyLarge)
             onRetry?.let { retry ->
-                Button(onClick = retry, modifier = Modifier.fillMaxWidth()) {
-                    Text(retryLabel)
-                }
+                Button(onClick = retry, modifier = Modifier.fillMaxWidth()) { Text(retryLabel) }
             }
         }
     }

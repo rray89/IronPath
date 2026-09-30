@@ -24,9 +24,9 @@ import com.example.ironpath.domain.account.AccountId
 import com.example.ironpath.domain.account.AccountProfile
 import com.example.ironpath.testutil.AccountFilesUnchangedRule
 import com.example.ironpath.testutil.FakeAccountSessionAdapter
-import com.example.ironpath.testutil.TestAccountContextReader
 import com.example.ironpath.testutil.FakeOnboardingRepository
 import com.example.ironpath.testutil.HiltTestDatabaseRule
+import com.example.ironpath.testutil.TestAccountContextReader
 import com.example.ironpath.testutil.TestData
 import com.example.ironpath.ui.navigation.Route
 import com.example.ironpath.ui.testing.TestTags
@@ -426,9 +426,7 @@ class AccountDeletionJourneyTest {
         waitForText("Clear all data?")
         composeRule.onNodeWithText("Clear").performClick()
         waitForText("CONTINUE ON THIS DEVICE", timeoutMillis = 10_000)
-        runBlocking {
-            assertEquals(1L, database.backupDao().getMetadata()?.profileGeneration)
-        }
+        runBlocking { assertEquals(1L, database.backupDao().getMetadata()?.profileGeneration) }
 
         composeRule.activityRule.scenario.recreate()
         waitForText("CONTINUE ON THIS DEVICE", timeoutMillis = 10_000)
