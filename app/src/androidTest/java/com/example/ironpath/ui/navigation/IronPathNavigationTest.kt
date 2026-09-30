@@ -131,8 +131,7 @@ class IronPathNavigationTest {
                             navController = navController,
                             onCompleteOnboarding = onboardingRepository::complete,
                             accountState = accountState,
-                            onAccountSignIn =
-                                onAccountSignInOverride ?: accountViewModel::signIn,
+                            onAccountSignIn = onAccountSignInOverride ?: accountViewModel::signIn,
                             onAccountRetry = accountViewModel::refresh,
                             onAccountLeave = accountViewModel::leave,
                         )
@@ -177,8 +176,7 @@ class IronPathNavigationTest {
         // that this ViewModel is mounted and its local-context read is waiting at the gate.
         val releaseContext = CompletableDeferred<Unit>()
         val readEntered = CompletableDeferred<Unit>()
-        val mountedAccountState =
-            AtomicReference<Pair<AccountBackupViewModel, AccountState>?>(null)
+        val mountedAccountState = AtomicReference<Pair<AccountBackupViewModel, AccountState>?>(null)
         val signInCallbackCount = AtomicInteger()
         val gatedContext =
             object : AccountContextReader by accountContext {
