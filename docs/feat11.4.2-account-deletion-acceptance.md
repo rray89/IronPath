@@ -35,6 +35,31 @@ another physical device.
    names unclaimed local data, then verify deletion clears it and returns Home. A profile
    owned by a different account must not offer this action.
 
+## BOSS manual acceptance — 2026-09-29
+
+BOSS confirmed, “都测过了，没有问题,” after completing the six-step account-deletion
+walkthrough. The accepted candidate was commit
+`4f3e66f8469a865ee51f73dd14afa76f939d77f9`, with debug APK SHA-256
+`b4ff206c2bda03544f5e197b640fe664179d3f4b5085de9b78ca2f13af716114`. The parent chat
+installed that APK over the existing app with `adb install -r` at 16:51 PDT, verified the
+device APK hash, and confirmed the app launched.
+
+The manual walkthrough covered:
+
+1. Create record A and back it up to the Demo Athlete account.
+2. Cancel at both deletion confirmation layers and verify nothing changes.
+3. Confirm deletion; verify the account session, backup, and local training data are
+   cleared and IronPath returns Home.
+4. Without restarting, open Records and successfully add record B.
+5. Sign in again as the same Demo Athlete; verify the old backup and record A do not
+   return while record B remains.
+6. Restart the app, sign in again, and verify record B remains.
+
+This is manual product acceptance for the exact APK above. It is separate from automated
+test execution. The new account-deletion journey was compiled and packaged, but was not
+run as an instrumented test. The API 29 260/260 result belongs to older revision
+`1452472` and does not cover the navigation-reset fix in this accepted candidate.
+
 ## Recovery checks
 
 Automated tests inject remote purge failure and local Room cleanup failure, recreate the
