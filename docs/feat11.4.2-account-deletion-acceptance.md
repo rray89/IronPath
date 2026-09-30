@@ -79,5 +79,5 @@ profile. Restore undo must preserve that generation. Removing local data through
 sign-out or account deletion also clears old navigation entries; a newly opened History
 screen must accept a new record while rejecting work from the previous profile generation.
 The expanded account-deletion journey visits History before interrupted deletion, then
-asserts that successful startup recovery returns Home and a new record can be saved; its
-result is not yet available.
+asserts that successful startup recovery returns Home, a new record can be saved, and that
+record remains writable after another Activity recreation; its result is not yet available.

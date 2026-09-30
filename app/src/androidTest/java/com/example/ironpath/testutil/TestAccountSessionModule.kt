@@ -21,6 +21,7 @@ constructor(private val remote: com.example.ironpath.data.backup.RemoteBackupSto
         )
     private val deletedDemoAccounts = mutableSetOf<AccountId>()
     var failDemoAccountDeletion = false
+    var failClearSession = false
 
     override suspend fun requestGoogleCredential() = result
 
@@ -32,6 +33,7 @@ constructor(private val remote: com.example.ironpath.data.backup.RemoteBackupSto
     }
 
     override suspend fun clearSession(): Boolean {
+        if (failClearSession) return false
         session = null
         return true
     }

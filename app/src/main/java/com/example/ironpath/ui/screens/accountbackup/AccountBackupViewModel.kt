@@ -408,10 +408,12 @@ constructor(
         viewModelScope.launch { performAccountDeletion(null, retry = true) }
     }
 
-    fun acknowledgeDeletionNavigation() {
-        if (manual.value.accountDeletion.completed) {
+    fun acknowledgeDeletionNavigation(targetGeneration: Long) {
+        if (manual.value.accountDeletion.completionTargetGeneration == targetGeneration) {
             mutableManual.update {
-                it.copy(accountDeletion = it.accountDeletion.copy(completed = false))
+                it.copy(
+                    accountDeletion = it.accountDeletion.copy(completionTargetGeneration = null)
+                )
             }
         }
     }
@@ -420,6 +422,16 @@ constructor(
         request: AccountDeletionRequest?,
         retry: Boolean,
     ) {
+        val sourceProfileGeneration =
+            request?.profileGeneration
+                ?: (state.value as? AccountState.AccountDeletionPending)
+                    ?.progress
+                    ?.profileGeneration
+                ?: manual.value.accountDeletion.progress?.profileGeneration
+        val completionTargetGeneration =
+            sourceProfileGeneration?.let { source ->
+                runCatching { Math.addExact(source, 1L) }.getOrNull()
+            }
         try {
             val result =
                 if (retry) accountGateway.retryAccountDeletion()
@@ -441,7 +453,7 @@ constructor(
                                     busy = false,
                                     progress = null,
                                     retryAvailable = false,
-                                    completed = true,
+                                    completionTargetGeneration = completionTargetGeneration,
                                 ),
                         )
                     }

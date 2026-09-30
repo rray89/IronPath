@@ -38,7 +38,7 @@ data class ManualBackupUiState(
     val feedback: String? = null,
     val signOutReview: SignOutReviewUiState? = null,
     val signOutBusy: Boolean = false,
-    /** Recreate navigation-scoped ViewModels after a committed local profile reset. */
+    /** Count committed local profile resets for UI state consumers. */
     val profileResetEpoch: Long = 0,
     val accountDeletion: AccountDeletionUiState = AccountDeletionUiState(),
 )
@@ -63,7 +63,7 @@ data class AccountDeletionUiState(
     val busy: Boolean = false,
     val progress: AccountDeletionProgress? = null,
     val retryAvailable: Boolean = false,
-    val completed: Boolean = false,
+    val completionTargetGeneration: Long? = null,
 )
 
 data class ManualBackupActions(
@@ -90,7 +90,7 @@ data class ManualBackupActions(
     val continueAccountDeletion: () -> Unit = {},
     val confirmAccountDeletion: () -> Unit = {},
     val retryAccountDeletion: () -> Unit = {},
-    val acknowledgeDeletionNavigation: () -> Unit = {},
+    val acknowledgeDeletionNavigation: (Long) -> Unit = {},
 )
 
 internal fun backupFailureMessage(reason: BackupFailureReason): String =

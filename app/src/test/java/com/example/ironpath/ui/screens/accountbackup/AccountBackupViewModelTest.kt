@@ -496,7 +496,10 @@ class AccountBackupViewModelTest {
                 listOf(AccountDeletionRequest(profile.id, 9, 12)),
                 gateway.deletionRequests,
             )
-            assertTrue(viewModel.manual.value.accountDeletion.completed)
+            assertEquals(
+                13L,
+                viewModel.manual.value.accountDeletion.completionTargetGeneration,
+            )
             assertEquals(1L, viewModel.manual.value.profileResetEpoch)
             assertNull(viewModel.manual.value.review)
             assertNull(viewModel.manual.value.latest)
@@ -507,8 +510,13 @@ class AccountBackupViewModelTest {
                     .orEmpty()
                     .contains("Google account was not affected")
             )
-            viewModel.acknowledgeDeletionNavigation()
-            assertFalse(viewModel.manual.value.accountDeletion.completed)
+            viewModel.acknowledgeDeletionNavigation(12L)
+            assertEquals(
+                13L,
+                viewModel.manual.value.accountDeletion.completionTargetGeneration,
+            )
+            viewModel.acknowledgeDeletionNavigation(13L)
+            assertNull(viewModel.manual.value.accountDeletion.completionTargetGeneration)
         }
 
     @Test
@@ -539,7 +547,10 @@ class AccountBackupViewModelTest {
             advanceUntilIdle()
 
             assertEquals(1, gateway.deletionRetries)
-            assertTrue(viewModel.manual.value.accountDeletion.completed)
+            assertEquals(
+                13L,
+                viewModel.manual.value.accountDeletion.completionTargetGeneration,
+            )
             assertNull(viewModel.manual.value.accountDeletion.progress)
         }
 
