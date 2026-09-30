@@ -58,10 +58,23 @@ The manual walkthrough covered:
    and record A and the old backup remain absent.
 
 This is manual product acceptance for the exact APK above. It is separate from automated
-test execution. The account-deletion journey was compiled and packaged before the saved-
-History recovery assertions below were added; the expanded journey has not been run as an
-instrumented test. Its first execution is pending the API 29 CI run. The API 29 260/260
-result belongs to older revision `1452472` and does not cover the navigation-reset fix.
+test execution.
+
+## Automated CI evidence
+
+Pre-merge CI run #153 for commit
+[`a2915eff3a80765e44945d388539679c401e751a`](https://github.com/rray89/IronPath/commit/a2915eff3a80765e44945d388539679c401e751a)
+passed the API 29 suite at 264/264, including all six account-deletion journey cases and
+the saved-History recovery assertions.
+
+Post-merge CI run [#154](https://github.com/rray89/IronPath/actions/runs/36678020405), on
+merge commit `b7cebfb92bf0c3748f5ec8a6a68a41ca41379f11`, completed 263/264. Its only
+failure was `IronPathNavigationTest.accountShell_delayedStartup_keepsSignInDisabledUntilLocalContextIsReady`:
+the test expected `entry` but observed `account_backup` while its local-context gate was
+still held. This is a separate entry-startup navigation fixture failure, not an
+account-deletion journey or cancellation failure. The fixture correction described by
+the current follow-up has not yet run in CI. The older API 29 260/260 result belongs to
+revision `1452472` and does not cover the saved-History navigation-reset assertions.
 
 ## Recovery checks
 
@@ -80,4 +93,5 @@ sign-out or account deletion also clears old navigation entries; a newly opened 
 screen must accept a new record while rejecting work from the previous profile generation.
 The expanded account-deletion journey visits History before interrupted deletion, then
 asserts that successful startup recovery returns Home, a new record can be saved, and that
-record remains writable after another Activity recreation; its result is not yet available.
+record remains writable after another Activity recreation. These recovery assertions are
+covered by the passing deletion journey cases in CI run #153 above.
