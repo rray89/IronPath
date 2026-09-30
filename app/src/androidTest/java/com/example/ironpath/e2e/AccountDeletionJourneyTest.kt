@@ -158,7 +158,7 @@ class AccountDeletionJourneyTest {
         composeRule.onNodeWithTag(TestTags.bottomNav(Route.HISTORY)).assertIsSelected()
         composeRule.onNodeWithText("RECORDS").performClick()
         waitForText("Post-recovery squat")
-        composeRule.onNodeWithText("ADD RECORD").performScrollTo().performClick()
+        composeRule.onNodeWithText("ADD NEW RECORD").performScrollTo().performClick()
         waitForText("ADD RECORD")
         composeRule
             .onNodeWithTag(TestTags.RECORD_NAME)
@@ -251,7 +251,7 @@ class AccountDeletionJourneyTest {
         waitForText("Post-delete squat", timeoutMillis = 10_000)
         composeRule.onNodeWithTag(TestTags.bottomNav(Route.HISTORY)).assertIsSelected()
         assertEquals(1L, runBlocking { database.backupDao().getMetadata()?.profileGeneration })
-        composeRule.onNodeWithText("ADD RECORD").performScrollTo().performClick()
+        composeRule.onNodeWithText("ADD NEW RECORD").performScrollTo().performClick()
         waitForText("ADD RECORD")
         composeRule
             .onNodeWithTag(TestTags.RECORD_NAME)
@@ -350,7 +350,7 @@ class AccountDeletionJourneyTest {
         composeRule.onNodeWithTag(TestTags.bottomNav(Route.HISTORY)).assertIsSelected()
         composeRule.onNodeWithText("RECORDS").performClick()
         waitForText("Post-sign-out squat")
-        composeRule.onNodeWithText("ADD RECORD").performScrollTo().performClick()
+        composeRule.onNodeWithText("ADD NEW RECORD").performScrollTo().performClick()
         waitForText("ADD RECORD")
         composeRule
             .onNodeWithTag(TestTags.RECORD_NAME)
