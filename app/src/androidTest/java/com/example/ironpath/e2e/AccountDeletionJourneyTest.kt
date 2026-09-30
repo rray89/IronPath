@@ -62,6 +62,11 @@ class AccountDeletionJourneyTest {
         composeRule.onNodeWithText("CONTINUE ON THIS DEVICE").performScrollTo().performClick()
         waitForText("No workout plan yet")
 
+        composeRule.onNodeWithTag(TestTags.bottomNav(Route.HISTORY)).performClick()
+        waitForText("No workout logs yet")
+        composeRule.onNodeWithTag(TestTags.bottomNav(Route.HOME)).performClick()
+        waitForText("No workout plan yet")
+
         val accountId = AccountId("test-athlete")
         val profile = AccountProfile(accountId, "Test Athlete", "test@example.invalid")
         session.session = profile
@@ -121,6 +126,28 @@ class AccountDeletionJourneyTest {
             )
         }
         assertTrue(runBlocking { remote.latest(accountId) is RemoteBackupRead.Absent })
+
+        composeRule.onNodeWithTag(TestTags.bottomNav(Route.HOME)).assertIsSelected()
+        composeRule.onNodeWithTag(TestTags.bottomNav(Route.HISTORY)).performClick()
+        waitForText("No workout logs yet")
+        composeRule.onNodeWithText("RECORDS").performClick()
+        waitForText("No records yet")
+        composeRule.onNodeWithText("ADD RECORD").performScrollTo().performClick()
+        waitForText("ADD RECORD")
+        composeRule
+            .onNodeWithTag(TestTags.RECORD_NAME)
+            .performScrollTo()
+            .performTextReplacement("Post-recovery squat")
+        composeRule
+            .onNodeWithTag(TestTags.RECORD_WEIGHT)
+            .performScrollTo()
+            .performTextReplacement("100")
+        composeRule.onNodeWithText("SAVE").performScrollTo().performClick()
+        waitForText("Post-recovery squat")
+        assertEquals(
+            "Post-recovery squat",
+            runBlocking { database.backupDao().getPersonalRecords().single().exerciseName },
+        )
     }
 
     @Test

@@ -145,8 +145,10 @@ class MainActivity : ComponentActivity() {
                             }
                             runCatching { installationGuard.validate() }
                             StartupState.Ready(
-                                runCatching { onboardingRepository.isCompleted() }
-                                    .getOrDefault(false)
+                                onboardingCompleted =
+                                    runCatching { onboardingRepository.isCompleted() }
+                                        .getOrDefault(false),
+                                deletionRecovered = deletion == AccountDeletionResult.Completed,
                             )
                         }
                         is AccountDeletionResult.RetryRequired ->
@@ -190,11 +192,12 @@ class MainActivity : ComponentActivity() {
                         val manualState =
                             accountViewModel?.manual?.collectAsStateWithLifecycle()?.value
                                 ?: ManualBackupUiState()
-                        key(manualState.profileResetEpoch) {
+                        key(manualState.profileResetEpoch to current.deletionRecovered) {
                             IronPathApp(
                                 timeProvider = timeProvider,
                                 onboardingCompleted =
                                     current.onboardingCompleted ||
+                                        current.deletionRecovered ||
                                         manualState.profileResetEpoch > 0,
                                 onCompleteOnboarding = onboardingRepository::complete,
                                 accountState = accountState,
@@ -270,7 +273,10 @@ class MainActivity : ComponentActivity() {
     private sealed interface StartupState {
         data object Loading : StartupState
 
-        data class Ready(val onboardingCompleted: Boolean) : StartupState
+        data class Ready(
+            val onboardingCompleted: Boolean,
+            val deletionRecovered: Boolean,
+        ) : StartupState
 
         data class DeletionPending(val progress: AccountDeletionProgress?) : StartupState
     }

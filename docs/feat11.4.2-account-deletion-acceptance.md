@@ -58,9 +58,10 @@ The manual walkthrough covered:
    and record A and the old backup remain absent.
 
 This is manual product acceptance for the exact APK above. It is separate from automated
-test execution. The new account-deletion journey was compiled and packaged, but was not
-run as an instrumented test. The API 29 260/260 result belongs to older revision
-`1452472` and does not cover the navigation-reset fix in this accepted candidate.
+test execution. The account-deletion journey was compiled and packaged before the saved-
+History recovery assertions below were added; the expanded journey has not been run as an
+instrumented test. Its first execution is pending the API 29 CI run. The API 29 260/260
+result belongs to older revision `1452472` and does not cover the navigation-reset fix.
 
 ## Recovery checks
 
@@ -77,3 +78,6 @@ profile generation so delayed work captured by the old screen cannot repopulate 
 profile. Restore undo must preserve that generation. Removing local data through ordinary
 sign-out or account deletion also clears old navigation entries; a newly opened History
 screen must accept a new record while rejecting work from the previous profile generation.
+The expanded account-deletion journey visits History before interrupted deletion, then
+asserts that successful startup recovery returns Home and a new record can be saved; its
+result is not yet available.
