@@ -289,6 +289,7 @@ class MainActivity : ComponentActivity() {
                                 manualBackupState = manualState,
                                 manualBackupActions =
                                     ManualBackupActions(
+                                        cancelReview = { accountViewModel?.leave {} },
                                         previewBackup = { accountViewModel?.previewBackup() },
                                         previewSync = { accountViewModel?.previewSync() },
                                         previewRestore = { accountViewModel?.previewRestore() },

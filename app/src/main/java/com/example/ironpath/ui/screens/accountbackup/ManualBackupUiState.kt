@@ -67,6 +67,7 @@ data class AccountDeletionUiState(
 )
 
 data class ManualBackupActions(
+    val cancelReview: () -> Unit = {},
     val previewBackup: () -> Unit = {},
     val previewSync: () -> Unit = {},
     val previewRestore: () -> Unit = {},

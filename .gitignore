@@ -20,6 +20,7 @@ out/
 build/
 **/build/
 firebase/node_modules/
+firebase/firebase-debug*.log
 firebase/firestore-debug.log
 firebase/ui-debug.log
 

@@ -20,7 +20,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.unit.dp
@@ -46,6 +48,16 @@ internal fun AuthPreviewAccountBackupScreen(
             is AccountState.SignOutPending -> state.profile
             else -> null
         }
+    if (manual.review is ManualReview.Backup) {
+        ManualBackupReviewScreen(
+            manual,
+            manualActions,
+            manualActions.cancelReview,
+            modifier,
+            demoStorage = false
+        )
+        return
+    }
     Column(
         modifier = modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
@@ -74,7 +86,7 @@ internal fun AuthPreviewAccountBackupScreen(
             AccountState.LocalOnly ->
                 Button(
                     onClick = onSignIn,
-                    enabled = signInAvailable && !manual.signOutBusy,
+                    enabled = signInAvailable && !manual.busy && !manual.signOutBusy,
                     modifier = Modifier.fillMaxWidth(),
                 ) {
                     Text("SIGN IN WITH GOOGLE")
@@ -90,19 +102,25 @@ internal fun AuthPreviewAccountBackupScreen(
             is AccountState.SignOutPending ->
                 Button(
                     onClick = manualActions.retrySignOut,
-                    enabled = !manual.signOutBusy,
+                    enabled = !manual.busy && !manual.signOutBusy,
                     modifier = Modifier.fillMaxWidth(),
                 ) {
                     Text("FINISH SIGN OUT")
                 }
             is AccountState.RecoverableError ->
-                Button(onClick = onRetry, modifier = Modifier.fillMaxWidth()) { Text("TRY AGAIN") }
+                Button(
+                    onClick = onRetry,
+                    enabled = !manual.busy && !manual.signOutBusy,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text("TRY AGAIN")
+                }
             else -> Unit
         }
         if (state is AccountState.SignedIn || state is AccountState.AwaitingDataChoice) {
             TextButton(
                 onClick = manualActions.openSignOutReview,
-                enabled = !manual.signOutBusy,
+                enabled = !manual.busy && !manual.signOutBusy,
                 modifier = Modifier.fillMaxWidth(),
             ) {
                 Text("SIGN OUT")
@@ -110,14 +128,30 @@ internal fun AuthPreviewAccountBackupScreen(
         }
         AccountSection(
             "CLOUD BACKUP",
-            "Cloud backup is unavailable in this preview. Signing in identifies your Google " +
-                "account but does not upload or associate local workouts.",
+            if (signInAvailable)
+                "Training data stays local until you review and confirm a manual cloud backup."
+            else
+                "Cloud backup is unavailable until private Firebase preview configuration is supplied."
         )
+        if (state is AccountState.SignedIn || state is AccountState.AwaitingDataChoice) {
+            CloudManualBackupOverview(manual, signInAvailable, manualActions.previewBackup, onRetry)
+        }
         Text(
-            "Training data remains on this device unless you explicitly choose Remove during sign-out.",
-            style = MaterialTheme.typography.bodyMedium,
+            "Cloud restore, manual sync and account deletion are not available in this preview.",
+            style = MaterialTheme.typography.bodyMedium
         )
-        manual.feedback?.let { Text(it, style = MaterialTheme.typography.bodyMedium) }
+        if (state !is AccountState.SignedIn && state !is AccountState.AwaitingDataChoice) {
+            if (manual.busy)
+                Text(
+                    "Checking account status",
+                    modifier =
+                        Modifier.semantics {
+                            liveRegion = LiveRegionMode.Polite
+                            stateDescription = "Busy"
+                        },
+                )
+            manual.feedback?.let { Text(it, style = MaterialTheme.typography.bodyMedium) }
+        }
     }
 
     manual.signOutReview?.let { review ->
@@ -251,7 +285,7 @@ private fun authPreviewAccountStateDetail(state: AccountState, signInAvailable: 
         AccountState.SigningOut ->
             "Signing out. Local training data follows your Keep or Remove choice."
         is AccountState.SignedIn ->
-            "Google identity connected. Local training data is not associated."
+            "Google identity connected. Account identity alone does not upload training data."
         is AccountState.AwaitingDataChoice ->
             "Google identity connected. Local training data remains local."
         is AccountState.SignOutPending ->
