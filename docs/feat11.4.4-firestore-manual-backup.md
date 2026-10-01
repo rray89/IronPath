@@ -27,7 +27,7 @@ pointer; a fresh explicit preview can acknowledge an owned snapshot from this in
 reuploading identical data. Edits after an uncertain receipt require a new explicit review. Matching
 UPLOADING chunks can resume only for the same installation, digest, captured revision and observed
 generation. Different young uploads are blocked; rules enforce the 24-hour reclamation lease.
-There is no application retry on timeout and no offline write queue.
+Local-only context refresh preserves the uncertain-write state until explicit cloud inspection. Confirmed unchanged-data retries repair bounded retention without adding a snapshot or generation. Token-fetch network, auth and quota failures retain sanitized typed reasons. There is no application retry on timeout and no offline write queue.
 
 ## Transport and protocol
 

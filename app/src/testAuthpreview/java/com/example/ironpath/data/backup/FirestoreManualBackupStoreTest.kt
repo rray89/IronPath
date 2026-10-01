@@ -118,7 +118,18 @@ class FirestoreManualBackupStoreTest {
             f.client.documents.getValue("users/owner").getValue("backupIds").jsonArray.size
         )
         f.client.failCleanup = false
-        assertTrue(f.publish(3) is RemoteBackupPublish.Completed)
+        val latest = (f.store.inspect(f.owner) as RemoteBackupInspection.Complete).backup
+        val writes = f.client.writes
+        assertEquals(
+            RemoteBackupRetention.Failed(BackupFailureReason.ConcurrentRemoteChange),
+            f.store.retryRetention(f.owner, 2, latest.summary.backupId)
+        )
+        assertEquals(writes, f.client.writes)
+        assertEquals(
+            RemoteBackupRetention.Completed,
+            f.store.retryRetention(f.owner, 3, latest.summary.backupId)
+        )
+        assertEquals(latest, (f.store.inspect(f.owner) as RemoteBackupInspection.Complete).backup)
         assertEquals(
             2,
             f.client.documents.getValue("users/owner").getValue("backupIds").jsonArray.size
@@ -164,6 +175,30 @@ class FirestoreManualBackupStoreTest {
             JsonObject(f.client.documents.getValue(path) + ("payload" to JsonPrimitive("tampered")))
         assertEquals(RemoteBackupPublish.Failed(BackupFailureReason.InvalidSnapshot), f.publish())
         assertEquals(RemoteBackupInspection.Absent(), f.store.inspect(f.owner))
+    }
+
+    @Test
+    fun invalidAppVersionIsRejectedBeforeAnyCloudTouch() = runTest {
+        val f = Fixture()
+        var clients = 0
+        for (version in listOf("", "x".repeat(65))) {
+            val invalid =
+                FirestoreManualBackupStore(
+                    FirestoreBackupClientFactory {
+                        clients++
+                        f.client
+                    },
+                    IdProvider { "unused" },
+                    f.time,
+                    version
+                )
+            assertEquals(
+                RemoteBackupPublish.Failed(BackupFailureReason.InvalidSnapshot),
+                invalid.publish(f.owner, 0, "installation", f.snapshot)
+            )
+        }
+        assertEquals(0, clients)
+        assertEquals(0, f.client.writes)
     }
 
     private class Fixture {

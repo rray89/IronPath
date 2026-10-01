@@ -40,6 +40,7 @@ internal constructor(
     private var epoch: Long? = null
     private var observation: RemoteBackupInspection? = null
     private var pending: Pending? = null
+    private var manualWriteNeedsInspection = false
 
     private data class Pending(
         val account: AccountId,
@@ -56,7 +57,8 @@ internal constructor(
                 clear()
             } else {
                 val captured = capture(account)
-                update(captured, observation ?: persisted(captured))
+                if (!manualWriteNeedsInspection)
+                    update(captured, observation ?: persisted(captured))
             }
         }
     }
@@ -152,6 +154,18 @@ internal constructor(
                 val previous = (observed as? RemoteBackupInspection.Complete)?.backup
                 val artifact =
                     if (previous?.contentDigest == request.snapshot.contentDigest) {
+                        manualWriteNeedsInspection = true
+                        when (
+                            val retained =
+                                remote.retryRetention(
+                                    request.account,
+                                    previous.generation,
+                                    previous.summary.backupId
+                                )
+                        ) {
+                            RemoteBackupRetention.Completed -> Unit
+                            is RemoteBackupRetention.Failed -> fail(retained.reason)
+                        }
                         RemoteBackupArtifact(
                             previous.summary,
                             previous.generation,
@@ -162,6 +176,7 @@ internal constructor(
                             )
                         )
                     } else {
+                        manualWriteNeedsInspection = true
                         when (
                             val published =
                                 remote.publish(
@@ -187,6 +202,7 @@ internal constructor(
                                     current.metadata.installationId))
                 )
                     fail(BackupFailureReason.InvalidSnapshot)
+                manualWriteNeedsInspection = false
                 observation = RemoteBackupInspection.Complete(RemoteBackupMetadata.from(artifact))
                 latestSummary.value = artifact.summary
                 if (!local.recordBackup(associated, request.account, artifact))
@@ -225,6 +241,7 @@ internal constructor(
         if (sessions.readSession()?.id != account)
             fail(BackupFailureReason.ReauthenticationRequired)
         if (inspected is RemoteBackupInspection.Failed) fail(inspected.reason)
+        manualWriteNeedsInspection = false
         observation = inspected
         latestSummary.value = (inspected as? RemoteBackupInspection.Complete)?.backup?.summary
         return inspected
@@ -261,6 +278,7 @@ internal constructor(
 
     private fun clear() {
         observation = null
+        manualWriteNeedsInspection = false
         latestSummary.value = null
         pending = null
         status.value = BackupStatus.LocalOnly

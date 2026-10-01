@@ -17,6 +17,13 @@ interface RemoteBackupStore {
             is RemoteBackupRead.Failed -> RemoteBackupInspection.Failed(read.reason)
         }
 
+    /** Explicit confirmed unchanged-data retry may repair bounded retention without reuploading. */
+    suspend fun retryRetention(
+        accountId: AccountId,
+        expectedGeneration: Long,
+        latestBackupId: String
+    ): RemoteBackupRetention = RemoteBackupRetention.Completed
+
     /** Permanently fences this account incarnation and removes all of its backup state. */
     suspend fun purgeAccount(accountId: AccountId): RemoteAccountPurge =
         RemoteAccountPurge.Unavailable
@@ -84,3 +91,9 @@ sealed interface RemoteBackupInspection {
 }
 
 internal class CloudBackupFailure(val reason: BackupFailureReason) : Exception()
+
+sealed interface RemoteBackupRetention {
+    data object Completed : RemoteBackupRetention
+
+    data class Failed(val reason: BackupFailureReason) : RemoteBackupRetention
+}

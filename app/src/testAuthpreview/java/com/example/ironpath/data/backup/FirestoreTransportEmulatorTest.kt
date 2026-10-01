@@ -46,6 +46,14 @@ class FirestoreTransportEmulatorTest {
             RemoteBackupPublish.Failed(BackupFailureReason.ConcurrentRemoteChange),
             fresh.publish(account, 0, "installation-b", snapshot)
         )
+        assertEquals(
+            RemoteBackupRetention.Failed(BackupFailureReason.PermissionDenied),
+            store("other").retryRetention(account, 1, completed.backup.summary.backupId)
+        )
+        assertEquals(
+            RemoteBackupRetention.Failed(BackupFailureReason.PermissionDenied),
+            store(null).retryRetention(account, 1, completed.backup.summary.backupId)
+        )
         assertEquals(inspected, fresh.inspect(account))
     }
 
@@ -54,6 +62,7 @@ class FirestoreTransportEmulatorTest {
         val owner = "owner-${UUID.randomUUID()}"
         val account = AccountId(owner)
         var interrupt = false
+        var interruptRetention = false
         val underlying = client(owner)
         val wrapped =
             object : FirestoreBackupClient by underlying {
@@ -61,10 +70,16 @@ class FirestoreTransportEmulatorTest {
                     block: suspend FirestoreBackupTransaction.() -> Unit
                 ) {
                     var chunkWritten = false
+                    var cleanupWritten = false
                     underlying.transaction {
                         val delegate = this
                         val recording =
                             object : FirestoreBackupTransaction by delegate {
+                                override fun delete(path: String) {
+                                    cleanupWritten = cleanupWritten || "/backups/" in path
+                                    delegate.delete(path)
+                                }
+
                                 override fun put(
                                     path: String,
                                     fields: JsonObject,
@@ -75,6 +90,10 @@ class FirestoreTransportEmulatorTest {
                                 }
                             }
                         recording.block()
+                    }
+                    if (cleanupWritten && interruptRetention) {
+                        interruptRetention = false
+                        throw CloudBackupFailure(BackupFailureReason.Offline)
                     }
                     if (chunkWritten && interrupt) {
                         interrupt = false
@@ -100,11 +119,18 @@ class FirestoreTransportEmulatorTest {
                 as RemoteBackupPublish.Completed
         assertEquals(2L, resumed.backup.generation)
         assertEquals(changed, resumed.backup.snapshot)
+        interruptRetention = true
         val third =
-            store(owner).publish(account, 2, "installation-a", snapshot(70.0))
+            store.publish(account, 2, "installation-a", snapshot(70.0))
                 as RemoteBackupPublish.Completed
         assertEquals(3L, third.backup.generation)
+        assertEquals(3, underlying.get("users/$owner")!!.getValue("backupIds").jsonArray.size)
+        assertEquals(
+            RemoteBackupRetention.Completed,
+            store(owner).retryRetention(account, 3, third.backup.summary.backupId)
+        )
         val user = underlying.get("users/$owner")!!
+        assertEquals(3L, user.getValue("generation").jsonPrimitive.long)
         assertEquals(2, user.getValue("backupIds").jsonArray.size)
         assertNull(underlying.get("users/$owner/backups/${previous.backup.summary.backupId}"))
     }

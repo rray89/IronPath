@@ -6,12 +6,73 @@ import com.example.ironpath.data.local.entity.PersonalRecord
 import com.example.ironpath.domain.account.*
 import com.example.ironpath.domain.backup.*
 import com.example.ironpath.domain.identity.IdProvider
+import com.example.ironpath.ui.screens.accountbackup.AccountBackupViewModel
+import com.example.ironpath.util.MainDispatcherRule
+import io.mockk.coEvery
+import io.mockk.every
+import io.mockk.mockk
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.*
+import org.junit.Rule
 import org.junit.Test
 
+@OptIn(ExperimentalCoroutinesApi::class)
 class CloudManualBackupCoordinatorTest {
+    @get:Rule val mainDispatcher = MainDispatcherRule()
+
+    @Test
+    fun ownerInvalidationAndPageReentryPreserveUnknownReceiptUntilExplicitRefresh() = runTest {
+        val f = Fixture()
+        val changes = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
+        val gateway = mockk<AccountGateway>()
+        every { gateway.state } returns
+            MutableStateFlow<AccountState>(AccountState.SignedIn(AccountId("owner")))
+        coEvery { gateway.refreshLocal() } returns AccountActionResult.Completed
+        coEvery { gateway.refresh() } returns AccountActionResult.Completed
+        val reader =
+            object : AccountContextReader {
+                override val changes = changes
+
+                override suspend fun read(): LocalAccountContext = error("Gateway owns local reads")
+            }
+        fun viewModel() =
+            AccountBackupViewModel(
+                gateway,
+                reader,
+                f.subject,
+                AccountExperienceCapabilities.AuthPreview.copy(canUseBackup = true)
+            )
+        val first = viewModel()
+        advanceUntilIdle()
+        f.local.onAssociation = { changes.emit(Unit) }
+        f.remote.loseReceipt = true
+        first.previewBackup()
+        advanceUntilIdle()
+        first.confirm()
+        advanceUntilIdle()
+        assertEquals("owner", f.local.value.metadata.ownerUid)
+        assertEquals(BackupStatus.OfflinePending, first.manual.value.status)
+        assertEquals(2, f.remote.reads)
+        var left = 0
+        first.leave { left++ }
+        advanceUntilIdle()
+        assertEquals(1, left)
+        assertEquals(BackupStatus.OfflinePending, first.manual.value.status)
+        val reopened = viewModel()
+        advanceUntilIdle()
+        assertEquals(BackupStatus.OfflinePending, reopened.manual.value.status)
+        reopened.refresh()
+        advanceUntilIdle()
+        assertEquals(3, f.remote.reads)
+        assertEquals(BackupStatus.ReviewRequired, reopened.manual.value.status)
+        assertNotNull(reopened.manual.value.latest)
+    }
+
     @Test
     fun localRefreshNeverReadsOrPublishesCloud() = runTest {
         val f = Fixture()
@@ -120,6 +181,9 @@ class CloudManualBackupCoordinatorTest {
         )
         assertEquals("owner", f.local.value.metadata.ownerUid)
         assertNull(f.local.value.baseline)
+        f.subject.refreshStatus()
+        assertEquals(BackupStatus.OfflinePending, f.subject.status.value)
+        assertEquals(2, f.remote.reads)
         val restarted = f.newSubject()
         assertTrue(restarted.latestCompleteBackup() is BackupLookupResult.Complete)
         assertEquals(BackupStatus.ReviewRequired, restarted.status.value)
@@ -197,6 +261,28 @@ class CloudManualBackupCoordinatorTest {
         assertEquals(0, fresh.remote.publishes)
     }
 
+    @Test
+    fun unchangedConfirmedBackupRetriesRetentionWithoutCreatingAnotherGeneration() = runTest {
+        val f = Fixture()
+        val first = (f.subject.previewBackup() as BackupPreviewResult.Ready).preview
+        f.subject.confirmBackup(first.id)
+        val retry = (f.subject.previewBackup() as BackupPreviewResult.Ready).preview
+        f.remote.retentionFailure = BackupFailureReason.Offline
+        assertEquals(
+            BackupActionResult.Failed(BackupFailureReason.Offline),
+            f.subject.confirmBackup(retry.id)
+        )
+        f.subject.refreshStatus()
+        assertEquals(BackupStatus.OfflinePending, f.subject.status.value)
+        assertEquals(1, f.remote.publishes)
+        f.remote.retentionFailure = null
+        val next = (f.subject.previewBackup() as BackupPreviewResult.Ready).preview
+        assertEquals(BackupActionResult.Completed, f.subject.confirmBackup(next.id))
+        assertEquals(2, f.remote.retentions)
+        assertEquals(1, f.remote.publishes)
+        assertEquals(1L, f.local.value.metadata.lastObservedRemoteGeneration)
+    }
+
     private class Fixture(empty: Boolean = false) {
         val local = Local(empty)
         val remote = Remote()
@@ -242,6 +328,18 @@ class CloudManualBackupCoordinatorTest {
         var publishes = 0
         var failure: BackupFailureReason? = null
         var loseReceipt = false
+        var retentions = 0
+        var retentionFailure: BackupFailureReason? = null
+
+        override suspend fun retryRetention(
+            accountId: AccountId,
+            expectedGeneration: Long,
+            latestBackupId: String
+        ): RemoteBackupRetention {
+            retentions++
+            return retentionFailure?.let { RemoteBackupRetention.Failed(it) }
+                ?: RemoteBackupRetention.Completed
+        }
 
         fun artifact(snapshot: EncodedBackupSnapshot) =
             RemoteBackupArtifact(
@@ -282,6 +380,7 @@ class CloudManualBackupCoordinatorTest {
 
     private class Local(empty: Boolean) : ManualBackupLocalStore {
         var associateAllowed = true
+        var onAssociation: suspend () -> Unit = {}
 
         fun edit() {
             value =
@@ -335,6 +434,7 @@ class CloudManualBackupCoordinatorTest {
         ): Boolean {
             if (!associateAllowed || value != captured) return false
             value = value.copy(metadata = value.metadata.copy(ownerUid = accountId.opaqueValue))
+            onAssociation()
             return true
         }
 

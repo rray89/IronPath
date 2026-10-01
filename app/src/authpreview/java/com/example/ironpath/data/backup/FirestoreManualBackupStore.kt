@@ -31,6 +31,22 @@ constructor(
             inspect(client, user(accountId))
         }
 
+    override suspend fun retryRetention(
+        accountId: AccountId,
+        expectedGeneration: Long,
+        latestBackupId: String
+    ): RemoteBackupRetention =
+        safely({ RemoteBackupRetention.Failed(it) }) {
+            val client = clients.forAccount(accountId)
+            val path = user(accountId)
+            val current = metadata(requireNotNull(client.get(path)))
+            requireGeneration(current, expectedGeneration)
+            if (current.textOrNull("latestCompleteBackupId") != latestBackupId)
+                fail(BackupFailureReason.ConcurrentRemoteChange)
+            retainTwo(client, path, expectedGeneration)
+            RemoteBackupRetention.Completed
+        }
+
     override suspend fun publish(
         accountId: AccountId,
         expectedGeneration: Long,
@@ -40,6 +56,7 @@ constructor(
         safely({ RemoteBackupPublish.Failed(it) }) {
             codec.decode(snapshot)
             require(expectedGeneration in 0 until Long.MAX_VALUE)
+            require(appVersion.length in 1..64)
             require(sourceInstallationId.matches(Regex("[a-zA-Z0-9_-]{1,128}")))
             val client = clients.forAccount(accountId)
             val user = user(accountId)
@@ -213,14 +230,20 @@ constructor(
         codec.decode(snapshot.copy(chunks = chunks))
     }
 
-    private suspend fun retainTwo(client: FirestoreBackupClient, user: String) {
+    private suspend fun retainTwo(
+        client: FirestoreBackupClient,
+        user: String,
+        expectedGeneration: Long? = null
+    ) {
         val current = metadata(requireNotNull(client.get(user)))
+        expectedGeneration?.let { requireGeneration(current, it) }
         if (current.textOrNull("activeUploadBackupId") != null) return
         for (id in registry(current).dropLast(2)) {
             val backup = "$user/backups/$id"
             // All six known chunk paths cover registered orphans without subcollection discovery.
             for (index in 0 until BackupSnapshotCodec.MAX_CHUNKS) client.transaction {
                 val latest = metadata(requireNotNull(get(user)))
+                expectedGeneration?.let { requireGeneration(latest, it) }
                 if (
                     latest.textOrNull("activeUploadBackupId") != null ||
                         id == latest.textOrNull("latestCompleteBackupId") ||
@@ -232,6 +255,7 @@ constructor(
             }
             client.transaction {
                 val latest = metadata(requireNotNull(get(user)))
+                expectedGeneration?.let { requireGeneration(latest, it) }
                 if (
                     latest.textOrNull("activeUploadBackupId") != null ||
                         id == latest.textOrNull("latestCompleteBackupId") ||
@@ -311,7 +335,7 @@ constructor(
                 fields.number("observedRemoteGeneration") >= 0
         )
         require(fields.text("backupId").matches(Regex("[a-zA-Z0-9_-]{1,128}")))
-        require(fields.text("appVersion").length in 1..128)
+        require(fields.text("appVersion").length in 1..64)
         require(fields.text("contentDigest").matches(Regex("[a-f0-9]{64}")))
         require(fields.text("sourceInstallationId").matches(Regex("[a-zA-Z0-9_-]{1,128}")))
         require(timestamp(fields, "createdAt") >= 0)

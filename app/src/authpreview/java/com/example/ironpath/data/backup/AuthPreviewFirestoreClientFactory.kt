@@ -4,6 +4,8 @@ import com.example.ironpath.data.account.AccountSessionOperationGate
 import com.example.ironpath.data.account.AuthPreviewFirebaseRuntime
 import com.example.ironpath.domain.account.AccountId
 import com.example.ironpath.domain.backup.BackupFailureReason
+import com.google.firebase.FirebaseNetworkException
+import com.google.firebase.FirebaseTooManyRequestsException
 import com.google.firebase.auth.FirebaseAuthInvalidUserException
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -35,20 +37,39 @@ constructor(
         return FirestoreBackupRestClient(
             project,
             token = {
-                try {
-                    if (!authorized())
-                        throw CloudBackupFailure(BackupFailureReason.ReauthenticationRequired)
-                    val token = auth.currentUser?.getIdToken(false)?.await()?.token
-                    if (!authorized() || token.isNullOrBlank())
-                        throw CloudBackupFailure(BackupFailureReason.ReauthenticationRequired)
-                    token
-                } catch (cancelled: CancellationException) {
-                    throw cancelled
-                } catch (error: FirebaseAuthInvalidUserException) {
+                if (!authorized())
                     throw CloudBackupFailure(BackupFailureReason.ReauthenticationRequired)
+                val token = sanitizedPreviewIdToken {
+                    auth.currentUser?.getIdToken(false)?.await()?.token.orEmpty()
                 }
+                if (!authorized())
+                    throw CloudBackupFailure(BackupFailureReason.ReauthenticationRequired)
+                token
             },
             authorized = ::authorized
         )
     }
 }
+
+/**
+ * Token service failures must never be mistaken for corrupt training data or expose raw details.
+ */
+internal suspend fun sanitizedPreviewIdToken(fetch: suspend () -> String): String =
+    try {
+        fetch().also {
+            if (it.isBlank()) throw CloudBackupFailure(BackupFailureReason.ReauthenticationRequired)
+        }
+    } catch (cancelled: CancellationException) {
+        throw cancelled
+    } catch (error: CloudBackupFailure) {
+        throw error
+    } catch (error: Exception) {
+        throw CloudBackupFailure(
+            when (error) {
+                is FirebaseAuthInvalidUserException -> BackupFailureReason.ReauthenticationRequired
+                is FirebaseNetworkException -> BackupFailureReason.Offline
+                is FirebaseTooManyRequestsException -> BackupFailureReason.QuotaOrRateLimited
+                else -> BackupFailureReason.ServiceUnavailable
+            }
+        )
+    }
