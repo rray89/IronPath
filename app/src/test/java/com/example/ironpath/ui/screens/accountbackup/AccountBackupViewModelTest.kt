@@ -36,6 +36,47 @@ class AccountBackupViewModelTest {
     }
 
     @Test
+    fun `demo sign in remains available while opening account refresh is pending`() = runTest {
+        val gateway = Gateway()
+        val subject = viewModel(gateway, Backup())
+        advanceUntilIdle()
+        gateway.refreshGate = CompletableDeferred()
+
+        subject.refresh()
+        subject.signIn()
+
+        assertEquals(1, gateway.signIns)
+        assertFalse(subject.manual.value.busy)
+        gateway.refreshGate!!.complete(Unit)
+        advanceUntilIdle()
+    }
+
+    @Test
+    fun `authpreview account refresh is visibly busy and fences sign in until it completes`() =
+        runTest {
+            val gateway = Gateway()
+            val subject =
+                viewModel(
+                    gateway,
+                    Backup(),
+                    capabilities = AccountExperienceCapabilities.AuthPreview.copy(canSignIn = true),
+                )
+            advanceUntilIdle()
+            gateway.refreshGate = CompletableDeferred()
+
+            subject.refresh()
+            subject.signIn()
+
+            assertTrue(subject.manual.value.busy)
+            assertEquals(0, gateway.signIns)
+            gateway.refreshGate!!.complete(Unit)
+            advanceUntilIdle()
+            assertFalse(subject.manual.value.busy)
+            subject.signIn()
+            assertEquals(1, gateway.signIns)
+        }
+
+    @Test
     fun `authpreview sign in never queries cloud until explicit refresh and duplicate refresh is ignored`() =
         runTest {
             val gateway =
@@ -651,6 +692,7 @@ class AccountBackupViewModelTest {
     private class Gateway : AccountGateway {
         override val state = MutableStateFlow<AccountState>(AccountState.LocalOnly)
         var refreshes = 0
+        var refreshGate: CompletableDeferred<Unit>? = null
         var signIns = 0
         var cancellations = 0
         var sessionRecoveries = 0
@@ -669,6 +711,7 @@ class AccountBackupViewModelTest {
 
         override suspend fun refresh(): AccountActionResult {
             refreshes++
+            refreshGate?.await()
             return AccountActionResult.Completed
         }
 

@@ -32,6 +32,7 @@ class FirestoreBackupRestClient(
     private val token: suspend () -> String,
     private val authorized: () -> Boolean,
     private val endpoint: String = "https://firestore.googleapis.com/v1",
+    private val rollbackAuthorized: () -> Boolean = authorized,
 ) : FirestoreBackupClient {
     private val database = "projects/$projectId/databases/(default)"
     private val documents = "$database/documents"
@@ -121,9 +122,11 @@ class FirestoreBackupRestClient(
                         writes += buildJsonObject { put("delete", "$documents/$path") }
                     }
                 }
+            var commitAttempted = false
             try {
                 transaction.block()
                 currentCoroutineContext().ensureActive()
+                commitAttempted = true
                 request(
                     "POST",
                     "$documents:commit",
@@ -136,28 +139,53 @@ class FirestoreBackupRestClient(
             } catch (error: FirestoreRestAborted) {
                 if (attempt == 2)
                     throw CloudBackupFailure(BackupFailureReason.ConcurrentRemoteChange)
+            } catch (error: Exception) {
+                if (!commitAttempted) rollbackBeforeCommit(id)
+                throw error
             }
             // No automatic retry is used for any transport, permission, quota, or auth failure.
         }
     }
 
+    private suspend fun rollbackBeforeCommit(transaction: String) =
+        withContext(NonCancellable) {
+            // Release Standard transaction read locks on callback failure or cancellation. This
+            // cleanup never follows an attempted commit and cannot establish its remote outcome.
+            // The original UID/epoch remains mandatory even when the operation Job is cancelled.
+            withTimeoutOrNull(2_000) {
+                try {
+                    request(
+                        "POST",
+                        "$documents:rollback",
+                        buildJsonObject { put("transaction", transaction) },
+                        authorization = rollbackAuthorized,
+                        timeoutMillis = 2_000,
+                    )
+                } catch (_: Exception) {
+                    // Best effort only: never replace the original typed failure/cancellation.
+                }
+            }
+        }
+
     private suspend fun request(
         method: String,
         path: String,
         body: JsonObject? = null,
-        allowMissing: Boolean = false
+        allowMissing: Boolean = false,
+        authorization: () -> Boolean = authorized,
+        timeoutMillis: Int = 20_000,
     ): JsonElement? {
         currentCoroutineContext().ensureActive()
-        if (!authorized()) throw CloudBackupFailure(BackupFailureReason.ReauthenticationRequired)
+        if (!authorization()) throw CloudBackupFailure(BackupFailureReason.ReauthenticationRequired)
         val bearer = token()
-        if (!authorized()) throw CloudBackupFailure(BackupFailureReason.ReauthenticationRequired)
+        if (!authorization()) throw CloudBackupFailure(BackupFailureReason.ReauthenticationRequired)
         return withContext(Dispatchers.IO) {
             currentCoroutineContext().ensureActive()
             val connection = URI("$endpoint/$path").toURL().openConnection() as HttpURLConnection
             try {
                 connection.requestMethod = method
-                connection.connectTimeout = 10_000
-                connection.readTimeout = 20_000
+                connection.connectTimeout = minOf(10_000, timeoutMillis)
+                connection.readTimeout = timeoutMillis
                 connection.instanceFollowRedirects = false
                 if (bearer.isNotBlank())
                     connection.setRequestProperty("Authorization", "Bearer $bearer")
@@ -219,7 +247,7 @@ class FirestoreBackupRestClient(
                         output.toString("UTF-8")
                     }
                 currentCoroutineContext().ensureActive()
-                if (!authorized())
+                if (!authorization())
                     throw CloudBackupFailure(BackupFailureReason.ReauthenticationRequired)
                 if (text.isBlank()) buildJsonObject {} else Json.parseToJsonElement(text)
             } catch (error: IOException) {

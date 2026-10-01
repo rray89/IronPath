@@ -3,7 +3,7 @@ package com.example.ironpath.data.backup
 import com.example.ironpath.domain.backup.BackupFailureReason
 import com.sun.net.httpserver.HttpServer
 import java.net.InetSocketAddress
-import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.*
 import kotlinx.serialization.json.*
 import org.junit.After
 import org.junit.Assert.*
@@ -17,6 +17,7 @@ class FirestoreBackupRestClientTest {
     private var commits = 0
     private var authorized = true
     private var loseCommitResponse = false
+    private var rollbackStatus = 200
     private val server =
         HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0).apply {
             createContext("/") { exchange ->
@@ -30,6 +31,10 @@ class FirestoreBackupRestClientTest {
                         path.endsWith(":beginTransaction") -> "{\"transaction\":\"tx+/=\"}"
                         path.endsWith(":batchGet") ->
                             "[{\"found\":{\"name\":\"projects/demo-ironpath/databases/(default)/documents/users/owner\",\"fields\":{\"generation\":{\"integerValue\":\"0\"}}}}]"
+                        path.endsWith(":rollback") -> {
+                            code = rollbackStatus
+                            "{}"
+                        }
                         path.endsWith(":commit") -> {
                             commits++
                             if (aborts > 0) {
@@ -164,6 +169,77 @@ class FirestoreBackupRestClientTest {
     }
 
     @Test
+    fun callbackFailureRollsBackBeforeCommitWithoutReplacingOriginalFailure() = runBlocking {
+        rollbackStatus = 503
+        val original = CloudBackupFailure(BackupFailureReason.ConcurrentRemoteChange)
+        val error =
+            runCatching {
+                    client().transaction {
+                        get("users/owner")
+                        throw original
+                    }
+                }
+                .exceptionOrNull()
+
+        assertSame(original, error)
+        assertEquals(0, commits)
+        assertEquals(
+            listOf(":beginTransaction", ":batchGet", ":rollback"),
+            requests.map { ":" + it.first.substringAfterLast(":") },
+        )
+        val rollback = Json.parseToJsonElement(requests.last().second).jsonObject
+        assertEquals("tx+/=", rollback.getValue("transaction").jsonPrimitive.content)
+    }
+
+    @Test
+    fun cancellationBeforeCommitRollsBackAndStillPropagatesCancellation() = runBlocking {
+        var cancelled = false
+        val task = launch {
+            val operation = currentCoroutineContext()[Job]!!
+            val subject =
+                FirestoreBackupRestClient(
+                    "demo-ironpath",
+                    { "test-token" },
+                    { authorized && operation.isActive },
+                    "http://127.0.0.1:${server.address.port}/v1",
+                    rollbackAuthorized = { authorized },
+                )
+            try {
+                subject.transaction {
+                    get("users/owner")
+                    currentCoroutineContext().cancel()
+                    currentCoroutineContext().ensureActive()
+                }
+            } catch (error: CancellationException) {
+                cancelled = true
+            }
+        }
+        task.join()
+
+        assertTrue(cancelled)
+        assertEquals(0, commits)
+        assertTrue(requests.last().first.endsWith(":rollback"))
+    }
+
+    @Test
+    fun sessionChangeBeforeCommitDoesNotSendCleanupWithChangedIdentity() = runBlocking {
+        val original = CloudBackupFailure(BackupFailureReason.ReauthenticationRequired)
+        val error =
+            runCatching {
+                    client().transaction {
+                        get("users/owner")
+                        authorized = false
+                        throw original
+                    }
+                }
+                .exceptionOrNull()
+
+        assertSame(original, error)
+        assertEquals(2, requests.size)
+        assertEquals(0, commits)
+    }
+
+    @Test
     fun lostCommitResponseIsNotReplayed() = runBlocking {
         loseCommitResponse = true
         val error =
@@ -171,6 +247,7 @@ class FirestoreBackupRestClientTest {
                 .exceptionOrNull() as CloudBackupFailure
         assertEquals(BackupFailureReason.Offline, error.reason)
         assertEquals(1, commits)
+        assertTrue(requests.none { it.first.endsWith(":rollback") })
     }
 
     @Test

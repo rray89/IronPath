@@ -137,7 +137,8 @@ constructor(
 
     fun refresh() {
         if (manual.value.busy || manual.value.signOutBusy) return
-        mutableManual.update { it.copy(busy = true, feedback = null) }
+        val cloudStatusRequest = capabilities.mode == AccountExperienceCapabilities.Mode.AuthPreview
+        mutableManual.update { it.copy(busy = cloudStatusRequest, feedback = null) }
         viewModelScope.launch {
             try {
                 accountGateway.refresh()
@@ -147,7 +148,7 @@ constructor(
                     refreshBackupStatus()
                 }
             } finally {
-                mutableManual.update { it.copy(busy = false) }
+                if (cloudStatusRequest) mutableManual.update { it.copy(busy = false) }
             }
         }
     }

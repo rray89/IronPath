@@ -29,24 +29,24 @@ constructor(
                 ?: throw CloudBackupFailure(BackupFailureReason.ServiceUnavailable)
         val epoch = gate.sessionEpoch
         val job = currentCoroutineContext()[Job]
-        fun authorized() =
-            job?.isActive != false &&
-                gate.sessionEpoch == epoch &&
-                auth.currentUser?.uid == account.opaqueValue
+        fun sameSession() =
+            gate.sessionEpoch == epoch && auth.currentUser?.uid == account.opaqueValue
+        fun authorized() = job?.isActive != false && sameSession()
         if (!authorized()) throw CloudBackupFailure(BackupFailureReason.ReauthenticationRequired)
         return FirestoreBackupRestClient(
             project,
             token = {
-                if (!authorized())
+                if (!sameSession())
                     throw CloudBackupFailure(BackupFailureReason.ReauthenticationRequired)
                 val token = sanitizedPreviewIdToken {
                     auth.currentUser?.getIdToken(false)?.await()?.token.orEmpty()
                 }
-                if (!authorized())
+                if (!sameSession())
                     throw CloudBackupFailure(BackupFailureReason.ReauthenticationRequired)
                 token
             },
-            authorized = ::authorized
+            authorized = ::authorized,
+            rollbackAuthorized = ::sameSession,
         )
     }
 }

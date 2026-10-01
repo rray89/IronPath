@@ -20,7 +20,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.unit.dp
@@ -84,7 +86,7 @@ internal fun AuthPreviewAccountBackupScreen(
             AccountState.LocalOnly ->
                 Button(
                     onClick = onSignIn,
-                    enabled = signInAvailable && !manual.signOutBusy,
+                    enabled = signInAvailable && !manual.busy && !manual.signOutBusy,
                     modifier = Modifier.fillMaxWidth(),
                 ) {
                     Text("SIGN IN WITH GOOGLE")
@@ -100,19 +102,25 @@ internal fun AuthPreviewAccountBackupScreen(
             is AccountState.SignOutPending ->
                 Button(
                     onClick = manualActions.retrySignOut,
-                    enabled = !manual.signOutBusy,
+                    enabled = !manual.busy && !manual.signOutBusy,
                     modifier = Modifier.fillMaxWidth(),
                 ) {
                     Text("FINISH SIGN OUT")
                 }
             is AccountState.RecoverableError ->
-                Button(onClick = onRetry, modifier = Modifier.fillMaxWidth()) { Text("TRY AGAIN") }
+                Button(
+                    onClick = onRetry,
+                    enabled = !manual.busy && !manual.signOutBusy,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text("TRY AGAIN")
+                }
             else -> Unit
         }
         if (state is AccountState.SignedIn || state is AccountState.AwaitingDataChoice) {
             TextButton(
                 onClick = manualActions.openSignOutReview,
-                enabled = !manual.signOutBusy,
+                enabled = !manual.busy && !manual.signOutBusy,
                 modifier = Modifier.fillMaxWidth(),
             ) {
                 Text("SIGN OUT")
@@ -132,8 +140,18 @@ internal fun AuthPreviewAccountBackupScreen(
             "Cloud restore, manual sync and account deletion are not available in this preview.",
             style = MaterialTheme.typography.bodyMedium
         )
-        if (state !is AccountState.SignedIn && state !is AccountState.AwaitingDataChoice)
+        if (state !is AccountState.SignedIn && state !is AccountState.AwaitingDataChoice) {
+            if (manual.busy)
+                Text(
+                    "Checking account status",
+                    modifier =
+                        Modifier.semantics {
+                            liveRegion = LiveRegionMode.Polite
+                            stateDescription = "Busy"
+                        },
+                )
             manual.feedback?.let { Text(it, style = MaterialTheme.typography.bodyMedium) }
+        }
     }
 
     manual.signOutReview?.let { review ->

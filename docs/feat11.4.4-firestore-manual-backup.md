@@ -43,7 +43,11 @@ Official contracts: [Firebase REST authentication](https://firebase.google.com/d
 Transactional reads use official POST [batchGet](https://firebase.google.com/docs/firestore/reference/rest/v1/projects.databases.documents/batchGet), keeping transaction bytes in the JSON body; GET with a transaction query exposes [an emulator decoder bug](https://github.com/firebase/firebase-tools/issues/3293). Transactions commit chunks and metadata against observed generations. Server transforms use
 REQUEST_TIME. Only a structured ABORTED response permits a bounded retry inside the user's active
 manual operation. Fixed-length HTTP streaming prevents buffered POST replay after a lost response.
-HTTP timeout/cancellation does not prove server cancellation.
+HTTP timeout/cancellation does not prove server cancellation. Before attempting commit, callback
+failure or cancellation makes one best-effort official [rollback](https://firebase.google.com/docs/firestore/reference/rest/v1/projects.databases.documents/rollback)
+to release Standard transaction read locks. Cleanup has two-second connect/read limits, requires the
+original UID and session epoch, and preserves the original failure. An attempted commit with an
+unknown receipt is never replayed or interpreted as successfully rolled back.
 
 The [bounded protocol](../firebase/test/manual-backup.protocol.mjs) and checked-in rules preserve at most two
 complete backups after successful retention, one upload slot, six immutable chunks per backup,
