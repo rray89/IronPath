@@ -13,25 +13,24 @@ import com.example.ironpath.domain.account.AccountState
 internal const val ACCOUNT_EXPERIENCE_PREVIEW_ENABLED = true
 
 private const val ACCOUNT_BACKUP_ROUTE = "account_backup"
-private const val ACCOUNT_EXPERIENCE_PREVIEW_ROUTE = "account_experience_preview"
 
 internal val accountExperienceEntryContent =
     AccountExperienceEntryContent(
         privacyCopy =
-            "Signing in identifies your account. Your training data stays local until you " +
-                "choose a manual backup or restore.",
+            "Google sign-in identifies your account in this preview. Training data stays on this " +
+                "device and is not uploaded or associated. Cloud backup is unavailable.",
         signInLabel = "SIGN IN WITH GOOGLE",
-        signInNotice = "Demo account. No Google or cloud connection.",
+        signInNotice = "Signing in does not upload or associate local training data.",
     )
 
 internal val accountExperienceDrawerContent =
     AccountExperienceDrawerContent(
         contentDescription =
-            "Local profile. Training data stays on this device until you manually back it up. " +
-                "Open Account and Backup. Demo backups stay on this device.",
-        stateDescription = "Local only. No account connected.",
-        title = "Stored on this device",
-        actionLabel = "Back up your training data",
+            "Google account preview. Training data stays on this device and is not uploaded or " +
+                "associated. Cloud backup is unavailable in this preview. Open Google Account.",
+        stateDescription = "Google account preview. Cloud backup unavailable.",
+        title = "Google account preview",
+        actionLabel = "Cloud backup unavailable",
     )
 
 internal fun NavHostController.openAccountExperiencePreview() {
@@ -51,37 +50,28 @@ internal fun NavGraphBuilder.accountExperiencePreviewDestination(
     onCancel: () -> Unit,
     manual: ManualBackupUiState,
     manualActions: ManualBackupActions,
-    @Suppress("UNUSED_PARAMETER") accountSignInAvailable: Boolean = true,
+    accountSignInAvailable: Boolean,
 ) {
+    @Suppress("UNUSED_VARIABLE") val retainedController = navController
     composable(ACCOUNT_BACKUP_ROUTE) {
         LaunchedEffect(Unit) { onRetry() }
         BackHandler(onBack = onCancel)
-        AccountBackupScreen(
+        AuthPreviewAccountBackupScreen(
             state = state,
+            signInAvailable = accountSignInAvailable,
             manual = manual,
             manualActions = manualActions,
             onSignIn = onSignIn,
             onRetry = onRetry,
-            onCancel = onCancel,
-            onPreview = {
-                navController.navigate(ACCOUNT_EXPERIENCE_PREVIEW_ROUTE) { launchSingleTop = true }
-            },
             modifier = Modifier.padding(innerPadding),
         )
-    }
-    composable(ACCOUNT_EXPERIENCE_PREVIEW_ROUTE) {
-        AccountBackupExperiencePreviewScreen(modifier = Modifier.padding(innerPadding))
     }
 }
 
 internal fun isAccountExperiencePreviewRoute(route: String?): Boolean =
-    route == ACCOUNT_EXPERIENCE_PREVIEW_ROUTE || route == ACCOUNT_BACKUP_ROUTE
+    route == ACCOUNT_BACKUP_ROUTE
 
 internal fun isAccountBackupRoute(route: String?): Boolean = route == ACCOUNT_BACKUP_ROUTE
 
 internal fun accountExperiencePreviewTopBarTitle(route: String?): String? =
-    when (route) {
-        ACCOUNT_BACKUP_ROUTE -> "ACCOUNT & BACKUP"
-        ACCOUNT_EXPERIENCE_PREVIEW_ROUTE -> "EXPERIENCE PREVIEW"
-        else -> null
-    }
+    if (route == ACCOUNT_BACKUP_ROUTE) "GOOGLE ACCOUNT" else null

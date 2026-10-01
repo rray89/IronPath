@@ -26,6 +26,7 @@ internal fun NavGraphBuilder.accountExperiencePreviewDestination(
     onCancel: () -> Unit,
     manual: ManualBackupUiState,
     manualActions: ManualBackupActions,
+    accountSignInAvailable: Boolean = true,
 ) = Unit
 
 internal fun isAccountExperiencePreviewRoute(route: String?): Boolean = false

@@ -42,6 +42,7 @@ fun IronPathNavHost(
     startDestination: String = Route.ENTRY,
     onCompleteOnboarding: suspend () -> Boolean = { true },
     accountExperiencePreviewEnabled: Boolean = ACCOUNT_EXPERIENCE_PREVIEW_ENABLED,
+    accountSignInAvailable: Boolean = true,
     drawerOpen: Boolean = false,
     onCloseDrawer: () -> Unit = {},
     accountState: AccountState = AccountState.LocalOnly,
@@ -77,6 +78,7 @@ fun IronPathNavHost(
                 },
                 continuing = onboardingCompletionInProgress,
                 accountExperiencePreviewEnabled = accountExperiencePreviewEnabled,
+                accountSignInAvailable = accountSignInAvailable,
                 accountBusy =
                     accountState == AccountState.Loading ||
                         accountState == AccountState.SigningIn ||
@@ -178,6 +180,7 @@ fun IronPathNavHost(
             onAccountBack,
             manualBackupState,
             manualBackupActions,
+            accountSignInAvailable,
         )
         composable(Route.AI_PRIVACY) { AiPrivacyScreen(modifier = Modifier.padding(innerPadding)) }
         composable(Route.ABOUT) { AboutScreen(modifier = Modifier.padding(innerPadding)) }

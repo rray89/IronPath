@@ -390,14 +390,204 @@ class PersistedAccountGatewayTest {
         val original = async { gateway.startGoogleSignIn() }
         runCurrent()
         assertEquals(AccountState.SigningIn, gateway.state.value)
+        assertEquals(0, source.commitCalls)
         assertEquals(AccountActionResult.Unavailable, gateway.startGoogleSignIn())
         assertEquals(1, source.requests)
         assertEquals(AccountActionResult.Completed, gateway.cancelDataChoice())
-        source.pending!!.complete(CredentialResult.Selected(profile))
+        source.pending!!.complete(source.selected(profile))
         assertEquals(AccountActionResult.Cancelled, original.await())
+        assertNull(source.session)
+        assertEquals(0, source.commitCalls)
+        assertEquals(0, source.pendingCandidateCount)
+        assertEquals(AccountState.LocalOnly, gateway.state.value)
+    }
+
+    @Test
+    fun `unchanged provider snapshot does not replace an active sign in transition`() = runTest {
+        val source = Source().apply { pending = CompletableDeferred() }
+        val reader = Reader()
+        val gateway =
+            gateway(
+                source,
+                reader,
+                capabilities = AccountExperienceCapabilities.AuthPreview,
+            )
+        val signIn = async { gateway.startGoogleSignIn() }
+        runCurrent()
+        assertEquals(AccountState.SigningIn, gateway.state.value)
+
+        reader.failure = IllegalStateException("temporary Room read failure")
+        assertEquals(AccountActionResult.Completed, gateway.reconcileSessionChange())
+        assertEquals(AccountState.SigningIn, gateway.state.value)
+        assertEquals(0, source.commitCalls)
+
+        reader.failure = null
+        source.pending!!.complete(source.selected(profile))
+        assertEquals(AccountActionResult.Completed, signIn.await())
+        assertEquals(profile, source.session)
+        assertEquals(1, source.commitCalls)
+        assertEquals(profile.id, (gateway.state.value as AccountState.SignedIn).accountId)
+    }
+
+    @Test
+    fun `unchanged provider callback during sign out preserves the confirmed sign out`() = runTest {
+        val source = Source().apply { session = profile }
+        val reader = Reader()
+        val gate = AccountSessionOperationGate()
+        val gateway =
+            gateway(
+                source,
+                reader,
+                gate = gate,
+                capabilities = AccountExperienceCapabilities.AuthPreview,
+            )
+        assertEquals(AccountActionResult.Completed, gateway.refreshLocal())
+        val signedIn = gateway.state.value as AccountState.SignedIn
+        val manualStarted = CompletableDeferred<Unit>()
+        val releaseManual = CompletableDeferred<Unit>()
+        val manualOperation = async {
+            gate.withManualOperation(waitForTurn = true, unavailable = "unavailable") {
+                manualStarted.complete(Unit)
+                releaseManual.await()
+                "held"
+            }
+        }
+        runCurrent()
+        assertTrue(manualStarted.isCompleted)
+
+        val observation = async { gateway.reconcileSessionChange() }
+        runCurrent()
+        val signOut = async {
+            gateway.signOut(
+                SignOutRequest(
+                    signedIn.accountId,
+                    signedIn.sessionEpoch,
+                    SignOutDataChoice.KeepData,
+                )
+            )
+        }
+        runCurrent()
+        assertEquals(AccountState.SigningOut, gateway.state.value)
+
+        reader.failure = IllegalStateException("temporary Room read failure")
+        releaseManual.complete(Unit)
+        runCurrent()
+
+        assertEquals("held", manualOperation.await())
+        assertEquals(AccountActionResult.Completed, observation.await())
+        assertEquals(AccountActionResult.Completed, signOut.await())
         assertNull(source.session)
         assertEquals(AccountState.LocalOnly, gateway.state.value)
     }
+
+    @Test
+    fun `auth preview will not start Google sign in while removal journal is pending`() = runTest {
+        val source = Source()
+        val reader =
+            Reader().apply { context = context.copy(pendingSignOutUid = profile.id.opaqueValue) }
+        val gateway =
+            gateway(
+                source,
+                reader,
+                capabilities = AccountExperienceCapabilities.AuthPreview,
+            )
+
+        assertEquals(
+            AccountActionResult.Failed(AccountFailureReason.LocalStateUnavailable),
+            gateway.startGoogleSignIn(),
+        )
+
+        assertEquals(0, source.requests)
+        assertTrue(gateway.state.value is AccountState.RecoverableError)
+        assertEquals(profile.id.opaqueValue, reader.context.pendingSignOutUid)
+        assertNull(source.session)
+    }
+
+    @Test
+    fun `stale session epoch discards the selected credential without Firebase commit`() = runTest {
+        val source = Source().apply { pending = CompletableDeferred() }
+        val gate = AccountSessionOperationGate()
+        val gateway = gateway(source, gate = gate)
+        val operation = async { gateway.startGoogleSignIn() }
+        runCurrent()
+
+        gate.advanceSessionEpoch()
+        source.pending!!.complete(source.selected(profile))
+
+        assertEquals(AccountActionResult.Cancelled, operation.await())
+        assertNull(source.session)
+        assertEquals(0, source.commitCalls)
+        assertEquals(0, source.pendingCandidateCount)
+        assertEquals(AccountState.LocalOnly, gateway.state.value)
+    }
+
+    @Test
+    fun `auth preview reconciles only local identity and never inspects ownership or remote state`() =
+        runTest {
+            val source = Source().apply { session = profile }
+            val reader =
+                Reader().apply {
+                    context =
+                        context.copy(
+                            ownerUid = "retained-owner",
+                            localDataIsEmpty = false,
+                            pendingSignOutUid = null,
+                        )
+                }
+            val originalContext = reader.context
+            val gateway =
+                gateway(
+                    source,
+                    reader,
+                    capabilities = AccountExperienceCapabilities.AuthPreview,
+                )
+
+            assertEquals(AccountActionResult.Completed, gateway.reconcileSessionChange())
+            val state = gateway.state.value as AccountState.SignedIn
+            assertEquals(profile.id, state.accountId)
+            assertFalse(state.canDeleteAccount)
+            assertEquals(0, source.remoteReads)
+            assertEquals(originalContext, reader.context)
+            assertEquals(AccountActionResult.Unavailable, gateway.deleteAccount())
+            assertEquals(AccountActionResult.Unavailable, gateway.retryAccountDeletion())
+        }
+
+    @Test
+    fun `changed provider identity invalidates an in flight chooser and settles signed in state`() =
+        runTest {
+            val other =
+                AccountProfile(AccountId("new-provider-uid"), "New Athlete", "new@example.invalid")
+            val source = Source().apply { pending = CompletableDeferred() }
+            val reader = Reader().apply { context = context.copy(ownerUid = "retained-owner") }
+            val originalContext = reader.context
+            val gateway =
+                gateway(
+                    source,
+                    reader,
+                    capabilities = AccountExperienceCapabilities.AuthPreview,
+                )
+
+            val signIn = async { gateway.startGoogleSignIn() }
+            runCurrent()
+            assertEquals(AccountState.SigningIn, gateway.state.value)
+            assertEquals(0, source.commitCalls)
+
+            source.session = other
+            assertEquals(AccountActionResult.Completed, gateway.reconcileSessionChange())
+            val settled = gateway.state.value as AccountState.SignedIn
+            assertEquals(other.id, settled.accountId)
+            assertEquals(other, settled.profile)
+            assertEquals(1L, settled.sessionEpoch)
+
+            source.pending!!.complete(source.selected(profile))
+            assertEquals(AccountActionResult.Cancelled, signIn.await())
+            assertEquals(other, source.session)
+            assertEquals(0, source.commitCalls)
+            assertEquals(0, source.pendingCandidateCount)
+            assertEquals(0, source.remoteReads)
+            assertEquals(originalContext, reader.context)
+            assertEquals(other.id, (gateway.state.value as AccountState.SignedIn).accountId)
+        }
 
     @Test
     fun `failed save never reports signed in and only explicit sign out clears a saved session`() =
@@ -572,7 +762,7 @@ class PersistedAccountGatewayTest {
         val operation = launch { gateway.startGoogleSignIn() }
         runCurrent()
         operation.cancel()
-        source.pending!!.complete(CredentialResult.Selected(profile))
+        source.pending!!.complete(source.selected(profile))
         operation.join()
         assertNull(source.session)
         assertEquals(AccountState.LocalOnly, gateway.state.value)
@@ -979,6 +1169,57 @@ class PersistedAccountGatewayTest {
     }
 
     @Test
+    fun `stale removal journal rereads context after installation validation`() = runTest {
+        val other =
+            AccountProfile(AccountId("another-account"), "Other Athlete", "other@example.invalid")
+        val source = Source().apply { session = other }
+        val reader =
+            Reader().apply {
+                context =
+                    context.copy(
+                        localDataIsEmpty = true,
+                        pendingSignOutUid = profile.id.opaqueValue,
+                    )
+            }
+        val resetter = TestResetter(reader)
+        val guard =
+            object : InstallationGuard {
+                override suspend fun validate(): InstallationValidationResult {
+                    if (
+                        resetter.clearPendingCalls > 0 && reader.context.pendingSignOutUid == null
+                    ) {
+                        reader.context =
+                            reader.context.copy(
+                                conflict =
+                                    reader.context.conflict.copy(
+                                        currentInstallationId = "validated-installation"
+                                    )
+                            )
+                    }
+                    return InstallationValidationResult.Validated
+                }
+            }
+        val gateway =
+            PersistedAccountGateway(
+                source,
+                reader,
+                guard,
+                resetter,
+                AccountSessionOperationGate(),
+            )
+
+        assertEquals(AccountActionResult.Completed, gateway.refreshLocal())
+
+        val reconstructed = gateway.state.value as AccountState.AwaitingDataChoice
+        assertEquals(
+            "validated-installation",
+            checkNotNull(reconstructed.context.conflict).currentInstallationId,
+        )
+        assertNull(reader.context.pendingSignOutUid)
+        assertEquals(other, source.session)
+    }
+
+    @Test
     fun `reconstruction read failure after old journal cleanup stays refreshable`() = runTest {
         val other =
             AccountProfile(AccountId("another-account"), "Other Athlete", "other@example.invalid")
@@ -1047,6 +1288,7 @@ class PersistedAccountGatewayTest {
         resetter: TestResetter? = null,
         gate: AccountSessionOperationGate = AccountSessionOperationGate(),
         deletionManager: AccountDeletionManager = UnavailableAccountDeletionManager,
+        capabilities: AccountExperienceCapabilities = AccountExperienceCapabilities.Demo,
     ) =
         PersistedAccountGateway(
             source,
@@ -1057,6 +1299,7 @@ class PersistedAccountGatewayTest {
             resetter ?: TestResetter(reader),
             gate,
             deletionManager,
+            capabilities,
         )
 
     private class RecordingDeletionManager : AccountDeletionManager {
@@ -1142,19 +1385,32 @@ class PersistedAccountGatewayTest {
     }
 
     private class Source : AccountSessionAdapter {
+        private val candidates = mutableMapOf<PendingGoogleCredential, AccountProfile>()
+        val pendingCandidateCount: Int
+            get() = candidates.size
+
         var session: AccountProfile? = null
         var unreadableSession = false
         var clearUnreadableSucceeds = true
         var clearUnreadableFailure: Exception? = null
         var readFailure: Exception? = null
         var afterClear: (() -> Unit)? = null
-        var result: CredentialResult = CredentialResult.Selected(profile)
+        private var resultProfile = profile
+        var result: CredentialResult = selected(profile)
+            set(value) {
+                field = value
+                if (value is CredentialResult.Selected) {
+                    resultProfile = candidates[value.candidate] ?: resultProfile
+                }
+            }
+
         var remote: RemoteSnapshotPresence = RemoteSnapshotPresence.Absent
         var pending: CompletableDeferred<CredentialResult>? = null
         var writeSucceeds = true
         var clearSucceeds = true
         var clearCalls = 0
         var requests = 0
+        var commitCalls = 0
         var remoteReads = 0
         var ignoreChooserCancellation = false
         var saveStarted: CompletableDeferred<Unit>? = null
@@ -1162,11 +1418,47 @@ class PersistedAccountGatewayTest {
         var clearStarted: CompletableDeferred<Unit>? = null
         var finishClear: CompletableDeferred<Unit>? = null
 
-        override suspend fun requestGoogleCredential(): CredentialResult {
+        override suspend fun requestGoogleCredential(requestId: Long): CredentialResult {
             requests++
-            return if (ignoreChooserCancellation)
-                withContext(NonCancellable) { pending?.await() ?: result }
-            else pending?.await() ?: result
+            val pendingRequest = pending
+            if (pendingRequest != null) {
+                (result as? CredentialResult.Selected)?.let { candidates.remove(it.candidate) }
+                return if (ignoreChooserCancellation)
+                    withContext(NonCancellable) { pendingRequest.await() }
+                else pendingRequest.await()
+            }
+            return when (val configured = result) {
+                is CredentialResult.Selected -> {
+                    candidates.remove(configured.candidate)
+                    selected(resultProfile)
+                }
+                else -> configured
+            }
+        }
+
+        fun selected(profile: AccountProfile): CredentialResult.Selected {
+            val candidate = PendingGoogleCredential()
+            candidates[candidate] = profile
+            return CredentialResult.Selected(candidate)
+        }
+
+        override suspend fun commitGoogleCredential(
+            candidate: PendingGoogleCredential,
+        ): CredentialCommitResult {
+            commitCalls++
+            saveStarted?.complete(Unit)
+            finishSave?.await()
+            val profile =
+                candidates.remove(candidate)
+                    ?: return CredentialCommitResult.Failed(AccountFailureReason.Unknown)
+            if (!writeSucceeds)
+                return CredentialCommitResult.Failed(AccountFailureReason.LocalStateUnavailable)
+            session = profile
+            return CredentialCommitResult.Authenticated(profile)
+        }
+
+        override suspend fun discardGoogleCredential(candidate: PendingGoogleCredential) {
+            candidates.remove(candidate)
         }
 
         override suspend fun readSession(): AccountProfile? {
@@ -1176,13 +1468,6 @@ class PersistedAccountGatewayTest {
                 throw it
             }
             return session
-        }
-
-        override suspend fun saveSession(profile: AccountProfile): Boolean {
-            saveStarted?.complete(Unit)
-            finishSave?.await()
-            if (writeSucceeds) session = profile
-            return writeSucceeds
         }
 
         override suspend fun clearSession(): Boolean {

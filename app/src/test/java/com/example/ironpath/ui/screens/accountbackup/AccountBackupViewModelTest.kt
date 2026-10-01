@@ -4,8 +4,10 @@ import com.example.ironpath.domain.account.*
 import com.example.ironpath.domain.backup.*
 import com.example.ironpath.util.MainDispatcherRule
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.emptyFlow
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.*
@@ -30,6 +32,17 @@ class AccountBackupViewModelTest {
         advanceUntilIdle()
         assertEquals(2, gateway.refreshes)
         assertEquals(1, gateway.signIns)
+    }
+
+    @Test
+    fun `context observation failure triggers one local refresh and then stops`() = runTest {
+        val gateway = Gateway()
+        val changes = flow<Unit> { throw IllegalStateException("observation unavailable") }
+
+        viewModel(gateway, contextChanges = changes)
+        advanceUntilIdle()
+
+        assertEquals(2, gateway.refreshes)
     }
 
     @Test
@@ -586,11 +599,12 @@ class AccountBackupViewModelTest {
                         com.example.ironpath.data.backup.InstallationValidationResult.Validated
                 }
             ),
+        contextChanges: Flow<Unit> = emptyFlow(),
     ) =
         AccountBackupViewModel(
             gateway,
             object : AccountContextReader {
-                override val changes = emptyFlow<Unit>()
+                override val changes = contextChanges
 
                 override suspend fun read(): LocalAccountContext =
                     error("Gateway owns reading account context")

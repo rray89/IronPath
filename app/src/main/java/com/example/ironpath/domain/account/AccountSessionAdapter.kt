@@ -1,12 +1,30 @@
 package com.example.ironpath.domain.account
 
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.emptyFlow
+
 /** Credential selection has no durable side effects until the current request is accepted. */
 interface AccountSessionAdapter {
-    suspend fun requestGoogleCredential(): CredentialResult
+    /** Emits only when the provider reports a persisted account-session change. */
+    val sessionChanges: Flow<Unit>
+        get() = emptyFlow()
+
+    suspend fun requestGoogleCredential(requestId: Long): CredentialResult
+
+    /** Exchange a selected in-memory candidate for a persisted session after gateway acceptance. */
+    suspend fun commitGoogleCredential(candidate: PendingGoogleCredential): CredentialCommitResult
+
+    /** Drop a selected candidate when its gateway request is stale or cancelled. */
+    suspend fun discardGoogleCredential(candidate: PendingGoogleCredential) {
+        // Adapters that do not retain candidate state have nothing to discard.
+    }
+
+    /** Cancel only the matching provider chooser request. */
+    fun cancelGoogleCredentialRequest(requestId: Long) {
+        // Adapters without an external chooser have no provider request to cancel.
+    }
 
     suspend fun readSession(): AccountProfile?
-
-    suspend fun saveSession(profile: AccountProfile): Boolean
 
     suspend fun clearSession(): Boolean
 
@@ -30,9 +48,18 @@ interface AccountSessionAdapter {
 class UnreadableAccountSessionException : Exception()
 
 sealed interface CredentialResult {
-    data class Selected(val profile: AccountProfile) : CredentialResult
+    data class Selected(val candidate: PendingGoogleCredential) : CredentialResult
 
     data object Cancelled : CredentialResult
 
     data class Failed(val reason: AccountFailureReason) : CredentialResult
+}
+
+/** Opaque, single-use, process-memory credential selection. It contains no credential material. */
+class PendingGoogleCredential internal constructor()
+
+sealed interface CredentialCommitResult {
+    data class Authenticated(val profile: AccountProfile) : CredentialCommitResult
+
+    data class Failed(val reason: AccountFailureReason) : CredentialCommitResult
 }

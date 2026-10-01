@@ -13,10 +13,13 @@ import com.example.ironpath.data.repository.PlanRepository
 import com.example.ironpath.domain.account.AccountDeletionRequest
 import com.example.ironpath.domain.account.AccountDeletionResult
 import com.example.ironpath.domain.account.AccountDeletionStage
+import com.example.ironpath.domain.account.AccountFailureReason
 import com.example.ironpath.domain.account.AccountId
 import com.example.ironpath.domain.account.AccountProfile
 import com.example.ironpath.domain.account.AccountSessionAdapter
+import com.example.ironpath.domain.account.CredentialCommitResult
 import com.example.ironpath.domain.account.CredentialResult
+import com.example.ironpath.domain.account.PendingGoogleCredential
 import com.example.ironpath.domain.account.RemoteSnapshotPresence
 import com.example.ironpath.domain.backup.BackupFailureReason
 import com.example.ironpath.domain.identity.IdProvider
@@ -286,11 +289,27 @@ class AccountDeletionRecoveryTest {
         var session: AccountProfile? = profile
         var tombstones = 0
 
-        override suspend fun requestGoogleCredential() = CredentialResult.Selected(profile)
+        override suspend fun requestGoogleCredential(requestId: Long): CredentialResult {
+            val candidate = PendingGoogleCredential()
+            candidates[candidate] = profile
+            return CredentialResult.Selected(candidate)
+        }
 
         override suspend fun readSession() = session
 
-        override suspend fun saveSession(profile: AccountProfile) = true
+        private val candidates = mutableMapOf<PendingGoogleCredential, AccountProfile>()
+
+        override suspend fun commitGoogleCredential(
+            candidate: PendingGoogleCredential,
+        ): CredentialCommitResult {
+            val selected =
+                candidates.remove(candidate)
+                    ?: return CredentialCommitResult.Failed(
+                        AccountFailureReason.Unknown,
+                    )
+            session = selected
+            return CredentialCommitResult.Authenticated(selected)
+        }
 
         override suspend fun clearSession(): Boolean {
             session = null

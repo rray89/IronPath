@@ -10,6 +10,7 @@ import com.example.ironpath.data.local.IronPathDatabase
 import com.example.ironpath.data.local.entity.AccountBackupMetadata
 import com.example.ironpath.domain.account.AccountActionResult
 import com.example.ironpath.domain.account.AccountState
+import com.example.ironpath.domain.account.CredentialCommitResult
 import com.example.ironpath.domain.account.CredentialResult
 import com.example.ironpath.domain.account.UnreadableAccountSessionException
 import com.example.ironpath.domain.identity.IdProvider
@@ -69,15 +70,23 @@ class AccountPersistenceTest {
                     override fun newId() = "demo-incarnation-${++next}"
                 },
             )
-        val firstCredential = adapter.requestGoogleCredential() as CredentialResult.Selected
-        assertEquals("ironpath-demo-athlete", firstCredential.profile.id.opaqueValue)
-        assertTrue(adapter.saveSession(firstCredential.profile))
+        val firstSelection = adapter.requestGoogleCredential(1) as CredentialResult.Selected
+        assertNull(adapter.readSession())
+        val firstCredential =
+            (adapter.commitGoogleCredential(firstSelection.candidate)
+                    as CredentialCommitResult.Authenticated)
+                .profile
+        assertEquals("ironpath-demo-athlete", firstCredential.id.opaqueValue)
         assertEquals(
-            firstCredential.profile.id,
-            (adapter.requestGoogleCredential() as CredentialResult.Selected).profile.id,
+            firstCredential.id,
+            ((adapter.commitGoogleCredential(
+                    (adapter.requestGoogleCredential(2) as CredentialResult.Selected).candidate,
+                ) as CredentialCommitResult.Authenticated)
+                .profile
+                .id),
         )
 
-        assertTrue(adapter.deleteDemoAccount(firstCredential.profile.id))
+        assertTrue(adapter.deleteDemoAccount(firstCredential.id))
         var unreadable: Exception? = null
         try {
             adapter.readSession()
@@ -85,11 +94,15 @@ class AccountPersistenceTest {
             unreadable = failure
         }
         assertTrue(unreadable is UnreadableAccountSessionException)
-        assertTrue(adapter.clearDeletedSession(firstCredential.profile.id))
+        assertTrue(adapter.clearDeletedSession(firstCredential.id))
 
-        val nextCredential = adapter.requestGoogleCredential() as CredentialResult.Selected
-        assertEquals("demo-incarnation-1", nextCredential.profile.id.opaqueValue)
-        assertNotEquals(firstCredential.profile.id, nextCredential.profile.id)
+        val nextSelection = adapter.requestGoogleCredential(3) as CredentialResult.Selected
+        val nextCredential =
+            (adapter.commitGoogleCredential(nextSelection.candidate)
+                    as CredentialCommitResult.Authenticated)
+                .profile
+        assertEquals("demo-incarnation-1", nextCredential.id.opaqueValue)
+        assertNotEquals(firstCredential.id, nextCredential.id)
         val recreated =
             DeterministicAccountSessionAdapter(
                 context,
@@ -99,8 +112,12 @@ class AccountPersistenceTest {
                 },
             )
         assertEquals(
-            nextCredential.profile.id,
-            (recreated.requestGoogleCredential() as CredentialResult.Selected).profile.id
+            nextCredential.id,
+            ((recreated.commitGoogleCredential(
+                    (recreated.requestGoogleCredential(4) as CredentialResult.Selected).candidate,
+                ) as CredentialCommitResult.Authenticated)
+                .profile
+                .id),
         )
         assertFalse(
             File(
@@ -108,7 +125,7 @@ class AccountPersistenceTest {
                     DeterministicAccountSessionAdapter.ACCOUNT_REGISTRY_FILE_NAME
                 )
                 .readText()
-                .contains(firstCredential.profile.id.opaqueValue)
+                .contains(firstCredential.id.opaqueValue)
         )
         assertTrue(
             File(
@@ -116,7 +133,7 @@ class AccountPersistenceTest {
                     DeterministicAccountSessionAdapter.DELETED_ACCOUNTS_FILE_NAME
                 )
                 .readText()
-                .contains(firstCredential.profile.id.opaqueValue)
+                .contains(firstCredential.id.opaqueValue)
         )
     }
 

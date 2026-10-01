@@ -4,10 +4,13 @@ import android.content.Context
 import android.util.AtomicFile
 import com.example.ironpath.data.backup.RemoteBackupRead
 import com.example.ironpath.data.backup.RemoteBackupStore
+import com.example.ironpath.domain.account.AccountFailureReason
 import com.example.ironpath.domain.account.AccountId
 import com.example.ironpath.domain.account.AccountProfile
 import com.example.ironpath.domain.account.AccountSessionAdapter
+import com.example.ironpath.domain.account.CredentialCommitResult
 import com.example.ironpath.domain.account.CredentialResult
+import com.example.ironpath.domain.account.PendingGoogleCredential
 import com.example.ironpath.domain.account.RemoteSnapshotPresence
 import com.example.ironpath.domain.account.UnreadableAccountSessionException
 import com.example.ironpath.domain.identity.IdProvider
@@ -34,18 +37,48 @@ constructor(
         AtomicFile(File(context.noBackupFilesDir, ACCOUNT_REGISTRY_FILE_NAME))
     private val deletedAccountsFile =
         AtomicFile(File(context.noBackupFilesDir, DELETED_ACCOUNTS_FILE_NAME))
+    private val pendingCredentials = mutableMapOf<PendingGoogleCredential, AccountProfile>()
 
     internal constructor(
         context: Context,
         remote: RemoteBackupStore
     ) : this(context, remote, UuidIdProvider())
 
-    override suspend fun requestGoogleCredential(): CredentialResult =
+    override suspend fun requestGoogleCredential(requestId: Long): CredentialResult =
         withContext(Dispatchers.IO) {
             synchronized(LIFECYCLE_LOCK) {
-                CredentialResult.Selected(profile(AccountId(currentAccountId())))
+                val candidate = PendingGoogleCredential()
+                pendingCredentials[candidate] = profile(AccountId(currentAccountId()))
+                CredentialResult.Selected(candidate)
             }
         }
+
+    override suspend fun commitGoogleCredential(
+        candidate: PendingGoogleCredential,
+    ): CredentialCommitResult =
+        withContext(Dispatchers.IO) {
+            synchronized(LIFECYCLE_LOCK) {
+                val selected =
+                    pendingCredentials.remove(candidate)
+                        ?: return@synchronized CredentialCommitResult.Failed(
+                            AccountFailureReason.Unknown,
+                        )
+                require(
+                    selected.displayName == PROFILE.displayName && selected.email == PROFILE.email
+                )
+                require(selected.id.opaqueValue == currentAccountId())
+                require(selected.id.opaqueValue !in deletedAccounts())
+                if (writeSession(selected.id.opaqueValue)) {
+                    CredentialCommitResult.Authenticated(selected)
+                } else {
+                    CredentialCommitResult.Failed(AccountFailureReason.ServiceUnavailable)
+                }
+            }
+        }
+
+    override suspend fun discardGoogleCredential(candidate: PendingGoogleCredential) {
+        synchronized(LIFECYCLE_LOCK) { pendingCredentials.remove(candidate) }
+    }
 
     override suspend fun readSession(): AccountProfile? =
         withContext(Dispatchers.IO) {
@@ -60,14 +93,6 @@ constructor(
             if (identifier in deletedAccounts() || identifier != currentAccountId())
                 throw UnreadableAccountSessionException()
             profile(AccountId(identifier))
-        }
-
-    override suspend fun saveSession(profile: AccountProfile): Boolean =
-        withContext(Dispatchers.IO) {
-            require(profile.displayName == PROFILE.displayName && profile.email == PROFILE.email)
-            require(profile.id.opaqueValue == currentAccountId())
-            require(profile.id.opaqueValue !in deletedAccounts())
-            writeSession(profile.id.opaqueValue)
         }
 
     override suspend fun clearSession(): Boolean = withContext(Dispatchers.IO) { writeSession("") }

@@ -6,6 +6,7 @@ import com.example.ironpath.domain.account.AccountActionResult
 import com.example.ironpath.domain.account.AccountContextReader
 import com.example.ironpath.domain.account.AccountDeletionProgress
 import com.example.ironpath.domain.account.AccountDeletionRequest
+import com.example.ironpath.domain.account.AccountExperienceCapabilities
 import com.example.ironpath.domain.account.AccountGateway
 import com.example.ironpath.domain.account.AccountState
 import com.example.ironpath.domain.account.LocalOwnership
@@ -29,6 +30,7 @@ constructor(
     private val accountGateway: AccountGateway,
     localContext: AccountContextReader,
     private val backup: BackupCoordinator,
+    private val capabilities: AccountExperienceCapabilities = AccountExperienceCapabilities.Demo,
 ) : ViewModel() {
     val state = accountGateway.state
     private val mutableManual = MutableStateFlow(ManualBackupUiState())
@@ -50,12 +52,13 @@ constructor(
         }
         viewModelScope.launch {
             accountGateway.refreshLocal()
-            backup.refreshStatus()
+            refreshBackupStatus()
             localContext.changes
+                // A failed invalidation source gets one explicit refresh before collection stops.
                 .catch { emit(Unit) }
                 .collect {
                     accountGateway.refreshLocal()
-                    backup.refreshStatus()
+                    refreshBackupStatus()
                 }
         }
         viewModelScope.launch {
@@ -89,15 +92,17 @@ constructor(
     }
 
     fun signIn() {
-        if (manual.value.busy || manual.value.signOutBusy) return
+        if (!capabilities.canSignIn || manual.value.busy || manual.value.signOutBusy) return
         viewModelScope.launch {
             val result = accountGateway.startGoogleSignIn()
-            backup.refreshStatus()
-            if (result == AccountActionResult.Completed) refreshLatestBackupIfEligible()
+            refreshBackupStatus()
+            if (capabilities.canUseBackup && result == AccountActionResult.Completed)
+                refreshLatestBackupIfEligible()
         }
     }
 
     fun recoverUnreadableSession() {
+        if (capabilities.mode == AccountExperienceCapabilities.Mode.AuthPreview) return
         val recoverable = state.value as? AccountState.RecoverableError ?: return
         if (
             !recoverable.canRecoverUnreadableSession ||
@@ -108,7 +113,7 @@ constructor(
         viewModelScope.launch {
             mutableManual.update { it.copy(signOutBusy = true, feedback = null) }
             val result = accountGateway.recoverUnreadableSession()
-            backup.refreshStatus()
+            refreshBackupStatus()
             mutableManual.update {
                 it.copy(
                     signOutBusy = false,
@@ -131,16 +136,16 @@ constructor(
         mutableManual.update { it.copy(feedback = null) }
         viewModelScope.launch {
             accountGateway.refresh()
-            if (state.value.isEligibleForLatestBackupLookup()) {
+            if (capabilities.canUseBackup && state.value.isEligibleForLatestBackupLookup()) {
                 refreshLatestBackupIfEligible()
             } else {
-                backup.refreshStatus()
+                refreshBackupStatus()
             }
         }
     }
 
     private suspend fun refreshLatestBackupIfEligible() {
-        if (!state.value.isEligibleForLatestBackupLookup()) return
+        if (!capabilities.canUseBackup || !state.value.isEligibleForLatestBackupLookup()) return
         when (val result = backup.latestCompleteBackup()) {
             is BackupLookupResult.Failed -> showFailure(result.reason)
             else -> Unit
@@ -151,6 +156,7 @@ constructor(
         this is AccountState.SignedIn || this is AccountState.AwaitingDataChoice
 
     fun keepDeviceEmpty() {
+        if (!capabilities.canUseBackup || !capabilities.canAssociateLocalData) return
         val pending = state.value as? AccountState.AwaitingDataChoice ?: return
         val reviewedProfile = pending.context.conflict ?: return
         val expectedRemoteSnapshot =
@@ -176,7 +182,7 @@ constructor(
             ) {
                 BackupActionResult.Completed -> {
                     accountGateway.refreshLocal()
-                    backup.refreshStatus()
+                    refreshBackupStatus()
                     mutableManual.update {
                         it.copy(
                             feedback =
@@ -285,6 +291,7 @@ constructor(
     }
 
     fun openDeleteReview() {
+        if (!capabilities.canDeleteAccount) return
         if (manual.value.busy || manual.value.signOutBusy) return
         val current = state.value
         val request =
@@ -342,6 +349,7 @@ constructor(
     }
 
     fun continueAccountDeletion() {
+        if (!capabilities.canDeleteAccount) return
         if (manual.value.accountDeletion.busy) return
         mutableManual.update { current ->
             current.copy(
@@ -354,6 +362,7 @@ constructor(
     }
 
     fun confirmAccountDeletion() {
+        if (!capabilities.canDeleteAccount) return
         val deletion = manual.value.accountDeletion
         val target = deletion.target ?: return
         if (!target.confirmingIdentity || deletion.busy || manual.value.signOutBusy) return
@@ -396,6 +405,7 @@ constructor(
         }
 
     fun retryAccountDeletion() {
+        if (!capabilities.canDeleteAccount) return
         if (!manual.value.accountDeletion.retryAvailable || manual.value.accountDeletion.busy)
             return
         mutableManual.update {
@@ -457,7 +467,7 @@ constructor(
                                 ),
                         )
                     }
-                    backup.refreshStatus()
+                    refreshBackupStatus()
                 }
                 AccountActionResult.Cancelled -> {
                     mutableManual.update {
@@ -557,13 +567,19 @@ constructor(
                                 undoAvailable = false,
                                 status = BackupStatus.LocalOnly,
                                 feedback =
-                                    if (dataWasRemoved)
-                                        "Signed out. Training data was removed from this device. The remote backup was not changed."
-                                    else
-                                        "Signed out. Training data and its account ownership remain on this device."
+                                    when {
+                                        capabilities.canUseBackup && dataWasRemoved ->
+                                            "Signed out. Training data was removed from this device. The remote backup was not changed."
+                                        capabilities.canUseBackup ->
+                                            "Signed out. Training data and its account ownership remain on this device."
+                                        dataWasRemoved ->
+                                            "Signed out. Training data was removed from this device."
+                                        else ->
+                                            "Signed out. Training data remains on this device and is not linked to this Google identity."
+                                    }
                             )
                         }
-                        backup.refreshStatus()
+                        refreshBackupStatus()
                     }
                     AccountActionResult.Cancelled -> {
                         mutableManual.update {
@@ -601,7 +617,7 @@ constructor(
                                         "Sign-out could not finish. Check account and training data status before trying again."
                             )
                         }
-                        backup.refreshStatus()
+                        refreshBackupStatus()
                     }
                 }
             } catch (cancelled: CancellationException) {
@@ -620,6 +636,7 @@ constructor(
     }
 
     fun previewBackup() = runManual {
+        if (!capabilities.canUseBackup) return@runManual
         discardReview()
         when (val result = backup.previewBackup()) {
             is BackupPreviewResult.Ready ->
@@ -630,6 +647,7 @@ constructor(
     }
 
     fun previewSync() = runManual {
+        if (!capabilities.canUseBackup) return@runManual
         discardReview()
         when (val result = backup.previewSync()) {
             is SyncPreviewResult.Ready ->
@@ -640,6 +658,7 @@ constructor(
     }
 
     fun previewRestore() = runManual {
+        if (!capabilities.canUseBackup) return@runManual
         discardReview()
         when (val result = backup.previewRestore()) {
             is RestorePreviewResult.Ready ->
@@ -650,6 +669,7 @@ constructor(
     }
 
     fun previewUndo() = runManual {
+        if (!capabilities.canUseBackup) return@runManual
         discardReview()
         when (val result = backup.previewUndo()) {
             is UndoPreviewResult.Ready ->
@@ -686,6 +706,7 @@ constructor(
     }
 
     fun confirm() {
+        if (!capabilities.canUseBackup) return
         val current = manual.value
         val review = current.review ?: return
         if (
@@ -742,7 +763,7 @@ constructor(
                         )
                     }
                     accountGateway.refreshLocal()
-                    backup.refreshStatus()
+                    refreshBackupStatus()
                 }
                 is BackupActionResult.Failed -> {
                     discardReview()
@@ -785,7 +806,7 @@ constructor(
         if (manual.value.review != null) {
             runManual {
                 discardReview()
-                backup.refreshStatus()
+                refreshBackupStatus()
             }
             return
         }
@@ -800,7 +821,7 @@ constructor(
                     accountGateway.cancelDataChoice() == AccountActionResult.Completed
             ) {
                 mutableManual.update { it.copy(feedback = null) }
-                backup.refreshStatus()
+                refreshBackupStatus()
                 onLeave()
             }
         }
@@ -819,7 +840,12 @@ constructor(
     }
 
     private fun runManual(action: suspend () -> Unit) {
-        if (manual.value.busy || manual.value.signOutBusy || manual.value.accountDeletion.busy)
+        if (
+            !capabilities.canUseBackup ||
+                manual.value.busy ||
+                manual.value.signOutBusy ||
+                manual.value.accountDeletion.busy
+        )
             return
         mutableManual.update { it.copy(busy = true, feedback = null) }
         viewModelScope.launch {
@@ -838,6 +864,10 @@ constructor(
 
     private fun showFailure(reason: BackupFailureReason) {
         mutableManual.update { it.copy(feedback = backupFailureMessage(reason)) }
+    }
+
+    private suspend fun refreshBackupStatus() {
+        if (capabilities.canUseBackup) backup.refreshStatus()
     }
 
     private fun unavailable() {
