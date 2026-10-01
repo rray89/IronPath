@@ -6,10 +6,10 @@ Google account or service credential, and does not enable IronPath sign-in or re
 
 ## Local and CI verification
 
-Requirements: Node 20, JDK 21, and the repository Gradle wrapper.
+Requirements: Node 22, JDK 21, and the repository Gradle wrapper.
 
 ```bash
-npm ci --prefix firebase
+npm ci --ignore-scripts --prefix firebase
 ./gradlew firebaseRulesTest
 ```
 
