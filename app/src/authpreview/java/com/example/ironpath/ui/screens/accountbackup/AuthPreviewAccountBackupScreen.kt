@@ -46,6 +46,16 @@ internal fun AuthPreviewAccountBackupScreen(
             is AccountState.SignOutPending -> state.profile
             else -> null
         }
+    if (manual.review is ManualReview.Backup) {
+        ManualBackupReviewScreen(
+            manual,
+            manualActions,
+            manualActions.cancelReview,
+            modifier,
+            demoStorage = false
+        )
+        return
+    }
     Column(
         modifier = modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
@@ -110,14 +120,20 @@ internal fun AuthPreviewAccountBackupScreen(
         }
         AccountSection(
             "CLOUD BACKUP",
-            "Cloud backup is unavailable in this preview. Signing in identifies your Google " +
-                "account but does not upload or associate local workouts.",
+            if (signInAvailable)
+                "Training data stays local until you review and confirm a manual cloud backup."
+            else
+                "Cloud backup is unavailable until private Firebase preview configuration is supplied."
         )
+        if (state is AccountState.SignedIn || state is AccountState.AwaitingDataChoice) {
+            CloudManualBackupOverview(manual, signInAvailable, manualActions.previewBackup, onRetry)
+        }
         Text(
-            "Training data remains on this device unless you explicitly choose Remove during sign-out.",
-            style = MaterialTheme.typography.bodyMedium,
+            "Cloud restore, manual sync and account deletion are not available in this preview.",
+            style = MaterialTheme.typography.bodyMedium
         )
-        manual.feedback?.let { Text(it, style = MaterialTheme.typography.bodyMedium) }
+        if (state !is AccountState.SignedIn && state !is AccountState.AwaitingDataChoice)
+            manual.feedback?.let { Text(it, style = MaterialTheme.typography.bodyMedium) }
     }
 
     manual.signOutReview?.let { review ->
@@ -251,7 +267,7 @@ private fun authPreviewAccountStateDetail(state: AccountState, signInAvailable: 
         AccountState.SigningOut ->
             "Signing out. Local training data follows your Keep or Remove choice."
         is AccountState.SignedIn ->
-            "Google identity connected. Local training data is not associated."
+            "Google identity connected. Account identity alone does not upload training data."
         is AccountState.AwaitingDataChoice ->
             "Google identity connected. Local training data remains local."
         is AccountState.SignOutPending ->

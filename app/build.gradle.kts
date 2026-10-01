@@ -1,3 +1,4 @@
+import com.android.build.api.variant.HostTestBuilder
 import groovy.json.JsonSlurper
 import java.io.File
 import java.util.Locale
@@ -240,6 +241,11 @@ android {
 }
 
 androidComponents {
+    // AGP 9 enables host tests only for the instrumented build type by default.
+    // This isolated preview also needs its own JVM contract/transport suite.
+    beforeVariants(selector().withBuildType("authpreview")) { variant ->
+        variant.hostTests.getValue(HostTestBuilder.UNIT_TEST_TYPE).enable = true
+    }
     onVariants(selector().withBuildType("authpreview")) { variant ->
         variant.sources.res?.addGeneratedSourceDirectory(generateAuthPreviewFirebaseConfig) {
             it.outputDirectory
@@ -468,4 +474,20 @@ if (project.hasProperty("enableCoverage")) {
             )
         }
     }
+}
+
+// The real REST adapter integration suite is a separate, explicit emulator-only JVM task.
+// Default unit tests never require a network service, Google account, or private project.
+tasks.withType<Test>().configureEach {
+    if (name != "firestoreTransportTest")
+        filter.excludeTestsMatching("*FirestoreTransportEmulatorTest")
+}
+
+tasks.register<Test>("firestoreTransportTest") {
+    dependsOn("testAuthpreviewUnitTest")
+    val source = providers.provider { tasks.named<Test>("testAuthpreviewUnitTest").get() }
+    testClassesDirs = files(source.map { it.testClassesDirs })
+    classpath = files(source.map { it.classpath })
+    filter.includeTestsMatching("*FirestoreTransportEmulatorTest")
+    outputs.upToDateWhen { false }
 }

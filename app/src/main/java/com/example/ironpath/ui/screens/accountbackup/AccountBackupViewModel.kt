@@ -96,7 +96,11 @@ constructor(
         viewModelScope.launch {
             val result = accountGateway.startGoogleSignIn()
             refreshBackupStatus()
-            if (capabilities.canUseBackup && result == AccountActionResult.Completed)
+            if (
+                capabilities.mode == AccountExperienceCapabilities.Mode.Demo &&
+                    capabilities.canUseBackup &&
+                    result == AccountActionResult.Completed
+            )
                 refreshLatestBackupIfEligible()
         }
     }
@@ -133,13 +137,17 @@ constructor(
 
     fun refresh() {
         if (manual.value.busy || manual.value.signOutBusy) return
-        mutableManual.update { it.copy(feedback = null) }
+        mutableManual.update { it.copy(busy = true, feedback = null) }
         viewModelScope.launch {
-            accountGateway.refresh()
-            if (capabilities.canUseBackup && state.value.isEligibleForLatestBackupLookup()) {
-                refreshLatestBackupIfEligible()
-            } else {
-                refreshBackupStatus()
+            try {
+                accountGateway.refresh()
+                if (capabilities.canUseBackup && state.value.isEligibleForLatestBackupLookup()) {
+                    refreshLatestBackupIfEligible()
+                } else {
+                    refreshBackupStatus()
+                }
+            } finally {
+                mutableManual.update { it.copy(busy = false) }
             }
         }
     }
@@ -745,7 +753,12 @@ constructor(
                             review is ManualReview.Backup && review.preview.associationOnly ->
                                 "Account ready. No backup was created because there is no included training data."
                             review is ManualReview.Backup ->
-                                "Manual backup complete in demo storage."
+                                if (
+                                    capabilities.mode ==
+                                        AccountExperienceCapabilities.Mode.AuthPreview
+                                )
+                                    "Manual cloud backup complete."
+                                else "Manual backup complete in demo storage."
                             review is ManualReview.Restore ->
                                 "The latest complete demo backup replaced the included training data. One local undo is available."
                             review is ManualReview.Undo ->

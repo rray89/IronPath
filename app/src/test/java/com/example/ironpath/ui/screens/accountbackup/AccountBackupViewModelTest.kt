@@ -3,6 +3,7 @@ package com.example.ironpath.ui.screens.accountbackup
 import com.example.ironpath.domain.account.*
 import com.example.ironpath.domain.backup.*
 import com.example.ironpath.util.MainDispatcherRule
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -33,6 +34,39 @@ class AccountBackupViewModelTest {
         assertEquals(2, gateway.refreshes)
         assertEquals(1, gateway.signIns)
     }
+
+    @Test
+    fun `authpreview sign in never queries cloud until explicit refresh and duplicate refresh is ignored`() =
+        runTest {
+            val gateway =
+                Gateway().apply {
+                    signInStateAfterSuccess = AccountState.SignedIn(AccountId("owner"))
+                }
+            val backup = Backup()
+            val subject =
+                viewModel(
+                    gateway,
+                    backup,
+                    capabilities =
+                        AccountExperienceCapabilities.AuthPreview.copy(
+                            canSignIn = true,
+                            canUseBackup = true,
+                            canAssociateLocalData = true
+                        )
+                )
+            advanceUntilIdle()
+            subject.signIn()
+            advanceUntilIdle()
+            assertEquals(0, backup.lookups)
+            backup.lookupGate = CompletableDeferred()
+            subject.refresh()
+            subject.refresh()
+            assertTrue(subject.manual.value.busy)
+            backup.lookupGate!!.complete(Unit)
+            advanceUntilIdle()
+            assertEquals(1, backup.lookups)
+            assertFalse(subject.manual.value.busy)
+        }
 
     @Test
     fun `context observation failure triggers one local refresh and then stops`() = runTest {
@@ -600,6 +634,7 @@ class AccountBackupViewModelTest {
                 }
             ),
         contextChanges: Flow<Unit> = emptyFlow(),
+        capabilities: AccountExperienceCapabilities = AccountExperienceCapabilities.Demo,
     ) =
         AccountBackupViewModel(
             gateway,
@@ -610,6 +645,7 @@ class AccountBackupViewModelTest {
                     error("Gateway owns reading account context")
             },
             backup,
+            capabilities,
         )
 
     private class Gateway : AccountGateway {
@@ -684,6 +720,7 @@ class AccountBackupViewModelTest {
         val summary = RemoteBackupSummary("latest", 100, "other-device", mapOf("Record" to 1))
         var statusRefreshes = 0
         var lookups = 0
+        var lookupGate: CompletableDeferred<Unit>? = null
         var associations = 0
         var associatedAccount: AccountId? = null
         var associatedSessionEpoch: Long? = null
@@ -698,6 +735,7 @@ class AccountBackupViewModelTest {
 
         override suspend fun latestCompleteBackup(): BackupLookupResult {
             lookups++
+            lookupGate?.await()
             latestSummary.value = summary
             status.value = BackupStatus.ReviewRequired
             return BackupLookupResult.Complete(summary)
