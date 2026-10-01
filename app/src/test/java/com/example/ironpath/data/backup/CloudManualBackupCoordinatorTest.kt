@@ -11,8 +11,10 @@ import com.example.ironpath.util.MainDispatcherRule
 import io.mockk.coEvery
 import io.mockk.every
 import io.mockk.mockk
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.advanceUntilIdle
@@ -71,6 +73,75 @@ class CloudManualBackupCoordinatorTest {
         assertEquals(3, f.remote.reads)
         assertEquals(BackupStatus.ReviewRequired, reopened.manual.value.status)
         assertNotNull(reopened.manual.value.latest)
+    }
+
+    @Test
+    fun cancelledConfirmationAfterCloudCommitKeepsUnknownReceiptUntilExplicitRecovery() = runTest {
+        val f = Fixture()
+        val preview = (f.subject.previewBackup() as BackupPreviewResult.Ready).preview
+        val committed = CompletableDeferred<RemoteBackupArtifact>()
+        val receipt = CompletableDeferred<Unit>()
+        f.remote.onPublished = {
+            committed.complete(f.remote.current!!)
+            receipt.await()
+        }
+        val confirmation = async { f.subject.confirmBackup(preview.id) }
+        val complete = committed.await()
+
+        confirmation.cancel()
+        confirmation.join()
+
+        assertTrue(confirmation.isCancelled)
+        assertEquals("owner", f.local.value.metadata.ownerUid)
+        assertNull(f.local.value.baseline)
+        val unknown = BackupStatus.NeedsAttention(BackupFailureReason.ServiceUnavailable)
+        assertEquals(unknown, f.subject.status.value)
+        f.subject.refreshStatus()
+        assertEquals(unknown, f.subject.status.value)
+        assertEquals(2, f.remote.reads)
+        assertEquals(complete, f.remote.current)
+
+        assertEquals(
+            BackupLookupResult.Complete(complete.summary),
+            f.subject.latestCompleteBackup(),
+        )
+        assertEquals(BackupStatus.ReviewRequired, f.subject.status.value)
+        val retry = (f.subject.previewBackup() as BackupPreviewResult.Ready).preview
+        assertEquals(BackupActionResult.Completed, f.subject.confirmBackup(retry.id))
+        assertEquals(1, f.remote.publishes)
+        assertEquals(complete, f.remote.current)
+        assertEquals(complete, f.local.value.baseline)
+        assertTrue(f.subject.status.value is BackupStatus.UpToDate)
+    }
+
+    @Test
+    fun accountChangeDuringStatusInspectionClearsOldSummaryAndCannotClaimItsData() = runTest {
+        val f = Fixture()
+        val preview = (f.subject.previewBackup() as BackupPreviewResult.Ready).preview
+        assertEquals(BackupActionResult.Completed, f.subject.confirmBackup(preview.id))
+        val localBefore = f.local.value
+        val remoteBefore = f.remote.current
+        assertNotNull(f.subject.latestSummary.value)
+        f.remote.onInspection = {
+            f.session.profile = AccountProfile(AccountId("other"), "Other", "")
+        }
+
+        assertEquals(
+            BackupLookupResult.Failed(BackupFailureReason.ReauthenticationRequired),
+            f.subject.latestCompleteBackup(),
+        )
+        assertEquals(BackupStatus.NeedsSignIn, f.subject.status.value)
+        assertNull(f.subject.latestSummary.value)
+        assertEquals(localBefore, f.local.value)
+        assertEquals(remoteBefore, f.remote.current)
+        assertEquals(1, f.remote.publishes)
+        assertEquals(
+            BackupPreviewResult.Failed(BackupFailureReason.OwnershipMismatch),
+            f.subject.previewBackup(),
+        )
+        assertEquals(localBefore, f.local.value)
+        assertEquals(remoteBefore, f.remote.current)
+        assertEquals(1, f.remote.publishes)
     }
 
     @Test
@@ -330,6 +401,8 @@ class CloudManualBackupCoordinatorTest {
         var loseReceipt = false
         var retentions = 0
         var retentionFailure: BackupFailureReason? = null
+        var onPublished: suspend () -> Unit = {}
+        var onInspection: suspend () -> Unit = {}
 
         override suspend fun retryRetention(
             accountId: AccountId,
@@ -350,6 +423,7 @@ class CloudManualBackupCoordinatorTest {
 
         override suspend fun inspect(accountId: AccountId): RemoteBackupInspection {
             reads++
+            onInspection()
             return current?.let { RemoteBackupInspection.Complete(RemoteBackupMetadata.from(it)) }
                 ?: RemoteBackupInspection.Absent()
         }
@@ -370,6 +444,7 @@ class CloudManualBackupCoordinatorTest {
                 return RemoteBackupPublish.Failed(it)
             }
             current = artifact(snapshot).copy(generation = expectedGeneration + 1)
+            onPublished()
             if (loseReceipt) {
                 loseReceipt = false
                 return RemoteBackupPublish.Failed(BackupFailureReason.Offline)
