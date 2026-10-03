@@ -187,19 +187,24 @@ class IronPathNavigationTest {
 
     @Test
     fun accountShell_delayedStartup_keepsSignInDisabledUntilLocalContextIsReady() {
-        // Room startup is not tracked by Compose idling. Hold its result until the test confirms
-        // that this ViewModel is mounted and its local-context read is waiting at the gate.
+        // Replacing Activity content can cancel its installation initialization. Prepare the
+        // isolated Room fixture explicitly, then hold this subject's read before it touches Room.
+        runBlocking {
+            installationGuard.validate()
+            accountContext.read()
+        }
         val releaseContext = CompletableDeferred<Unit>()
         val readEntered = CompletableDeferred<Unit>()
         val mountedAccountState = AtomicReference<Pair<AccountBackupViewModel, AccountState>?>(null)
         val signInCallbackCount = AtomicInteger()
         val gatedContext =
             object : AccountContextReader by accountContext {
-                override suspend fun read() =
-                    accountContext.read().also {
-                        readEntered.complete(Unit)
-                        releaseContext.await()
-                    }
+                override suspend fun read():
+                    com.example.ironpath.domain.account.LocalAccountContext {
+                    readEntered.complete(Unit)
+                    releaseContext.await()
+                    return accountContext.read()
+                }
             }
         val viewModel =
             composeRule.runOnIdle {
