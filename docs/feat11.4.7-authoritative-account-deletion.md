@@ -113,8 +113,12 @@ uses `demo-ironpath-deletion`, Auth port 9197 and Firestore port 8187. No live c
 real accounts are used. Tests cover cancellation, reauthentication, wrong owner/project,
 interruption before/after acceptance, lost receipts, duplicate operations, orphan cleanup,
 write fencing, restart, revoked/stale/non-Google identity and fresh identity after deletion.
+The actual Kotlin transport scenarios pass through the application authpreview service
+wrapper, including receipt-only recovery and cancellation without authentication.
 Room and Compose CI tests cover persistence, atomic cleanup, migration, unavailable and
-pending UI, confirmation actions and 200% font scale. These are automated evidence and do
+pending UI, confirmation actions and 200% font scale. Ordinary startup also covers
+interrupted sign-out with same, absent and foreign sessions, unreadable-session recovery,
+and explicit deletion actions returning Idle without authorizing admission. These are automated evidence and do
 not claim manual Google chooser or live deployment acceptance.
 
 The source-build APK is `app/build/outputs/apk/authpreview/app-authpreview.apk`, package

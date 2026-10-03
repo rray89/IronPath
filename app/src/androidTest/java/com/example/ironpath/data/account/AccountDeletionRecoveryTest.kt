@@ -11,6 +11,7 @@ import com.example.ironpath.data.local.entity.AccountBackupMetadata
 import com.example.ironpath.data.local.entity.AccountDeletionJournal
 import com.example.ironpath.data.local.entity.RestoreUndoMetadata
 import com.example.ironpath.data.repository.PlanRepository
+import com.example.ironpath.domain.account.AccountDeletionRemoteState
 import com.example.ironpath.domain.account.AccountDeletionRequest
 import com.example.ironpath.domain.account.AccountDeletionResult
 import com.example.ironpath.domain.account.AccountDeletionStage
@@ -193,7 +194,7 @@ class AccountDeletionRecoveryTest {
         val deletion = manager(database, remote, sessions, gate)
 
         AccountDeletionStage.entries
-            .filter { it != AccountDeletionStage.COMPLETE }
+            .filter { it != AccountDeletionStage.COMPLETE && it != AccountDeletionStage.CANCELLED }
             .forEach { stage ->
                 val journal =
                     AccountDeletionJournal(
@@ -228,6 +229,58 @@ class AccountDeletionRecoveryTest {
                 assertEquals("installation-old", sentinel.installedId)
             }
     }
+
+    @Test
+    fun cancelledServiceJournalIsTerminalAndNeverFallsBackToDestructiveDemoRecovery() =
+        runBlocking {
+            val database = databaseRule.database
+            populateOwnedProfile(database)
+            val sessions = FakeSessions(account)
+            val remote = FakeRemote(RemoteAccountPurge.Completed)
+            val gate = AccountSessionOperationGate()
+            val journal =
+                AccountDeletionJournal(
+                    operationId = "cancelled-v2-operation",
+                    accountId = account.opaqueValue,
+                    sessionEpoch = 7,
+                    profileGeneration = 0,
+                    stage = AccountDeletionStage.CANCELLED.name,
+                    createdAtEpochMillis = 1,
+                    serviceBinding = "isolated-v2-service-binding",
+                    receiptSecret = "isolated-cancelled-receipt",
+                    subjectBinding = "isolated-cancelled-subject",
+                    receiptVersion = 2,
+                    remoteState = AccountDeletionRemoteState.CANCELLED_NO_DELETE.name,
+                    installationId = "installation-old",
+                )
+            database.accountDeletionDao().save(journal)
+            val metadata = database.backupDao().getMetadata()
+            val logs = database.backupDao().getWorkoutLogs()
+            val records = database.backupDao().getPersonalRecords()
+            val undo = database.backupDao().getRestoreUndoMetadata()
+            val activeSession = database.sessionDao().getActiveSession()
+            val profile = sessions.readSession()
+            gate.closeAdmission()
+
+            val deletion = manager(database, remote, sessions, gate)
+            assertNull(deletion.pending())
+            assertEquals(AccountDeletionResult.Idle, deletion.recoverAtStartup())
+            assertEquals(AccountDeletionResult.Idle, deletion.retry())
+            val recreated = manager(database, remote, sessions, gate)
+            assertEquals(AccountDeletionResult.Idle, recreated.recoverAtStartup())
+            assertNull(recreated.pending())
+            assertTrue(gate.withManualOperation(waitForTurn = false, unavailable = false) { true })
+            assertEquals(0, remote.purgeCalls)
+            assertEquals(0, sessions.tombstones)
+            assertEquals(profile, sessions.readSession())
+            assertEquals(journal, database.accountDeletionDao().getJournal())
+            assertEquals(metadata, database.backupDao().getMetadata())
+            assertEquals(logs, database.backupDao().getWorkoutLogs())
+            assertEquals(records, database.backupDao().getPersonalRecords())
+            assertEquals(undo, database.backupDao().getRestoreUndoMetadata())
+            assertEquals(activeSession, database.sessionDao().getActiveSession())
+            assertEquals("installation-old", sentinel.installedId)
+        }
 
     private suspend fun populateOwnedProfile(
         database: com.example.ironpath.data.local.IronPathDatabase

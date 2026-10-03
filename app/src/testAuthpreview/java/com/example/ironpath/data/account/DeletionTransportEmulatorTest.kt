@@ -257,12 +257,13 @@ class DeletionTransportEmulatorTest {
         assertEquals(AccountDeletionRemoteState.RESERVED, receipt(c.status(progress)).state)
     }
 
-    private suspend fun client(origin: String = endpoint): DeletionServiceRestClient =
-        DeletionServiceRestClient(origin, project, allowLoopbackForTests = true).also {
-            assertTrue(it.available())
-        }
+    private suspend fun client(origin: String = endpoint): AccountDeletionService =
+        AuthPreviewDeletionService(
+                DeletionServiceRestClient(origin, project, allowLoopbackForTests = true)
+            )
+            .also { assertTrue(it.available()) }
 
-    private fun draft(client: DeletionServiceRestClient, uid: String) =
+    private fun draft(client: AccountDeletionService, uid: String) =
         AccountDeletionDraft(
             UUID.randomUUID().toString(),
             secret(),
@@ -276,7 +277,7 @@ class DeletionTransportEmulatorTest {
             .encodeToString(ByteArray(32).also { SecureRandom().nextBytes(it) })
 
     private suspend fun reserve(
-        client: DeletionServiceRestClient,
+        client: AccountDeletionService,
         draft: AccountDeletionDraft,
         proof: String
     ): AccountDeletionProgress {
@@ -317,7 +318,7 @@ class DeletionTransportEmulatorTest {
     }
 
     private suspend fun awaitComplete(
-        client: DeletionServiceRestClient,
+        client: AccountDeletionService,
         progress: AccountDeletionProgress
     ) {
         withTimeout(20_000) {

@@ -139,6 +139,15 @@ class MainActivity : ComponentActivity() {
                 var startupRecoveryAction by remember {
                     mutableStateOf(StartupRecoveryAction.Observe)
                 }
+                var observedStartupDeletion by remember { mutableStateOf(false) }
+                var knownStartupDeletionProgress by remember {
+                    mutableStateOf<AccountDeletionProgress?>(null)
+                }
+                fun deletionPending(progress: AccountDeletionProgress?): StartupState {
+                    observedStartupDeletion = true
+                    if (progress != null) knownStartupDeletionProgress = progress
+                    return StartupState.DeletionPending(knownStartupDeletionProgress)
+                }
                 suspend fun readReadyProfile(expectedGeneration: Long? = null): StartupState {
                     try {
                         val observed = accountContextReader.read()
@@ -182,9 +191,21 @@ class MainActivity : ComponentActivity() {
                         AccountDeletionResult.Idle,
                         AccountDeletionResult.Cancelled,
                         AccountDeletionResult.Completed -> {
+                            val terminalDeletion = deletion != AccountDeletionResult.Idle
+                            if (
+                                !terminalDeletion &&
+                                    (observedStartupDeletion ||
+                                        startupRecoveryAction != StartupRecoveryAction.Observe)
+                            ) {
+                                // Idle cannot retire an observed deletion or prove an explicit
+                                // retry/cancellation succeeded, even when the journal read is null.
+                                return deletionPending(knownStartupDeletionProgress)
+                            }
                             val reconciled =
                                 try {
-                                    accountGateway.reconcileAfterDeletionRecovery()
+                                    if (terminalDeletion)
+                                        accountGateway.reconcileAfterDeletionRecovery()
+                                    else accountGateway.refreshLocal()
                                 } catch (cancelled: CancellationException) {
                                     throw cancelled
                                 } catch (_: Exception) {
@@ -192,7 +213,7 @@ class MainActivity : ComponentActivity() {
                                 }
                             when (val accountState = accountGateway.state.value) {
                                 is AccountState.AccountDeletionPending ->
-                                    return StartupState.DeletionPending(accountState.progress)
+                                    return deletionPending(accountState.progress)
                                 AccountState.DeletingAccount -> {
                                     val pending =
                                         try {
@@ -202,7 +223,7 @@ class MainActivity : ComponentActivity() {
                                         } catch (_: Exception) {
                                             null
                                         }
-                                    return StartupState.DeletionPending(pending)
+                                    return deletionPending(pending)
                                 }
                                 else -> Unit
                             }
@@ -212,7 +233,13 @@ class MainActivity : ComponentActivity() {
                                         it is AccountState.SignedIn ||
                                         it is AccountState.AwaitingDataChoice
                                 }
-                            if (reconciled != AccountActionResult.Completed || !stable)
+                            // Ordinary startup must expose interrupted sign-out and unreadable
+                            // session recovery. The stricter stable-state gate applies only after
+                            // an explicit, authoritative terminal deletion outcome.
+                            if (
+                                terminalDeletion &&
+                                    (reconciled != AccountActionResult.Completed || !stable)
+                            )
                                 return StartupState.ProfileVerificationUnavailable
                             val installation =
                                 runCatching { installationGuard.validate() }.getOrNull()
@@ -221,10 +248,14 @@ class MainActivity : ComponentActivity() {
                                     installation == InstallationValidationResult.Failed
                             )
                                 return StartupState.ProfileVerificationUnavailable
+                            if (terminalDeletion) {
+                                observedStartupDeletion = false
+                                knownStartupDeletionProgress = null
+                                startupRecoveryAction = StartupRecoveryAction.Observe
+                            }
                             readReadyProfile()
                         }
-                        is AccountDeletionResult.RetryRequired ->
-                            StartupState.DeletionPending(deletion.progress)
+                        is AccountDeletionResult.RetryRequired -> deletionPending(deletion.progress)
                         is AccountDeletionResult.Failed,
                         AccountDeletionResult.Unavailable -> {
                             val pending =
@@ -235,7 +266,7 @@ class MainActivity : ComponentActivity() {
                                 } catch (_: Exception) {
                                     null
                                 }
-                            StartupState.DeletionPending(pending)
+                            deletionPending(pending)
                         }
                     }
                 }
@@ -262,7 +293,7 @@ class MainActivity : ComponentActivity() {
                                         it != AccountState.SigningOut
                                 }
                             if (settledAccountState is AccountState.AccountDeletionPending) {
-                                startup = StartupState.DeletionPending(settledAccountState.progress)
+                                startup = deletionPending(settledAccountState.progress)
                                 return@collect
                             }
                             startup = readReadyProfile(expectedGeneration = observedGeneration)
