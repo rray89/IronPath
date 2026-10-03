@@ -4,7 +4,8 @@ on:
   push:
     branches: [main]
   pull_request:
-    branches: [main]
+    # Validate the feat11.4.5 stack while its reviewed PR65 dependency is unmerged.
+    branches: [main, codex/feat11.4.4-cloud-backup]
 
 concurrency:
   group: android-ci-${{ github.event.pull_request.number || github.ref }}

@@ -28,6 +28,337 @@ class CloudManualBackupCoordinatorTest {
     @get:Rule val mainDispatcher = MainDispatcherRule()
 
     @Test
+    fun syncCancelAndProcessRecreationNeverMutateEitherSideOrClaimUnownedData() = runTest {
+        val f = Fixture()
+        f.remote.current = f.remote.artifact(BackupSnapshotCodec().encode(f.local.value.bundle))
+        val before = f.local.value
+        val remote = f.remote.current
+        val preview = (f.subject.previewSync() as SyncPreviewResult.Ready).preview
+        f.subject.discardPreview(preview.id)
+        assertEquals(
+            BackupActionResult.Failed(BackupFailureReason.StalePreview),
+            f.subject.confirmSync(preview.id)
+        )
+        val fresh = (f.subject.previewSync() as SyncPreviewResult.Ready).preview
+        assertEquals(
+            BackupActionResult.Failed(BackupFailureReason.StalePreview),
+            f.newSubject().confirmSync(fresh.id)
+        )
+        assertEquals(before, f.local.value)
+        assertEquals(remote, f.remote.current)
+        assertEquals(0, f.remote.publishes)
+    }
+
+    @Test
+    fun oneSidedChangesMergeInBothExplicitConflictOutcomes() = runTest {
+        for (choice in SyncConflictResolution.entries) {
+            val f = Fixture()
+            f.seedBaseline()
+            val base = f.local.value.bundle
+            val shared = base.personalRecords.single()
+            f.local.value =
+                f.local.value.copy(
+                    metadata = f.local.value.metadata.copy(localChangeRevision = 2),
+                    bundle =
+                        base.copy(
+                            localChangeRevision = 2,
+                            personalRecords =
+                                listOf(
+                                    shared.copy(weightKg = 60.0),
+                                    shared.copy(
+                                        id = "local-only",
+                                        exerciseName = "Press",
+                                        normalizedExerciseName = "press"
+                                    )
+                                )
+                        )
+                )
+            f.remote.current =
+                f.remote
+                    .artifact(
+                        BackupSnapshotCodec()
+                            .encode(
+                                base.copy(
+                                    personalRecords =
+                                        listOf(
+                                            shared.copy(weightKg = 70.0),
+                                            shared.copy(
+                                                id = "cloud-only",
+                                                exerciseName = "Row",
+                                                normalizedExerciseName = "row"
+                                            )
+                                        )
+                                )
+                            )
+                    )
+                    .copy(generation = 2)
+            val preview = (f.subject.previewSync() as SyncPreviewResult.Ready).preview
+            assertEquals(1, preview.conflicts["PersonalRecord"])
+            assertEquals(BackupActionResult.Completed, f.subject.confirmSync(preview.id, choice))
+            assertEquals(
+                setOf("record", "local-only", "cloud-only"),
+                f.local.value.bundle.personalRecords.map { it.id }.toSet()
+            )
+            assertEquals(
+                if (choice == SyncConflictResolution.KeepLocal) 60.0 else 70.0,
+                f.local.value.bundle.personalRecords.first { it.id == "record" }.weightKg,
+                0.0
+            )
+            assertEquals(
+                BackupSnapshotCodec().encode(f.local.value.bundle).contentDigest,
+                f.remote.current!!.snapshot.contentDigest
+            )
+        }
+    }
+
+    @Test
+    fun localCloudProfileAndEpochChangesInvalidateSyncWithoutPublication() = runTest {
+        for (change in 0..4) {
+            val f = Fixture()
+            f.seedBaseline()
+            val preview = (f.subject.previewSync() as SyncPreviewResult.Ready).preview
+            when (change) {
+                0 -> f.local.edit()
+                1 -> f.remote.current = f.remote.current!!.copy(generation = 2)
+                2 ->
+                    f.local.value =
+                        f.local.value.copy(
+                            metadata = f.local.value.metadata.copy(profileGeneration = 1)
+                        )
+                3 -> f.local.value = f.local.value.copy(activeSessionId = "active")
+                4 ->
+                    f.gate.withSessionMutation { _, _ ->
+                        AccountSessionOperationGate.MutationResult(Unit, true)
+                    }
+            }
+            val before = f.local.value
+            assertEquals(
+                BackupActionResult.Failed(BackupFailureReason.StalePreview),
+                f.subject.confirmSync(preview.id)
+            )
+            assertEquals(before, f.local.value)
+            assertEquals(1, f.remote.publishes)
+        }
+    }
+
+    @Test
+    fun accountSwitchDuringPayloadReadOrPublishCannotApplyOldAccountData() = runTest {
+        for (duringPublish in listOf(false, true)) {
+            val f = Fixture()
+            f.seedBaseline()
+            f.local.edit()
+            val switch: suspend () -> Unit = {
+                f.session.profile = AccountProfile(AccountId("other"), "Other", "")
+            }
+            if (!duringPublish) {
+                f.remote.onPayload = switch
+                assertEquals(
+                    SyncPreviewResult.Failed(BackupFailureReason.ReauthenticationRequired),
+                    f.subject.previewSync()
+                )
+            } else {
+                val preview = (f.subject.previewSync() as SyncPreviewResult.Ready).preview
+                val before = f.local.value
+                f.remote.onPublished = switch
+                assertEquals(
+                    BackupActionResult.Failed(BackupFailureReason.ReauthenticationRequired),
+                    f.subject.confirmSync(preview.id)
+                )
+                assertEquals(before, f.local.value)
+            }
+            assertNull(f.subject.latestSummary.value)
+            assertEquals(
+                SyncPreviewResult.Failed(BackupFailureReason.OwnershipMismatch),
+                f.subject.previewSync()
+            )
+        }
+    }
+
+    @Test
+    fun failedLocalApplyPreservesOldBaselineAndRequiresReviewAfterRestart() = runTest {
+        for (throwFailure in listOf(false, true)) {
+            val f = Fixture()
+            f.seedBaseline()
+            f.local.edit()
+            val old = f.local.value
+            val preview = (f.subject.previewSync() as SyncPreviewResult.Ready).preview
+            f.local.applyAllowed = false
+            f.local.applyThrows = throwFailure
+            val expected =
+                if (throwFailure) BackupFailureReason.ServiceUnavailable
+                else BackupFailureReason.StalePreview
+            assertEquals(BackupActionResult.Failed(expected), f.subject.confirmSync(preview.id))
+            assertEquals(old, f.local.value)
+            assertEquals(2L, f.remote.current!!.generation)
+            f.local.applyAllowed = true
+            f.local.applyThrows = false
+            val restarted = f.newSubject()
+            val retry = (restarted.previewSync() as SyncPreviewResult.Ready).preview
+            assertEquals(BackupActionResult.Completed, restarted.confirmSync(retry.id))
+            assertEquals(2, f.remote.publishes)
+            assertTrue(restarted.status.value is BackupStatus.UpToDate)
+        }
+    }
+
+    @Test
+    fun lostSyncReceiptKeepsOfflineEditsAndFreshReviewRecoversWithoutBlindReplay() = runTest {
+        val f = Fixture()
+        f.seedBaseline()
+        f.local.edit()
+        val old = f.local.value
+        val preview = (f.subject.previewSync() as SyncPreviewResult.Ready).preview
+        f.remote.loseReceipt = true
+        assertEquals(
+            BackupActionResult.Failed(BackupFailureReason.Offline),
+            f.subject.confirmSync(preview.id)
+        )
+        assertEquals(old, f.local.value)
+        f.subject.refreshStatus()
+        assertEquals(BackupStatus.OfflinePending, f.subject.status.value)
+        val restarted = f.newSubject()
+        val retry = (restarted.previewSync() as SyncPreviewResult.Ready).preview
+        assertEquals(BackupActionResult.Completed, restarted.confirmSync(retry.id))
+        assertEquals(2, f.remote.publishes)
+    }
+
+    @Test
+    fun localWriteDuringCloudCommitSurvivesAndNextPreviewShowsTheConflict() = runTest {
+        val f = Fixture()
+        f.seedBaseline()
+        f.local.edit()
+        val preview = (f.subject.previewSync() as SyncPreviewResult.Ready).preview
+        val baseline = f.local.value.baseline
+        f.remote.onPublished = {
+            f.local.value =
+                f.local.value.copy(
+                    metadata = f.local.value.metadata.copy(localChangeRevision = 3),
+                    bundle =
+                        f.local.value.bundle.copy(
+                            localChangeRevision = 3,
+                            personalRecords = f.local.records.map { it.copy(weightKg = 80.0) }
+                        )
+                )
+        }
+        assertEquals(
+            BackupActionResult.Failed(BackupFailureReason.StalePreview),
+            f.subject.confirmSync(preview.id)
+        )
+        assertEquals(80.0, f.local.value.bundle.personalRecords.single().weightKg, 0.0)
+        assertEquals(baseline, f.local.value.baseline)
+        assertEquals(
+            BackupPreviewResult.Failed(BackupFailureReason.ConcurrentRemoteChange),
+            f.newSubject().previewBackup()
+        )
+        val retry = (f.newSubject().previewSync() as SyncPreviewResult.Ready).preview
+        assertEquals(1, retry.conflicts["PersonalRecord"])
+    }
+
+    @Test
+    fun cancellationAfterSyncCommitAndDuplicateConfirmationNeverPartiallyApply() = runTest {
+        val f = Fixture()
+        f.seedBaseline()
+        f.local.edit()
+        val before = f.local.value
+        val preview = (f.subject.previewSync() as SyncPreviewResult.Ready).preview
+        val committed = CompletableDeferred<Unit>()
+        val receipt = CompletableDeferred<Unit>()
+        f.remote.onPublished = {
+            committed.complete(Unit)
+            receipt.await()
+        }
+        val confirmation = async { f.subject.confirmSync(preview.id) }
+        committed.await()
+        assertEquals(BackupActionResult.Unavailable, f.subject.confirmSync(preview.id))
+        confirmation.cancel()
+        confirmation.join()
+        assertEquals(before, f.local.value)
+        assertEquals(2, f.remote.publishes)
+        assertEquals(
+            BackupActionResult.Failed(BackupFailureReason.StalePreview),
+            f.subject.confirmSync(preview.id)
+        )
+        val retry = (f.newSubject().previewSync() as SyncPreviewResult.Ready).preview
+        assertEquals(0, retry.conflicts.values.sum())
+    }
+
+    @Test
+    fun activeWorkoutAndForeignOwnerBlockPayloadReadsAndLocalChangesDuringInspectionBlockPublish() =
+        runTest {
+            val f = Fixture()
+            f.local.value = f.local.value.copy(activeSessionId = "active")
+            assertEquals(
+                SyncPreviewResult.Failed(BackupFailureReason.ActiveSessionPresent),
+                f.subject.previewSync()
+            )
+            f.local.value =
+                f.local.value.copy(
+                    activeSessionId = null,
+                    metadata = f.local.value.metadata.copy(ownerUid = "other")
+                )
+            assertEquals(
+                SyncPreviewResult.Failed(BackupFailureReason.OwnershipMismatch),
+                f.subject.previewSync()
+            )
+            assertEquals(0, f.remote.payloadReads)
+            val valid = Fixture()
+            valid.seedBaseline()
+            val preview = (valid.subject.previewSync() as SyncPreviewResult.Ready).preview
+            valid.remote.onInspection = { valid.local.edit() }
+            assertEquals(
+                BackupActionResult.Failed(BackupFailureReason.StalePreview),
+                valid.subject.confirmSync(preview.id)
+            )
+            assertEquals(1, valid.remote.publishes)
+        }
+
+    @Test
+    fun realSyncPreviewsConflictsAndAppliesOnlyTheExplicitChoice() = runTest {
+        val f = Fixture()
+        val first = (f.subject.previewBackup() as BackupPreviewResult.Ready).preview
+        f.subject.confirmBackup(first.id)
+        f.local.edit()
+        val cloud =
+            f.local.value.bundle.copy(
+                personalRecords = f.local.records.map { it.copy(weightKg = 70.0) }
+            )
+        f.remote.current =
+            f.remote.artifact(BackupSnapshotCodec().encode(cloud)).copy(generation = 2)
+        val before = f.local.value
+        val preview = (f.subject.previewSync() as SyncPreviewResult.Ready).preview
+        assertEquals(1, preview.conflicts["PersonalRecord"])
+        assertEquals(before, f.local.value)
+        assertEquals(
+            BackupActionResult.Failed(BackupFailureReason.ConflictChoiceRequired),
+            f.subject.confirmSync(preview.id)
+        )
+        assertEquals(
+            BackupActionResult.Completed,
+            f.subject.confirmSync(preview.id, SyncConflictResolution.KeepCloud)
+        )
+        assertEquals(70.0, f.local.value.bundle.personalRecords.single().weightKg, 0.0)
+        assertEquals(1, f.remote.publishes)
+        assertTrue(f.subject.status.value is BackupStatus.UpToDate)
+    }
+
+    @Test
+    fun unknownNewerSameInstallationMergeCannotBeOverwrittenByBackup() = runTest {
+        val f = Fixture()
+        val first = (f.subject.previewBackup() as BackupPreviewResult.Ready).preview
+        f.subject.confirmBackup(first.id)
+        val merged =
+            f.local.value.bundle.copy(
+                personalRecords = f.local.records.map { it.copy(weightKg = 70.0) }
+            )
+        f.remote.current =
+            f.remote.artifact(BackupSnapshotCodec().encode(merged)).copy(generation = 2)
+        assertEquals(
+            BackupPreviewResult.Failed(BackupFailureReason.ConcurrentRemoteChange),
+            f.subject.previewBackup()
+        )
+        assertEquals(1, f.remote.publishes)
+    }
+
+    @Test
     fun ownerInvalidationAndPageReentryPreserveUnknownReceiptUntilExplicitRefresh() = runTest {
         val f = Fixture()
         val changes = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
@@ -265,7 +596,7 @@ class CloudManualBackupCoordinatorTest {
     }
 
     @Test
-    fun failedFirstBackupCanBeExplicitlyRetriedAfterLocalEditsAndKeepsChangedRevision() = runTest {
+    fun failedFirstBackupWithLaterLocalEditsRequiresFreshExplicitSyncAfterRestart() = runTest {
         val f = Fixture()
         val preview = (f.subject.previewBackup() as BackupPreviewResult.Ready).preview
         f.remote.loseReceipt = true
@@ -275,10 +606,17 @@ class CloudManualBackupCoordinatorTest {
         )
         f.local.edit()
         val restarted = f.newSubject()
-        val retry = (restarted.previewBackup() as BackupPreviewResult.Ready).preview
-        assertEquals(BackupActionResult.Completed, restarted.confirmBackup(retry.id))
+        assertEquals(
+            BackupPreviewResult.Failed(BackupFailureReason.ConcurrentRemoteChange),
+            restarted.previewBackup()
+        )
+        val retry = (restarted.previewSync() as SyncPreviewResult.Ready).preview
+        assertEquals(
+            BackupActionResult.Completed,
+            restarted.confirmSync(retry.id, SyncConflictResolution.KeepLocal)
+        )
         assertEquals(2, f.remote.publishes)
-        assertEquals(2L, f.local.value.metadata.lastCompleteLocalRevision)
+        assertEquals(3L, f.local.value.metadata.lastCompleteLocalRevision)
         assertEquals(2L, f.local.value.metadata.lastObservedRemoteGeneration)
     }
 
@@ -358,6 +696,7 @@ class CloudManualBackupCoordinatorTest {
         val local = Local(empty)
         val remote = Remote()
         val session = Session()
+        val gate = AccountSessionOperationGate()
         val subject = newSubject()
 
         fun newSubject() =
@@ -369,9 +708,14 @@ class CloudManualBackupCoordinatorTest {
                     override suspend fun validate() = InstallationValidationResult.Validated
                 },
                 IdProvider { "preview" },
-                AccountSessionOperationGate(),
+                gate,
                 Dispatchers.Unconfined
             )
+
+        suspend fun seedBaseline() {
+            val preview = (subject.previewBackup() as BackupPreviewResult.Ready).preview
+            assertEquals(BackupActionResult.Completed, subject.confirmBackup(preview.id))
+        }
     }
 
     private class Session : AccountSessionAdapter {
@@ -403,6 +747,7 @@ class CloudManualBackupCoordinatorTest {
         var retentionFailure: BackupFailureReason? = null
         var onPublished: suspend () -> Unit = {}
         var onInspection: suspend () -> Unit = {}
+        var onPayload: suspend () -> Unit = {}
 
         override suspend fun retryRetention(
             accountId: AccountId,
@@ -430,7 +775,8 @@ class CloudManualBackupCoordinatorTest {
 
         override suspend fun latest(accountId: AccountId): RemoteBackupRead {
             payloadReads++
-            return RemoteBackupRead.Absent()
+            onPayload()
+            return current?.let { RemoteBackupRead.Complete(it) } ?: RemoteBackupRead.Absent()
         }
 
         override suspend fun publish(
@@ -454,6 +800,8 @@ class CloudManualBackupCoordinatorTest {
     }
 
     private class Local(empty: Boolean) : ManualBackupLocalStore {
+        var applyAllowed = true
+        var applyThrows = false
         var associateAllowed = true
         var onAssociation: suspend () -> Unit = {}
 
@@ -535,7 +883,28 @@ class CloudManualBackupCoordinatorTest {
             captured: ManualBackupCapture,
             accountId: AccountId,
             backup: RemoteBackupArtifact
-        ) = error("not allowed")
+        ): Boolean {
+            if (applyThrows) throw IllegalStateException("injected local transaction failure")
+            if (!applyAllowed) return false
+            if (captured != value || value.activeSessionId != null) return false
+            val revision = value.metadata.localChangeRevision + 1
+            value =
+                value.copy(
+                    metadata =
+                        value.metadata.copy(
+                            ownerUid = accountId.opaqueValue,
+                            localChangeRevision = revision,
+                            lastCompleteLocalRevision = revision,
+                            lastObservedRemoteGeneration = backup.generation
+                        ),
+                    bundle =
+                        BackupSnapshotCodec()
+                            .decode(backup.snapshot)
+                            .copy(localChangeRevision = revision),
+                    baseline = backup
+                )
+            return true
+        }
 
         override suspend fun restore(
             captured: ManualBackupCapture,

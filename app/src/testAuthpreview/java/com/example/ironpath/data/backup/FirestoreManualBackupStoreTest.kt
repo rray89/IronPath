@@ -14,6 +14,92 @@ import org.junit.Test
 
 class FirestoreManualBackupStoreTest {
     @Test
+    fun latestRejectsOuterChunkMismatchAndManifestCountMismatch() = runTest {
+        val f = Fixture()
+        f.publish()
+        val path = "users/owner/backups/backup-1/chunks/000"
+        val chunk = f.client.documents.getValue(path)
+        for ((field, value) in
+            listOf(
+                "formatVersion" to JsonPrimitive(2),
+                "chunkIndex" to JsonPrimitive(1),
+                "encodedByteCount" to JsonPrimitive(-1),
+                "chunkDigest" to JsonPrimitive("0".repeat(64)),
+                "unexpected" to JsonPrimitive("field")
+            )) {
+            f.client.documents[path] = JsonObject(chunk + (field to value))
+            assertEquals(
+                RemoteBackupRead.Failed(BackupFailureReason.InvalidSnapshot),
+                f.store.latest(f.owner)
+            )
+        }
+        f.client.documents[path] = chunk
+        val manifestPath = "users/owner/backups/backup-1"
+        val manifest = f.client.documents.getValue(manifestPath)
+        f.client.documents[manifestPath] =
+            JsonObject(manifest + ("encodedByteCount" to JsonPrimitive(1)))
+        assertEquals(
+            RemoteBackupRead.Failed(BackupFailureReason.InvalidSnapshot),
+            f.store.latest(f.owner)
+        )
+        f.client.documents[manifestPath] = JsonObject(manifest + ("chunkCount" to JsonPrimitive(7)))
+        assertEquals(
+            RemoteBackupRead.Failed(BackupFailureReason.InvalidSnapshot),
+            f.store.latest(f.owner)
+        )
+    }
+
+    @Test
+    fun incompleteUploadIsNeverOfferedAsDownloadableCompleteData() = runTest {
+        val f = Fixture()
+        f.client.failAfterChunk = true
+        f.publish()
+        val before = f.client.documents.toMap()
+        assertEquals(RemoteBackupRead.Absent(), f.store.latest(f.owner))
+        assertEquals(before, f.client.documents)
+    }
+
+    @Test
+    fun latestDownloadsValidatedCompleteSnapshotWithoutWrites() = runTest {
+        val f = Fixture()
+        assertEquals(RemoteBackupRead.Absent(), f.store.latest(f.owner))
+        val completed = f.publish() as RemoteBackupPublish.Completed
+        val writes = f.client.writes
+        assertEquals(RemoteBackupRead.Complete(completed.backup), f.store.latest(f.owner))
+        assertEquals(writes, f.client.writes)
+    }
+
+    @Test
+    fun latestRejectsMissingCorruptAndUnsupportedPayloadWithoutWrites() = runTest {
+        val f = Fixture()
+        f.publish()
+        val path = "users/owner/backups/backup-1/chunks/000"
+        val chunk = f.client.documents.getValue(path)
+        val writes = f.client.writes
+        f.client.documents.remove(path)
+        assertEquals(
+            RemoteBackupRead.Failed(BackupFailureReason.InvalidSnapshot),
+            f.store.latest(f.owner)
+        )
+        f.client.documents[path] = JsonObject(chunk + ("payload" to JsonPrimitive("corrupt")))
+        assertEquals(
+            RemoteBackupRead.Failed(BackupFailureReason.InvalidSnapshot),
+            f.store.latest(f.owner)
+        )
+        f.client.documents[path] = chunk
+        val manifest = "users/owner/backups/backup-1"
+        f.client.documents[manifest] =
+            JsonObject(
+                f.client.documents.getValue(manifest) + ("formatVersion" to JsonPrimitive(2))
+            )
+        assertEquals(
+            RemoteBackupRead.Failed(BackupFailureReason.UnsupportedVersion),
+            f.store.latest(f.owner)
+        )
+        assertEquals(writes, f.client.writes)
+    }
+
+    @Test
     fun inspectionNeverWritesOrFetchesChunks() = runTest {
         val f = Fixture()
         assertEquals(RemoteBackupInspection.Absent(), f.store.inspect(f.owner))
