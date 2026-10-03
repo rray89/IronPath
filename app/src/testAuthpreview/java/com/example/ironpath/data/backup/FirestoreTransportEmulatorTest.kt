@@ -1,10 +1,17 @@
 package com.example.ironpath.data.backup
 
+import com.example.ironpath.data.account.AccountSessionOperationGate
+import com.example.ironpath.data.local.entity.AccountBackupMetadata
 import com.example.ironpath.data.local.entity.PersonalRecord
 import com.example.ironpath.domain.account.AccountId
-import com.example.ironpath.domain.backup.BackupFailureReason
+import com.example.ironpath.domain.account.AccountProfile
+import com.example.ironpath.domain.account.AccountSessionAdapter
+import com.example.ironpath.domain.backup.*
 import com.example.ironpath.domain.identity.IdProvider
 import com.example.ironpath.domain.time.TimeProvider
+import io.mockk.coEvery
+import io.mockk.coVerify
+import io.mockk.mockk
 import java.time.Instant
 import java.time.ZoneId
 import java.util.Base64
@@ -16,6 +23,122 @@ import org.junit.Test
 
 /** Run only through firestoreTransportTest inside demo-ironpath's Firestore emulator. */
 class FirestoreTransportEmulatorTest {
+    @Test
+    fun actualCloudRestoreAndLocalUndoNeverChangePublishedDocuments() = runBlocking {
+        val owner = "restore-${UUID.randomUUID()}"
+        val account = AccountId(owner)
+        val remote = store(owner)
+        val completed =
+            remote.publish(account, 0, "cloud-installation", snapshot())
+                as RemoteBackupPublish.Completed
+        val cloud = completed.backup
+        val underlying = client(owner)
+        val paths =
+            listOf("users/$owner", "users/$owner/backups/${cloud.summary.backupId}") +
+                cloud.snapshot.chunks.map {
+                    "users/$owner/backups/${cloud.summary.backupId}/chunks/${it.index.toString().padStart(3, '0')}"
+                }
+        val documents = paths.map { underlying.get(it) }
+        assertTrue(documents.all { it != null })
+        val original =
+            ManualBackupCapture(
+                AccountBackupMetadata(
+                    installationId = "local-installation",
+                    localChangeRevision = 1
+                ),
+                BackupSnapshotCodec().decode(snapshot(60.0)),
+                null,
+                null
+            )
+        var captured = original
+        var slot: ManualBackupUndoCapture? = null
+        val local = mockk<ManualBackupLocalStore>()
+        coEvery { local.capture() } answers { captured }
+        coEvery { local.captureUndo(account, "local-installation") } answers { slot }
+        coEvery { local.restore(any(), account, any(), null) } coAnswers
+            {
+                val artifact = thirdArg<ValidatedRestoreArtifact>()
+                slot =
+                    ManualBackupUndoCapture(
+                        "slot",
+                        owner,
+                        "local-installation",
+                        captured.metadata,
+                        captured.bundle,
+                        captured.baseline
+                    )
+                captured =
+                    captured.copy(
+                        metadata =
+                            captured.metadata.copy(
+                                ownerUid = owner,
+                                localChangeRevision = 2,
+                                lastCompleteLocalRevision = 2,
+                                lastObservedRemoteGeneration = cloud.generation
+                            ),
+                        bundle = artifact.bundle.copy(localChangeRevision = 2),
+                        baseline = cloud
+                    )
+                true
+            }
+        coEvery { local.undo(any(), account, any()) } coAnswers
+            {
+                captured =
+                    original.copy(
+                        metadata =
+                            original.metadata.copy(
+                                localChangeRevision = 3,
+                                requiresLineageReviewAfterUndo = true
+                            ),
+                        bundle = original.bundle.copy(localChangeRevision = 3)
+                    )
+                slot = null
+                true
+            }
+        val session = mockk<AccountSessionAdapter>()
+        coEvery { session.readSession() } returns AccountProfile(account, "Synthetic restore", "")
+        val guardedRemote =
+            object : RemoteBackupStore by remote {
+                override suspend fun publish(
+                    accountId: AccountId,
+                    expectedGeneration: Long,
+                    sourceInstallationId: String,
+                    snapshot: EncodedBackupSnapshot
+                ): RemoteBackupPublish = error("Restore cannot upload")
+
+                override suspend fun retryRetention(
+                    accountId: AccountId,
+                    expectedGeneration: Long,
+                    latestBackupId: String
+                ): RemoteBackupRetention = error("Restore cannot delete cloud data")
+            }
+        val subject =
+            CloudManualBackupCoordinator(
+                local,
+                guardedRemote,
+                session,
+                object : InstallationGuard {
+                    override suspend fun validate() = InstallationValidationResult.Validated
+                },
+                IdProvider { UUID.randomUUID().toString() },
+                AccountSessionOperationGate()
+            )
+        val preview = (subject.previewRestore() as RestorePreviewResult.Ready).preview
+        assertEquals("Another device", preview.sourceDescription)
+        assertEquals(cloud.summary, preview.latest)
+        assertEquals(BackupCategoryImpact(0, 1, 0), preview.impact["PersonalRecord"])
+        assertEquals(BackupActionResult.Completed, subject.confirmRestore(preview.id))
+        assertEquals(50.0, captured.bundle.personalRecords.single().weightKg, 0.0)
+        val undo = (subject.previewUndo() as UndoPreviewResult.Ready).preview
+        assertEquals(BackupActionResult.Completed, subject.confirmUndo(undo.id))
+        assertEquals(60.0, captured.bundle.personalRecords.single().weightKg, 0.0)
+        assertEquals(BackupStatus.LocalChanges, subject.status.value)
+        assertEquals(documents, paths.map { underlying.get(it) })
+        assertEquals(RemoteBackupRead.Complete(cloud), remote.latest(account))
+        coVerify(exactly = 1) { local.restore(any(), account, any(), null) }
+        coVerify(exactly = 1) { local.undo(any(), account, any()) }
+    }
+
     @Test
     fun actualPayloadDownloadThreeWayMergeAndPublicationRemainGenerationAndOwnerScoped() =
         runBlocking {

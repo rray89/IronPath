@@ -28,6 +28,288 @@ class CloudManualBackupCoordinatorTest {
     @get:Rule val mainDispatcher = MainDispatcherRule()
 
     @Test
+    fun unclaimedUndoRemainsDirtyAfterColdRefreshWithoutRemoteReads() = runTest {
+        val f = Fixture()
+        f.remote.current =
+            f.remote.artifact(
+                BackupSnapshotCodec()
+                    .encode(f.local.value.bundle.copy(personalRecords = emptyList()))
+            )
+        val restore = (f.subject.previewRestore() as RestorePreviewResult.Ready).preview
+        assertEquals(BackupActionResult.Completed, f.subject.confirmRestore(restore.id))
+        val undo = (f.subject.previewUndo() as UndoPreviewResult.Ready).preview
+        assertEquals(BackupActionResult.Completed, f.subject.confirmUndo(undo.id))
+        assertNull(f.local.value.metadata.ownerUid)
+        assertNull(f.local.value.baseline)
+        assertEquals(1, f.local.value.bundle.personalRecords.size)
+        assertEquals(BackupStatus.LocalChanges, f.subject.status.value)
+        val reads = f.remote.reads + f.remote.payloadReads
+        val restarted = f.newSubject()
+        restarted.refreshStatus()
+        assertEquals(BackupStatus.LocalChanges, restarted.status.value)
+        assertFalse(restarted.undoAvailable.value)
+        assertEquals(reads, f.remote.reads + f.remote.payloadReads)
+    }
+
+    @Test
+    fun wholeRestoreAndOneUndoUseDurableSlotWithoutWritingCloud() = runTest {
+        val f = Fixture()
+        f.seedBaseline()
+        f.local.edit()
+        val before = f.local.value
+        val cloud = f.remote.current
+        val preview = (f.subject.previewRestore() as RestorePreviewResult.Ready).preview
+        assertEquals("This device", preview.sourceDescription)
+        assertEquals(cloud!!.summary, preview.latest)
+        assertEquals(BackupCategoryImpact(0, 1, 0), preview.impact["PersonalRecord"])
+        assertEquals(before, f.local.value)
+        assertEquals(BackupActionResult.Completed, f.subject.confirmRestore(preview.id))
+        assertEquals(50.0, f.local.value.bundle.personalRecords.single().weightKg, 0.0)
+        assertTrue(f.subject.undoAvailable.value)
+        assertTrue(f.subject.status.value is BackupStatus.UpToDate)
+        val restarted = f.newSubject()
+        restarted.refreshStatus()
+        assertTrue(restarted.undoAvailable.value)
+        val reads = f.remote.reads + f.remote.payloadReads
+        val undo = (restarted.previewUndo() as UndoPreviewResult.Ready).preview
+        assertEquals(BackupActionResult.Completed, restarted.confirmUndo(undo.id))
+        assertEquals(60.0, f.local.value.bundle.personalRecords.single().weightKg, 0.0)
+        assertEquals(before.baseline, f.local.value.baseline)
+        assertEquals(BackupStatus.LocalChanges, restarted.status.value)
+        assertFalse(restarted.undoAvailable.value)
+        assertEquals(UndoPreviewResult.Unavailable, restarted.previewUndo())
+        assertEquals(reads, f.remote.reads + f.remote.payloadReads)
+        assertEquals(cloud, f.remote.current)
+        assertEquals(1, f.remote.publishes)
+        assertEquals(0, f.remote.retentions)
+    }
+
+    @Test
+    fun restoreCancellationAndProcessRecreationNeverApplyOrReplaceUndo() = runTest {
+        val f = Fixture()
+        f.seedBaseline()
+        f.local.edit()
+        val first = (f.subject.previewRestore() as RestorePreviewResult.Ready).preview
+        f.subject.confirmRestore(first.id)
+        val priorUndo = f.local.undoSlot
+        val before = f.local.value
+        val preview = (f.subject.previewRestore() as RestorePreviewResult.Ready).preview
+        f.subject.discardPreview(preview.id)
+        assertEquals(
+            BackupActionResult.Failed(BackupFailureReason.StalePreview),
+            f.subject.confirmRestore(preview.id)
+        )
+        val next = (f.subject.previewRestore() as RestorePreviewResult.Ready).preview
+        assertEquals(
+            BackupActionResult.Failed(BackupFailureReason.StalePreview),
+            f.newSubject().confirmRestore(next.id)
+        )
+        assertEquals(before, f.local.value)
+        assertEquals(priorUndo, f.local.undoSlot)
+    }
+
+    @Test
+    fun changedRestoreInputsRequireFreshReviewAndPreserveActiveWorkout() = runTest {
+        for (change in 0..8) {
+            val f = Fixture()
+            f.seedBaseline()
+            f.local.value =
+                f.local.value.copy(activeSessionId = "session", activeSessionTitle = "Leg day")
+            val preview = (f.subject.previewRestore() as RestorePreviewResult.Ready).preview
+            assertTrue(preview.activeWorkoutDiscardRequired)
+            assertEquals("Leg day", preview.activeWorkoutTitle)
+            assertEquals(
+                BackupActionResult.ActiveSessionRequiresConfirmation("session"),
+                f.subject.confirmRestore(preview.id)
+            )
+            when (change) {
+                0 -> f.local.edit()
+                1 -> f.remote.current = f.remote.current!!.copy(generation = 2)
+                2 ->
+                    f.local.value =
+                        f.local.value.copy(
+                            metadata = f.local.value.metadata.copy(profileGeneration = 1)
+                        )
+                3 -> f.local.value = f.local.value.copy(activeSessionId = "replacement-session")
+                4 ->
+                    f.local.value =
+                        f.local.value.copy(
+                            metadata =
+                                f.local.value.metadata.copy(installationId = "new-installation")
+                        )
+                5 ->
+                    f.gate.withSessionMutation { _, _ ->
+                        AccountSessionOperationGate.MutationResult(Unit, true)
+                    }
+                6 ->
+                    f.remote.current =
+                        f.remote.current!!.copy(
+                            summary = f.remote.current!!.summary.copy(backupId = "replacement")
+                        )
+                7 ->
+                    f.local.value =
+                        f.local.value.copy(
+                            bundle = f.local.value.bundle.copy(personalRecords = emptyList())
+                        )
+                8 -> f.remote.onInspection = { f.local.edit() }
+            }
+            val oldUndo = f.local.undoSlot
+            assertEquals(
+                BackupActionResult.Failed(BackupFailureReason.StalePreview),
+                f.subject.confirmRestore(preview.id, true)
+            )
+            assertNotNull(f.local.value.activeSessionId)
+            assertEquals(oldUndo, f.local.undoSlot)
+            assertEquals(1, f.remote.publishes)
+        }
+    }
+
+    @Test
+    fun confirmedActiveWorkoutDiscardIsBoundToPreviewAndNeverPartOfUndo() = runTest {
+        val f = Fixture()
+        f.seedBaseline()
+        f.local.value =
+            f.local.value.copy(activeSessionId = "session", activeSessionTitle = "Leg day")
+        val preview = (f.subject.previewRestore() as RestorePreviewResult.Ready).preview
+        assertEquals(BackupActionResult.Completed, f.subject.confirmRestore(preview.id, true))
+        assertNull(f.local.value.activeSessionId)
+        val undo = (f.subject.previewUndo() as UndoPreviewResult.Ready).preview
+        assertEquals(BackupActionResult.Completed, f.subject.confirmUndo(undo.id))
+        assertNull(f.local.value.activeSessionId)
+    }
+
+    @Test
+    fun failedRestoreAndUndoPreserveDataAndPriorSlot() = runTest {
+        for (throwFailure in listOf(false, true)) {
+            val f = Fixture()
+            f.seedBaseline()
+            f.local.edit()
+            val first = (f.subject.previewRestore() as RestorePreviewResult.Ready).preview
+            f.subject.confirmRestore(first.id)
+            val before = f.local.value
+            val undo = f.local.undoSlot
+            val preview = (f.subject.previewRestore() as RestorePreviewResult.Ready).preview
+            f.local.applyAllowed = false
+            f.local.applyThrows = throwFailure
+            val expected =
+                if (throwFailure) BackupFailureReason.ServiceUnavailable
+                else BackupFailureReason.StalePreview
+            assertEquals(BackupActionResult.Failed(expected), f.subject.confirmRestore(preview.id))
+            assertEquals(before, f.local.value)
+            assertEquals(undo, f.local.undoSlot)
+            val undoPreview = (f.subject.previewUndo() as UndoPreviewResult.Ready).preview
+            assertEquals(BackupActionResult.Failed(expected), f.subject.confirmUndo(undoPreview.id))
+            assertEquals(before, f.local.value)
+            assertEquals(undo, f.local.undoSlot)
+        }
+    }
+
+    @Test
+    fun undoActiveWorkoutStaleProfileAndSlotChangesFailWithoutConsumingSlot() = runTest {
+        for (change in 0..3) {
+            val f = Fixture()
+            f.seedBaseline()
+            val restore = (f.subject.previewRestore() as RestorePreviewResult.Ready).preview
+            f.subject.confirmRestore(restore.id)
+            if (change == 0) f.local.value = f.local.value.copy(activeSessionId = "active")
+            val undo = (f.subject.previewUndo() as UndoPreviewResult.Ready).preview
+            when (change) {
+                1 -> f.local.edit()
+                2 -> f.local.undoSlot = f.local.undoSlot!!.copy(slotIdentity = "new-slot")
+                3 ->
+                    f.local.value =
+                        f.local.value.copy(
+                            metadata = f.local.value.metadata.copy(profileGeneration = 1)
+                        )
+            }
+            val before = f.local.value
+            val slot = f.local.undoSlot
+            val result = f.subject.confirmUndo(undo.id)
+            if (change == 0)
+                assertEquals(BackupActionResult.ActiveSessionRequiresConfirmation("active"), result)
+            else assertEquals(BackupActionResult.Failed(BackupFailureReason.StalePreview), result)
+            assertEquals(before, f.local.value)
+            assertEquals(slot, f.local.undoSlot)
+        }
+    }
+
+    @Test
+    fun newerObservationSurvivesUndoWhileOlderSharedBaselineIsRestored() = runTest {
+        val f = Fixture()
+        f.seedBaseline()
+        val baseline = f.local.value.baseline
+        f.remote.current = f.remote.current!!.copy(generation = 2)
+        val restore = (f.subject.previewRestore() as RestorePreviewResult.Ready).preview
+        f.subject.confirmRestore(restore.id)
+        val undo = (f.subject.previewUndo() as UndoPreviewResult.Ready).preview
+        f.subject.confirmUndo(undo.id)
+        assertEquals(baseline, f.local.value.baseline)
+        assertEquals(f.remote.current!!.summary, f.subject.latestSummary.value)
+        assertEquals(BackupStatus.ReviewRequired, f.subject.status.value)
+        f.subject.refreshStatus()
+        assertEquals(BackupStatus.ReviewRequired, f.subject.status.value)
+    }
+
+    @Test
+    fun restoreRejectsForeignOwnerFailedInstallationAndSessionChangeDuringDownload() = runTest {
+        val f = Fixture()
+        f.seedBaseline()
+        f.local.value =
+            f.local.value.copy(metadata = f.local.value.metadata.copy(ownerUid = "other"))
+        assertEquals(
+            RestorePreviewResult.Failed(BackupFailureReason.OwnershipMismatch),
+            f.subject.previewRestore()
+        )
+        assertEquals(0, f.remote.payloadReads)
+        f.local.value =
+            f.local.value.copy(metadata = f.local.value.metadata.copy(ownerUid = "owner"))
+        f.installationResult = InstallationValidationResult.Failed
+        assertEquals(
+            RestorePreviewResult.Failed(BackupFailureReason.ServiceUnavailable),
+            f.subject.previewRestore()
+        )
+        f.installationResult = InstallationValidationResult.Validated
+        f.remote.onPayload = { f.session.profile = AccountProfile(AccountId("other"), "Other", "") }
+        assertEquals(
+            RestorePreviewResult.Failed(BackupFailureReason.ReauthenticationRequired),
+            f.subject.previewRestore()
+        )
+        assertNull(f.subject.latestSummary.value)
+        assertFalse(f.subject.undoAvailable.value)
+        assertEquals(1, f.remote.publishes)
+    }
+
+    @Test
+    fun cancelledDownloadAndMalformedSnapshotLeavePriorDataAndUndoUntouched() = runTest {
+        val f = Fixture()
+        f.seedBaseline()
+        val before = f.local.value
+        val entered = CompletableDeferred<Unit>()
+        val release = CompletableDeferred<Unit>()
+        f.remote.onPayload = {
+            entered.complete(Unit)
+            release.await()
+        }
+        val preview = async { f.subject.previewRestore() }
+        advanceUntilIdle()
+        assertTrue("Restore must start the explicit payload read", entered.isCompleted)
+        assertEquals(RestorePreviewResult.Unavailable, f.subject.previewRestore())
+        preview.cancel()
+        preview.join()
+        f.remote.onPayload = {}
+        assertEquals(before, f.local.value)
+        assertNull(f.local.undoSlot)
+        val remote = f.remote.current!!
+        f.remote.current = remote.copy(snapshot = remote.snapshot.copy(contentDigest = "corrupt"))
+        assertEquals(
+            RestorePreviewResult.Failed(BackupFailureReason.InvalidSnapshot),
+            f.subject.previewRestore()
+        )
+        assertEquals(before, f.local.value)
+        assertNull(f.local.undoSlot)
+    }
+
+    @Test
     fun syncCancelAndProcessRecreationNeverMutateEitherSideOrClaimUnownedData() = runTest {
         val f = Fixture()
         f.remote.current = f.remote.artifact(BackupSnapshotCodec().encode(f.local.value.bundle))
@@ -697,6 +979,8 @@ class CloudManualBackupCoordinatorTest {
         val remote = Remote()
         val session = Session()
         val gate = AccountSessionOperationGate()
+        var installationResult: InstallationValidationResult =
+            InstallationValidationResult.Validated
         val subject = newSubject()
 
         fun newSubject() =
@@ -705,7 +989,7 @@ class CloudManualBackupCoordinatorTest {
                 remote,
                 session,
                 object : InstallationGuard {
-                    override suspend fun validate() = InstallationValidationResult.Validated
+                    override suspend fun validate() = installationResult
                 },
                 IdProvider { "preview" },
                 gate,
@@ -800,6 +1084,8 @@ class CloudManualBackupCoordinatorTest {
     }
 
     private class Local(empty: Boolean) : ManualBackupLocalStore {
+        var undoSlot: ManualBackupUndoCapture? = null
+        var slotSequence = 0
         var applyAllowed = true
         var applyThrows = false
         var associateAllowed = true
@@ -911,17 +1197,89 @@ class CloudManualBackupCoordinatorTest {
             accountId: AccountId,
             artifact: ValidatedRestoreArtifact,
             discardActiveSessionId: String?
-        ) = error("not allowed")
+        ): Boolean {
+            if (applyThrows) throw IllegalStateException("injected local transaction failure")
+            if (
+                !applyAllowed ||
+                    value != captured ||
+                    value.activeSessionId != discardActiveSessionId
+            )
+                return false
+            undoSlot =
+                ManualBackupUndoCapture(
+                    "slot-${++slotSequence}",
+                    accountId.opaqueValue,
+                    captured.metadata.installationId,
+                    captured.metadata,
+                    captured.bundle,
+                    captured.baseline
+                )
+            val revision = captured.metadata.localChangeRevision + 1
+            val baseline =
+                RemoteBackupArtifact(
+                    RemoteBackupSummary(
+                        artifact.lineage.remoteBackupId,
+                        artifact.lineage.completedAt,
+                        artifact.lineage.sourceInstallationId,
+                        artifact.remoteSnapshot!!.entityCounts
+                    ),
+                    artifact.lineage.remoteGeneration,
+                    artifact.remoteSnapshot
+                )
+            value =
+                value.copy(
+                    metadata =
+                        value.metadata.copy(
+                            ownerUid = accountId.opaqueValue,
+                            localChangeRevision = revision,
+                            lastCompleteLocalRevision = revision,
+                            lastObservedRemoteGeneration = artifact.lineage.remoteGeneration,
+                            requiresLineageReviewAfterUndo = false
+                        ),
+                    bundle = artifact.bundle.copy(localChangeRevision = revision),
+                    baseline = baseline,
+                    activeSessionId = null,
+                    activeSessionTitle = null
+                )
+            return true
+        }
 
         override suspend fun captureUndo(
             accountId: AccountId,
             installationId: String
-        ): ManualBackupUndoCapture? = null
+        ): ManualBackupUndoCapture? =
+            undoSlot?.takeIf {
+                it.restoringOwnerUid == accountId.opaqueValue &&
+                    it.restoringInstallationId == installationId
+            }
 
         override suspend fun undo(
             captured: ManualBackupCapture,
             accountId: AccountId,
             undo: ManualBackupUndoCapture
-        ) = error("not allowed")
+        ): Boolean {
+            if (applyThrows) throw IllegalStateException("injected local transaction failure")
+            if (
+                !applyAllowed ||
+                    captured != value ||
+                    undo != undoSlot ||
+                    value.activeSessionId != null
+            )
+                return false
+            val revision = value.metadata.localChangeRevision + 1
+            value =
+                value.copy(
+                    metadata =
+                        undo.previousMetadata.copy(
+                            localChangeRevision = revision,
+                            profileGeneration = value.metadata.profileGeneration,
+                            requiresLineageReviewAfterUndo = true
+                        ),
+                    bundle = undo.bundle.copy(localChangeRevision = revision),
+                    baseline = undo.baseline
+                )
+            undoSlot = null
+            return true
+        }
     }
 }

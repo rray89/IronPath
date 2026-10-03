@@ -19,6 +19,30 @@ class ManualBackupViewModelTest {
     @get:Rule val main = MainDispatcherRule()
 
     @Test
+    fun cloudRestoreCompletionUsesCloudCopyAndPreservesOneUndo() = runTest {
+        val account = Account()
+        val backup = Backup()
+        val vm =
+            AccountBackupViewModel(
+                account,
+                Context(),
+                backup,
+                AccountExperienceCapabilities.AuthPreview.copy(canUseBackup = true)
+            )
+        advanceUntilIdle()
+        vm.previewRestore()
+        advanceUntilIdle()
+        assertTrue(vm.manual.value.review is ManualReview.Restore)
+        vm.confirm()
+        advanceUntilIdle()
+        assertNull(vm.manual.value.review)
+        assertTrue(vm.manual.value.feedback!!.contains("cloud backup"))
+        assertFalse(vm.manual.value.feedback!!.contains("demo"))
+        assertTrue(vm.manual.value.undoAvailable)
+        assertEquals(1, backup.confirmations)
+    }
+
+    @Test
     fun `failed explicit lookup retains the typed failure instead of cached up to date`() =
         runTest {
             val f = Fixture()
@@ -196,6 +220,30 @@ class ManualBackupViewModelTest {
     private class Backup : BackupCoordinator {
         override val status = MutableStateFlow<BackupStatus>(BackupStatus.SignedInNoBackup)
         override val latestSummary = MutableStateFlow<RemoteBackupSummary?>(null)
+        override val undoAvailable = MutableStateFlow(false)
+
+        override suspend fun previewRestore() =
+            RestorePreviewResult.Ready(
+                RestorePreview(
+                    "restore",
+                    RemoteBackupSummary("cloud", 1000, "other", emptyMap()),
+                    "Another device",
+                    emptyMap(),
+                    false,
+                    null,
+                    emptySet()
+                )
+            )
+
+        override suspend fun confirmRestore(
+            previewId: String,
+            activeWorkoutDiscardConfirmed: Boolean
+        ): BackupActionResult {
+            confirmations++
+            undoAvailable.value = true
+            return result
+        }
+
         var refreshStatusValue: BackupStatus? = null
         var lookup: BackupLookupResult = BackupLookupResult.Unavailable
 
