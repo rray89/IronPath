@@ -761,7 +761,13 @@ constructor(
                                     "Manual cloud backup complete."
                                 else "Manual backup complete in demo storage."
                             review is ManualReview.Restore ->
-                                "The latest complete demo backup replaced the included training data. One local undo is available."
+                                if (
+                                    capabilities.mode ==
+                                        AccountExperienceCapabilities.Mode.AuthPreview
+                                )
+                                    "The latest complete cloud backup replaced the included training data. One local undo is available. The cloud backup is unchanged."
+                                else
+                                    "The latest complete demo backup replaced the included training data. One local undo is available."
                             review is ManualReview.Undo ->
                                 "One undo restored the pre-restore training data. Local changes still need an explicit backup or sync review."
                             else ->

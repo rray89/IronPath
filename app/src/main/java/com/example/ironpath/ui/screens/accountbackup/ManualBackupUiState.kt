@@ -112,7 +112,7 @@ internal fun backupFailureMessage(reason: BackupFailureReason): String =
             "Backup access was denied. Your local data remains available."
         BackupFailureReason.UnsupportedVersion -> "This backup needs a newer version of IronPath."
         BackupFailureReason.InvalidSnapshot ->
-            "This data cannot be safely synced. Review the backup or keep using this device."
+            "This data cannot be safely applied. Review the backup or keep using this device."
         BackupFailureReason.ReauthenticationRequired ->
             "Needs sign-in. Your local data remains available."
         BackupFailureReason.ServiceUnavailable,

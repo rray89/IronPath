@@ -180,11 +180,22 @@ internal fun ManualBackupReviewScreen(
         if (demoStorage) DemoBackupNotice()
         else
             AccountSection(
-                if (review is ManualReview.Sync) "MANUAL CLOUD SYNC" else "MANUAL CLOUD BACKUP",
-                if (review is ManualReview.Sync)
-                    "The latest complete backup was downloaded for this comparison. Confirming publishes the merged result when needed, then applies it to this device. Cancel leaves local and cloud data unchanged."
-                else
-                    "Only confirming this preview uploads included training data to your Google account's IronPath backup."
+                when (review) {
+                    is ManualReview.Sync -> "MANUAL CLOUD SYNC"
+                    is ManualReview.Backup -> "MANUAL CLOUD BACKUP"
+                    is ManualReview.Restore -> "WHOLE CLOUD BACKUP RESTORE"
+                    is ManualReview.Undo -> "ONE LOCAL UNDO"
+                },
+                when (review) {
+                    is ManualReview.Sync ->
+                        "The latest complete backup was downloaded for this comparison. Confirming publishes the merged result when needed, then applies it to this device. Cancel leaves local and cloud data unchanged."
+                    is ManualReview.Backup ->
+                        "Only confirming this preview uploads included training data to your Google account's IronPath backup."
+                    is ManualReview.Restore ->
+                        "The latest complete cloud backup was downloaded and validated. Only holding Restore replaces local training data. Cancel leaves local data and the previous undo unchanged. The cloud backup is unchanged."
+                    is ManualReview.Undo ->
+                        "Undo uses the saved snapshot on this device, needs no cloud connection, and never uploads or changes the cloud backup."
+                }
             )
         when (review) {
             is ManualReview.Backup -> {
@@ -269,7 +280,8 @@ internal fun ManualBackupReviewScreen(
             }
             is ManualReview.Restore -> {
                 AccountSection(
-                    "LATEST COMPLETE DEMO BACKUP",
+                    if (demoStorage) "LATEST COMPLETE DEMO BACKUP"
+                    else "LATEST COMPLETE CLOUD BACKUP",
                     "${completionTime(review.preview.latest.completedAtEpochMillis)}\n${countSummary(review.preview.latest.entityCounts)}"
                 )
                 Text("Backup source: ${review.preview.sourceDescription}")
