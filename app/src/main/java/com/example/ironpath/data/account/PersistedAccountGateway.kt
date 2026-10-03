@@ -61,6 +61,15 @@ constructor(
                 val result =
                     mutex.withLock {
                         safely {
+                            // Auth callbacks are observations, not authority to retire a durable
+                            // deletion. The deletion manager alone verifies completion.
+                            val pendingDeletion = deletionManager.pending()
+                            if (pendingDeletion != null) {
+                                return@safely publishPendingDeletion(pendingDeletion)
+                            }
+                            if (mutableState.value == AccountState.DeletingAccount) {
+                                return@safely AccountActionResult.Completed
+                            }
                             val profile = readSession()
                             val changed = mutableState.value.sessionAccountId() != profile?.id
                             if (changed) {
@@ -80,7 +89,8 @@ constructor(
                     result,
                     reopenAdmission =
                         mutableState.value !is AccountState.SignOutPending &&
-                            mutableState.value !is AccountState.AccountDeletionPending,
+                            mutableState.value !is AccountState.AccountDeletionPending &&
+                            mutableState.value != AccountState.DeletingAccount,
                 )
             }
         }

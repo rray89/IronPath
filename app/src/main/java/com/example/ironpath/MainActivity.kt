@@ -2,6 +2,7 @@ package com.example.ironpath
 
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.animation.AnimatedVisibility
@@ -16,6 +17,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Menu
@@ -30,6 +32,7 @@ import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
@@ -51,9 +54,7 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.hideFromAccessibility
-import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.semantics.testTagsAsResourceId
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
@@ -81,9 +82,11 @@ import com.example.ironpath.ui.navigation.navigationChrome
 import com.example.ironpath.ui.navigation.startupRoute
 import com.example.ironpath.ui.screens.accountbackup.ACCOUNT_EXPERIENCE_PREVIEW_ENABLED
 import com.example.ironpath.ui.screens.accountbackup.AccountBackupViewModel
+import com.example.ironpath.ui.screens.accountbackup.AccountDeletionRecoveryScreen
 import com.example.ironpath.ui.screens.accountbackup.ManualBackupActions
 import com.example.ironpath.ui.screens.accountbackup.ManualBackupUiState
 import com.example.ironpath.ui.screens.accountbackup.accountExperiencePreviewTopBarTitle
+import com.example.ironpath.ui.screens.accountbackup.blocksAccountActions
 import com.example.ironpath.ui.screens.accountbackup.isAccountBackupRoute
 import com.example.ironpath.ui.testing.TestTags
 import com.example.ironpath.ui.theme.IronPathTheme
@@ -289,6 +292,7 @@ class MainActivity : ComponentActivity() {
                                 onboardingCompleted = current.onboardingCompleted,
                                 onCompleteOnboarding = onboardingRepository::complete,
                                 accountState = accountState,
+                                accountExperienceMode = accountExperienceCapabilities.mode,
                                 accountSignInAvailable = accountExperienceCapabilities.canSignIn,
                                 manualBackupState = manualState,
                                 manualBackupActions =
@@ -409,6 +413,8 @@ fun IronPathApp(
     onboardingCompleted: Boolean = false,
     onCompleteOnboarding: suspend () -> Boolean = { true },
     accountState: AccountState = AccountState.LocalOnly,
+    accountExperienceMode: AccountExperienceCapabilities.Mode =
+        AccountExperienceCapabilities.Mode.Demo,
     accountSignInAvailable: Boolean = true,
     manualBackupState: ManualBackupUiState = ManualBackupUiState(),
     manualBackupActions: ManualBackupActions = ManualBackupActions(),
@@ -416,6 +422,19 @@ fun IronPathApp(
     onAccountRetry: () -> Unit = {},
     onAccountLeave: (() -> Unit) -> Unit = { it() },
 ) {
+    if (manualBackupState.accountDeletion.blocksAccountActions(accountState)) {
+        BackHandler { /* Pending cleanup has no back or cancellation path. */}
+        Surface(modifier = Modifier.fillMaxSize()) {
+            AccountDeletionRecoveryScreen(
+                state = accountState,
+                manual = manualBackupState,
+                onRetry = manualBackupActions.retryAccountDeletion,
+                modifier = Modifier.safeDrawingPadding(),
+                demoStorage = accountExperienceMode == AccountExperienceCapabilities.Mode.Demo,
+            )
+        }
+        return
+    }
     val onAccountBack: () -> Unit = {
         onAccountLeave {
             if (isAccountBackupRoute(navController.currentDestination?.route))
@@ -629,69 +648,24 @@ fun IronPathApp(
                     }
                 },
             ) { innerPadding ->
-                if (
-                    accountState == AccountState.DeletingAccount ||
-                        accountState is AccountState.AccountDeletionPending
-                ) {
-                    Column(
-                        modifier = Modifier.fillMaxSize().padding(innerPadding).padding(24.dp),
-                        verticalArrangement =
-                            Arrangement.spacedBy(16.dp, Alignment.CenterVertically),
-                    ) {
-                        Text(
-                            if (accountState == AccountState.DeletingAccount)
-                                "Deleting account and all data"
-                            else "Account deletion needs retry",
-                            style = MaterialTheme.typography.headlineMedium,
-                        )
-                        Text(
-                            if (accountState == AccountState.DeletingAccount)
-                                "IronPath is removing the demo backups and local training data. Keep the app open while this finishes."
-                            else {
-                                val progress =
-                                    (accountState as AccountState.AccountDeletionPending).progress
-                                "Deletion stopped at ${progress.stage.name.lowercase().replace('_', ' ')}. Retry to finish the same operation."
-                            },
-                            style = MaterialTheme.typography.bodyLarge,
-                            modifier =
-                                Modifier.semantics {
-                                    stateDescription =
-                                        if (accountState == AccountState.DeletingAccount)
-                                            "Account deletion in progress"
-                                        else "Account deletion needs retry"
-                                    liveRegion = androidx.compose.ui.semantics.LiveRegionMode.Polite
-                                },
-                        )
-                        if (accountState is AccountState.AccountDeletionPending) {
-                            Button(
-                                onClick = manualBackupActions.retryAccountDeletion,
-                                enabled = !manualBackupState.accountDeletion.busy,
-                                modifier = Modifier.fillMaxWidth(),
-                            ) {
-                                Text("RETRY DELETION")
-                            }
-                        }
-                    }
-                } else {
-                    IronPathNavHost(
-                        navController = navController,
-                        innerPadding = innerPadding,
-                        startDestination = startupRoute(onboardingCompleted),
-                        onCompleteOnboarding = onCompleteOnboarding,
-                        accountState = accountState,
-                        accountSignInAvailable = accountSignInAvailable,
-                        onAccountSignIn = onAccountSignIn,
-                        onAccountRetry = onAccountRetry,
-                        manualBackupState = manualBackupState,
-                        manualBackupActions = manualBackupActions,
-                        onAccountBack = onAccountBack,
-                        drawerOpen = drawerBackInterceptEnabled,
-                        onCloseDrawer = {
-                            drawerBackInterceptEnabled = false
-                            coroutineScope.launch { drawerState.close() }
-                        },
-                    )
-                }
+                IronPathNavHost(
+                    navController = navController,
+                    innerPadding = innerPadding,
+                    startDestination = startupRoute(onboardingCompleted),
+                    onCompleteOnboarding = onCompleteOnboarding,
+                    accountState = accountState,
+                    accountSignInAvailable = accountSignInAvailable,
+                    onAccountSignIn = onAccountSignIn,
+                    onAccountRetry = onAccountRetry,
+                    manualBackupState = manualBackupState,
+                    manualBackupActions = manualBackupActions,
+                    onAccountBack = onAccountBack,
+                    drawerOpen = drawerBackInterceptEnabled,
+                    onCloseDrawer = {
+                        drawerBackInterceptEnabled = false
+                        coroutineScope.launch { drawerState.close() }
+                    },
+                )
             }
         }
     }

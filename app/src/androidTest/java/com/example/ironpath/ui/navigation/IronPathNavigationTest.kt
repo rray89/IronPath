@@ -2,11 +2,16 @@ package com.example.ironpath.ui.navigation
 
 import androidx.activity.compose.setContent
 import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.semantics.getOrNull
+import androidx.compose.ui.test.DeviceConfigurationOverride
+import androidx.compose.ui.test.FontScale
+import androidx.compose.ui.test.ForcedSize
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertHasClickAction
@@ -27,6 +32,8 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performSemanticsAction
+import androidx.compose.ui.test.then
+import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.ViewModelProvider
@@ -48,13 +55,21 @@ import com.example.ironpath.data.local.dao.PlanDao
 import com.example.ironpath.data.local.dao.SessionDao
 import com.example.ironpath.data.local.entity.WorkoutStatus
 import com.example.ironpath.domain.account.AccountContextReader
+import com.example.ironpath.domain.account.AccountDeletionProgress
+import com.example.ironpath.domain.account.AccountDeletionStage
+import com.example.ironpath.domain.account.AccountExperienceCapabilities
+import com.example.ironpath.domain.account.AccountId
 import com.example.ironpath.domain.account.AccountState
 import com.example.ironpath.domain.time.TimeProvider
 import com.example.ironpath.testutil.FakeAccountSessionAdapter
 import com.example.ironpath.testutil.FakeOnboardingRepository
 import com.example.ironpath.testutil.HiltTestDatabaseRule
 import com.example.ironpath.testutil.TestData
+import com.example.ironpath.ui.screens.accountbackup.ACCOUNT_DELETION_PENDING_MESSAGE
 import com.example.ironpath.ui.screens.accountbackup.AccountBackupViewModel
+import com.example.ironpath.ui.screens.accountbackup.AccountDeletionUiState
+import com.example.ironpath.ui.screens.accountbackup.ManualBackupActions
+import com.example.ironpath.ui.screens.accountbackup.ManualBackupUiState
 import com.example.ironpath.ui.testing.TestTags
 import com.example.ironpath.ui.theme.IronPathTheme
 import dagger.hilt.android.testing.HiltAndroidRule
@@ -700,6 +715,160 @@ class IronPathNavigationTest {
         waitForText("DEV TOOLS")
         composeRule.onNodeWithText("DEV TOOLS").assertIsDisplayed()
         assertApplicationBarsDoNotExist()
+    }
+
+    @Test
+    fun globalDeletionRecoveryUsesRealCopyAndLocksNavigationAtLargeFontLandscape() {
+        enterApp()
+        val accountState = mutableStateOf<AccountState>(AccountState.LocalOnly)
+        val manual = mutableStateOf(ManualBackupUiState())
+        val retries = AtomicInteger()
+        setGlobalDeletionContent(
+            accountState,
+            manual,
+            AccountExperienceCapabilities.Mode.AuthPreview
+        ) {
+            retries.incrementAndGet()
+        }
+        waitForRoute(Route.HOME)
+        val routesBeforeDeletion = backStackRoutes()
+        composeRule.runOnIdle {
+            accountState.value = AccountState.DeletingAccount
+            manual.value =
+                ManualBackupUiState(accountDeletion = AccountDeletionUiState(busy = true))
+        }
+
+        composeRule.onNodeWithText("Deleting account and data").assertIsDisplayed()
+        composeRule
+            .onNodeWithText("Complete Google verification if prompted.", substring = true)
+            .performScrollTo()
+            .assertIsDisplayed()
+        composeRule.onNodeWithText("demo", substring = true, ignoreCase = true).assertDoesNotExist()
+        composeRule.onNodeWithText("RETRY DELETION").assertDoesNotExist()
+        assertDeletionNavigationLocked(routesBeforeDeletion)
+
+        val progress =
+            AccountDeletionProgress(
+                "real-operation",
+                AccountId("real-account"),
+                2,
+                0,
+                AccountDeletionStage.PREPARED,
+                serviceBinding = "real-service-binding",
+            )
+        composeRule.runOnIdle {
+            accountState.value = AccountState.AccountDeletionPending(progress)
+            manual.value =
+                ManualBackupUiState(
+                    accountDeletion =
+                        AccountDeletionUiState(progress = progress, retryAvailable = true),
+                )
+        }
+        composeRule
+            .onNodeWithText(ACCOUNT_DELETION_PENDING_MESSAGE)
+            .performScrollTo()
+            .assertIsDisplayed()
+        composeRule
+            .onNodeWithText("prepared", substring = true, ignoreCase = true)
+            .assertDoesNotExist()
+        composeRule
+            .onNodeWithText("RETRY DELETION")
+            .performScrollTo()
+            .assertIsDisplayed()
+            .assertIsEnabled()
+            .performClick()
+        assertEquals(1, retries.get())
+        assertDeletionNavigationLocked(routesBeforeDeletion)
+
+        composeRule.runOnIdle {
+            manual.value =
+                manual.value.copy(accountDeletion = manual.value.accountDeletion.copy(busy = true))
+        }
+        composeRule.onNodeWithText("RETRY DELETION").performScrollTo().assertIsNotEnabled()
+        assertDeletionNavigationLocked(routesBeforeDeletion)
+
+        // A transient gateway state change cannot reveal routes while the journal UI remains
+        // pending.
+        composeRule.runOnIdle {
+            accountState.value = AccountState.LocalOnly
+            manual.value =
+                manual.value.copy(accountDeletion = manual.value.accountDeletion.copy(busy = false))
+        }
+        composeRule.onNodeWithText("RETRY DELETION").performScrollTo().assertIsEnabled()
+        assertDeletionNavigationLocked(routesBeforeDeletion)
+
+        composeRule.runOnIdle { manual.value = ManualBackupUiState() }
+        waitForBarsVisible()
+        assertEquals(routesBeforeDeletion, backStackRoutes())
+    }
+
+    @Test
+    fun globalDemoDeletionRecoveryKeepsItsDemoScopeExplicit() {
+        val accountState = mutableStateOf<AccountState>(AccountState.DeletingAccount)
+        val manual =
+            mutableStateOf(
+                ManualBackupUiState(accountDeletion = AccountDeletionUiState(busy = true))
+            )
+        setGlobalDeletionContent(accountState, manual, AccountExperienceCapabilities.Mode.Demo)
+
+        composeRule
+            .onNodeWithText("Demo account. No Google or cloud connection.")
+            .performScrollTo()
+            .assertIsDisplayed()
+        composeRule
+            .onNodeWithText("Deleting the demo IronPath account", substring = true)
+            .performScrollTo()
+            .assertIsDisplayed()
+        composeRule
+            .onNodeWithText("Complete Google verification", substring = true)
+            .assertDoesNotExist()
+        assertApplicationBarsDoNotExist()
+    }
+
+    private fun setGlobalDeletionContent(
+        accountState: State<AccountState>,
+        manual: State<ManualBackupUiState>,
+        mode: AccountExperienceCapabilities.Mode,
+        onRetry: () -> Unit = {},
+    ) {
+        composeRule.runOnUiThread {
+            composeRule.activity.setContent {
+                DeviceConfigurationOverride(
+                    DeviceConfigurationOverride.ForcedSize(DpSize(640.dp, 320.dp)) then
+                        DeviceConfigurationOverride.FontScale(2f)
+                ) {
+                    IronPathTheme {
+                        IronPathApp(
+                            timeProvider = timeProvider,
+                            navController = navController,
+                            accountState = accountState.value,
+                            accountExperienceMode = mode,
+                            manualBackupState = manual.value,
+                            manualBackupActions =
+                                ManualBackupActions(retryAccountDeletion = onRetry),
+                        )
+                    }
+                }
+            }
+        }
+        composeRule.waitForIdle()
+    }
+
+    private fun assertDeletionNavigationLocked(expectedRoutes: List<String?>) {
+        assertApplicationBarsDoNotExist()
+        composeRule.onNodeWithContentDescription("Back").assertDoesNotExist()
+        listOf(
+                "SIGN OUT",
+                "CANCEL",
+                "BACK UP NOW",
+                "REVIEW MANUAL SYNC",
+                "PREVIEW WHOLE-BACKUP RESTORE"
+            )
+            .forEach { composeRule.onNodeWithText(it).assertDoesNotExist() }
+        composeRule.runOnUiThread { composeRule.activity.onBackPressedDispatcher.onBackPressed() }
+        composeRule.waitForIdle()
+        assertEquals(expectedRoutes, backStackRoutes())
+        assertFalse(composeRule.activity.isFinishing)
     }
 
     private fun enterApp() {

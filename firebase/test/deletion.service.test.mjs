@@ -308,7 +308,6 @@ test("fence linearizes upload race: pre-fence data is purged; claim, chunk, comp
   const subject = service();
   const operationId = randomUUID();
   await subject.start(operationId, owner.token);
-  await assertFails(setDoc(chunk, chunkData));
   const completion = writeBatch(client);
   completion.update(manifest, { state: "COMPLETE", completedAt: serverTimestamp() });
   completion.update(user, { generation: 1, activeUploadBackupId: null, latestCompleteBackupId: "race", latestCompletedAt: serverTimestamp(), latestSourceInstallationId: "synthetic" });
@@ -318,6 +317,15 @@ test("fence linearizes upload race: pre-fence data is purged; claim, chunk, comp
   await assertFails(getDoc(user));
   await assertFails(getDocs(collection(client, `users/${owner.uid}/backups`)));
   await assertFails(deleteDoc(user));
+  // Model server purge racing a late upload. The identical payload succeeded
+  // above; the manifest is still UPLOADING and this document is now absent, so
+  // create would otherwise be allowed rather than denied as an immutable update.
+  const adminChunk = firestore.doc(chunk.path);
+  await adminChunk.delete();
+  assert.equal((await adminChunk.get()).exists, false);
+  assert.equal((await auth.verifyIdToken(owner.token, true)).uid, owner.uid);
+  await assertFails(setDoc(chunk, chunkData));
+  assert.equal((await adminChunk.get()).exists, false);
   await subject.runPending();
   await assertFails(setDoc(user, metadata));
   await service().assertPurged(firestore.doc(`users/${owner.uid}`));

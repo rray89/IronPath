@@ -31,6 +31,8 @@ and recovery capability; no Google or Firebase token is persisted in it. A lost 
 receipt is resolved through the same operation. Startup never opens a Google chooser.
 An unknown server operation requires an explicit Retry and another recent reauthentication
 before submission; changing service configuration cannot silently redirect the operation.
+The current client does not retain the initial credential after the submission call returns,
+so a warm Retry cannot reuse that proof even while it would still be recent.
 
 The service verifies a current, nonrevoked Firebase ID token, `google.com` provider and
 `auth_time` no older than five minutes. The UID is derived exclusively from the verified
@@ -54,12 +56,19 @@ retired UID, without starting destructive work. Firebase Admin's emulator forces
 existence/revocation check even for `verifyIdToken(false)`, so this completion-only branch
 has a test-only signature-result seam and still needs approved production verification.
 
-There is one explicit recovery limit: if a second operation was never accepted, another
-device already deleted Auth, and a cold restart loses the second device's recent token,
-the client cannot automatically authenticate that unknown capability. It stays pending
-with local data locked. A future deployment must provide an authoritative receipt-recovery
-procedure; the client never guesses success, blindly erases local data or signs up a
-new UID as a substitute. Already accepted jobs and receipts do not have this limitation.
+There is one explicit recovery limit in both the current warm process and after a cold
+restart: if a second operation was never accepted and another device already deleted Auth,
+the client has no retained recent credential with which to authenticate the unknown
+capability, and fresh reauthentication of that retired Firebase user cannot succeed.
+The completion-only server alias path therefore does not by itself solve this client gap.
+Deletion stays pending with local data locked. A future deployment must provide an
+authoritative receipt-recovery procedure; the client never guesses success, blindly erases
+local data or signs up a new UID as a substitute. Already accepted jobs and receipts do not
+have this limitation, because their existing operation capability remains resumable.
+This remains an unresolved correctness gate for reliable multi-device deletion. Documenting
+it does not resolve the review finding or establish product acceptance. A proposed bounded,
+memory-only credential retry has not been applied; even that proposal would still require
+an authoritative recovery design for process death or expired proof.
 
 The client accepts only an exact operation receipt from its configured service. COMPLETE
 advances the local journal through remote verification, then the shared Room transaction

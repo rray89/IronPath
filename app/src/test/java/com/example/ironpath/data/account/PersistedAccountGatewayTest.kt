@@ -264,6 +264,74 @@ class PersistedAccountGatewayTest {
     }
 
     @Test
+    fun `queued provider observation cannot reopen a deletion waiting for admission`() = runTest {
+        val source = Source().apply { session = profile }
+        val reader = Reader().apply { context = context.copy(ownerUid = profile.id.opaqueValue) }
+        val gate = AccountSessionOperationGate()
+        val gateway =
+            gateway(source, reader, gate = gate, deletionManager = RecordingDeletionManager())
+        gateway.refreshLocal()
+        val signedIn = gateway.state.value as AccountState.SignedIn
+        val entered = CompletableDeferred<Unit>()
+        val release = CompletableDeferred<Unit>()
+        val backup = async {
+            gate.withManualOperation(waitForTurn = true, unavailable = false) {
+                entered.complete(Unit)
+                release.await()
+                true
+            }
+        }
+        entered.await()
+        val observation = async {
+            gateway.reconcileSessionChange()
+            gateway.state.value
+        }
+        runCurrent()
+        val deletion = async {
+            gateway.deleteAccount(
+                AccountDeletionRequest(
+                    signedIn.accountId,
+                    signedIn.sessionEpoch,
+                    signedIn.profileGeneration,
+                )
+            )
+        }
+        runCurrent()
+        assertEquals(AccountState.DeletingAccount, gateway.state.value)
+        release.complete(Unit)
+        assertEquals(AccountState.DeletingAccount, observation.await())
+        backup.await()
+        deletion.await()
+    }
+
+    @Test
+    fun `provider observations preserve durable deletion and closed admission`() = runTest {
+        val progress =
+            AccountDeletionProgress(
+                operationId = "delete-operation",
+                accountId = profile.id,
+                sessionEpoch = 0,
+                profileGeneration = 0,
+                stage = AccountDeletionStage.PREPARED,
+            )
+        val deletion = RecordingDeletionManager().apply { pendingProgress = progress }
+        val source = Source().apply { session = profile }
+        val gate = AccountSessionOperationGate()
+        val gateway = gateway(source, Reader(), gate = gate, deletionManager = deletion)
+
+        // Initial, repeated, signed-out, and foreign-user callbacks must all preserve recovery.
+        for (observed in
+            listOf(profile, profile, null, profile.copy(id = AccountId("other-uid")))) {
+            source.session = observed
+            assertEquals(AccountActionResult.Completed, gateway.reconcileSessionChange())
+            assertEquals(AccountState.AccountDeletionPending(progress), gateway.state.value)
+            assertFalse(gate.withManualOperation(waitForTurn = false, unavailable = false) { true })
+            assertEquals(0, source.clearCalls)
+            assertEquals(0, source.requests)
+        }
+    }
+
+    @Test
     fun `startup reconciliation clears stale in-memory pending deletion after recovery`() =
         runTest {
             val deletion =
