@@ -665,6 +665,197 @@ class AccountBackupViewModelTest {
         assertFalse(viewModel.manual.value.busy)
     }
 
+    @Test
+    fun `real deletion cancellation clears confirmation without claiming an identity mismatch`() =
+        runTest {
+            val gateway =
+                deletableGateway().apply { deletionAction = { AccountActionResult.Cancelled } }
+            val subject = viewModel(gateway, capabilities = realDeletionCapabilities())
+            advanceUntilIdle()
+            subject.openDeleteReview()
+            subject.continueAccountDeletion()
+            subject.confirmAccountDeletion()
+            advanceUntilIdle()
+
+            assertEquals(1, gateway.deletionRequests.size)
+            assertTrue(gateway.state.value is AccountState.SignedIn)
+            assertNull(subject.manual.value.accountDeletion.target)
+            assertFalse(subject.manual.value.busy)
+            assertEquals(0L, subject.manual.value.profileResetEpoch)
+            assertTrue(subject.manual.value.feedback.orEmpty().contains("cancelled"))
+            assertTrue(subject.manual.value.feedback.orEmpty().contains("not changed"))
+        }
+
+    @Test
+    fun `real deletion preflight failures close review and describe the required recovery`() =
+        runTest {
+            listOf(
+                    AccountFailureReason.ReauthenticationRequired to
+                        "Verify the same Google account",
+                    AccountFailureReason.ServiceUnavailable to "deletion service is unavailable",
+                    AccountFailureReason.Offline to "Connect to the internet",
+                    AccountFailureReason.LocalStateUnavailable to
+                        "Check account and training data status",
+                    AccountFailureReason.Unknown to "Check account status",
+                )
+                .forEach { (reason, expected) ->
+                    val gateway =
+                        deletableGateway().apply {
+                            deletionAction = { AccountActionResult.Failed(reason) }
+                        }
+                    val subject = viewModel(gateway, capabilities = realDeletionCapabilities())
+                    advanceUntilIdle()
+                    subject.openDeleteReview()
+                    subject.continueAccountDeletion()
+                    subject.confirmAccountDeletion()
+                    advanceUntilIdle()
+
+                    assertNull(subject.manual.value.accountDeletion.target)
+                    assertNull(subject.manual.value.accountDeletion.completionTargetGeneration)
+                    assertFalse(subject.manual.value.busy)
+                    assertEquals(0L, subject.manual.value.profileResetEpoch)
+                    assertTrue(subject.manual.value.feedback.orEmpty().contains(expected))
+                }
+        }
+
+    @Test
+    fun `real deletion success names cloud scope without demo copy`() = runTest {
+        val gateway =
+            deletableGateway().apply {
+                deletionAction = {
+                    state.value = AccountState.LocalOnly
+                    AccountActionResult.Completed
+                }
+            }
+        val subject = viewModel(gateway, capabilities = realDeletionCapabilities())
+        advanceUntilIdle()
+        subject.openDeleteReview()
+        subject.continueAccountDeletion()
+        subject.confirmAccountDeletion()
+        advanceUntilIdle()
+
+        val feedback = subject.manual.value.feedback.orEmpty()
+        assertTrue(feedback.contains("IronPath account, all cloud backups"))
+        assertTrue(feedback.contains("Google account was not affected"))
+        assertFalse(feedback.contains("demo", ignoreCase = true))
+        assertEquals(1L, subject.manual.value.profileResetEpoch)
+    }
+
+    @Test
+    fun `pending retry remains reachable without capability and cancellation cannot unlock data`() =
+        runTest {
+            val progress =
+                AccountDeletionProgress(
+                    "operation",
+                    AccountId("google-uid"),
+                    9,
+                    12,
+                    AccountDeletionStage.PREPARED,
+                )
+            val gateway =
+                Gateway().apply {
+                    state.value = AccountState.AccountDeletionPending(progress)
+                    retryAction = { AccountActionResult.Cancelled }
+                }
+            val subject =
+                viewModel(gateway, capabilities = AccountExperienceCapabilities.AuthPreview)
+            advanceUntilIdle()
+            var leaves = 0
+            subject.dismissDeleteReview()
+            subject.openSignOutReview()
+            subject.leave { leaves++ }
+            subject.retryAccountDeletion()
+            advanceUntilIdle()
+
+            assertEquals(1, gateway.deletionRetries)
+            assertEquals(progress, subject.manual.value.accountDeletion.progress)
+            assertTrue(subject.manual.value.accountDeletion.retryAvailable)
+            assertTrue(subject.manual.value.busy)
+            assertNull(subject.manual.value.signOutReview)
+            assertEquals(0, leaves)
+            assertEquals(0L, subject.manual.value.profileResetEpoch)
+            assertFalse(subject.manual.value.feedback.orEmpty().contains("not changed"))
+
+            gateway.retryAction = { AccountActionResult.Unavailable }
+            subject.retryAccountDeletion()
+            advanceUntilIdle()
+            assertEquals(2, gateway.deletionRetries)
+            assertTrue(subject.manual.value.accountDeletion.retryAvailable)
+            assertTrue(subject.manual.value.busy)
+        }
+
+    @Test
+    fun `real deletion requires enabled capability and cancellation at either review is inert`() =
+        runTest {
+            val gateway = deletableGateway()
+            val disabled =
+                viewModel(gateway, capabilities = AccountExperienceCapabilities.AuthPreview)
+            advanceUntilIdle()
+            disabled.openDeleteReview()
+            assertNull(disabled.manual.value.accountDeletion.target)
+            val subject = viewModel(gateway, capabilities = realDeletionCapabilities())
+            advanceUntilIdle()
+            subject.openDeleteReview()
+            subject.dismissDeleteReview()
+            subject.confirmAccountDeletion()
+            subject.openDeleteReview()
+            subject.continueAccountDeletion()
+            subject.dismissDeleteReview()
+            subject.confirmAccountDeletion()
+            advanceUntilIdle()
+
+            assertTrue(gateway.deletionRequests.isEmpty())
+            assertNull(subject.manual.value.accountDeletion.target)
+            assertEquals(0L, subject.manual.value.profileResetEpoch)
+        }
+
+    @Test
+    fun `final deletion serializes duplicate confirmation and prevents leaving during verification`() =
+        runTest {
+            val completion = CompletableDeferred<Unit>()
+            val gateway =
+                deletableGateway().apply {
+                    deletionAction = {
+                        completion.await()
+                        AccountActionResult.Cancelled
+                    }
+                }
+            val subject = viewModel(gateway, capabilities = realDeletionCapabilities())
+            advanceUntilIdle()
+            subject.openDeleteReview()
+            subject.continueAccountDeletion()
+            subject.confirmAccountDeletion()
+            subject.confirmAccountDeletion()
+            subject.dismissDeleteReview()
+            var leaves = 0
+            subject.leave { leaves++ }
+
+            assertEquals(1, gateway.deletionRequests.size)
+            assertTrue(subject.manual.value.accountDeletion.busy)
+            assertEquals(0, leaves)
+            completion.complete(Unit)
+            advanceUntilIdle()
+            assertFalse(subject.manual.value.busy)
+            assertNull(subject.manual.value.accountDeletion.target)
+        }
+
+    private fun deletableGateway() =
+        Gateway().apply {
+            val profile =
+                AccountProfile(AccountId("google-uid"), "Athlete", "athlete@example.invalid")
+            state.value =
+                AccountState.SignedIn(
+                    profile.id,
+                    profile,
+                    sessionEpoch = 9,
+                    profileGeneration = 12,
+                    canDeleteAccount = true,
+                )
+        }
+
+    private fun realDeletionCapabilities() =
+        AccountExperienceCapabilities.AuthPreview.copy(canDeleteAccount = true)
+
     private fun viewModel(
         gateway: Gateway,
         backup: BackupCoordinator =
@@ -702,10 +893,10 @@ class AccountBackupViewModelTest {
         val signOutRequests = mutableListOf<SignOutRequest>()
         val deletionRequests = mutableListOf<AccountDeletionRequest>()
         var deletionRetries = 0
-        var deletionAction: (AccountDeletionRequest) -> AccountActionResult = {
+        var deletionAction: suspend (AccountDeletionRequest) -> AccountActionResult = {
             AccountActionResult.Unavailable
         }
-        var retryAction: () -> AccountActionResult = { AccountActionResult.Unavailable }
+        var retryAction: suspend () -> AccountActionResult = { AccountActionResult.Unavailable }
         var signInStateAfterSuccess: AccountState? = null
         var signOutStateAfterFailure: AccountState? = null
 

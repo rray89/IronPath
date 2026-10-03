@@ -48,6 +48,7 @@ constructor(
 
     override suspend fun delete(request: AccountDeletionRequest): AccountDeletionResult =
         mutex.withLock {
+            if (request.serviceBinding != null) return@withLock AccountDeletionResult.Unavailable
             val progress =
                 store.prepare(request) ?: return@withLock AccountDeletionResult.Unavailable
             operationGate.closeAdmission()
@@ -63,6 +64,7 @@ constructor(
 
     private suspend fun resume(initial: AccountDeletionProgress): AccountDeletionResult {
         var progress = initial
+        if (progress.serviceBinding != null) return retryRequired(progress)
         return try {
             while (progress.stage != AccountDeletionStage.COMPLETE) {
                 when (progress.stage) {

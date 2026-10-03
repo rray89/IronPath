@@ -643,6 +643,20 @@ constructor(
                                     reopenAdmission = false,
                                 )
                             }
+                            AccountDeletionResult.Cancelled -> {
+                                restorePriorSignOutState(plan.priorState)
+                                AccountSessionOperationGate.MutationResult(
+                                    AccountActionResult.Cancelled,
+                                    reopenAdmission = true
+                                )
+                            }
+                            is AccountDeletionResult.Failed -> {
+                                restorePriorSignOutState(plan.priorState)
+                                AccountSessionOperationGate.MutationResult(
+                                    AccountActionResult.Failed(deletion.reason),
+                                    reopenAdmission = true
+                                )
+                            }
                             AccountDeletionResult.Idle,
                             AccountDeletionResult.Unavailable -> {
                                 restorePriorSignOutState(plan.priorState)
@@ -706,7 +720,6 @@ constructor(
     }
 
     override suspend fun retryAccountDeletion(): AccountActionResult {
-        if (!capabilities.canDeleteAccount) return AccountActionResult.Unavailable
         val previousProgress =
             mutex.withLock {
                 val pending =
@@ -735,6 +748,8 @@ constructor(
                     }
                     AccountActionResult.Failed(AccountFailureReason.ServiceUnavailable)
                 }
+                AccountDeletionResult.Cancelled,
+                is AccountDeletionResult.Failed,
                 AccountDeletionResult.Unavailable -> {
                     val pending = deletionManager.pending()
                     mutex.withLock {

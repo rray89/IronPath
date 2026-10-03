@@ -20,6 +20,10 @@ constructor(
 
     val auth: FirebaseAuth? = runtime.first
     val googleWebClientId: String = runtime.second
+    val deletionServiceEndpoint: String =
+        context.resources.getString(R.string.auth_preview_deletion_service_endpoint)
+    val deletionConfigured: Boolean
+        get() = configured && validDeletionEndpoint(deletionServiceEndpoint)
 
     val configured: Boolean
         get() = auth != null && googleWebClientId.isNotBlank()

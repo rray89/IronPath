@@ -13,6 +13,7 @@ data class AccountDeletionRequest(
     val sessionEpoch: Long,
     val profileGeneration: Long,
     val expectedLocalOwnerUid: String? = accountId.opaqueValue,
+    val serviceBinding: String? = null,
 )
 
 data class AccountDeletionProgress(
@@ -22,6 +23,7 @@ data class AccountDeletionProgress(
     val profileGeneration: Long,
     val stage: AccountDeletionStage,
     val expectedLocalOwnerUid: String? = accountId.opaqueValue,
+    val serviceBinding: String? = null,
 )
 
 sealed interface AccountDeletionResult {
@@ -31,10 +33,14 @@ sealed interface AccountDeletionResult {
 
     data class RetryRequired(val progress: AccountDeletionProgress) : AccountDeletionResult
 
+    data object Cancelled : AccountDeletionResult
+
+    data class Failed(val reason: AccountFailureReason) : AccountDeletionResult
+
     data object Unavailable : AccountDeletionResult
 }
 
-/** Demo deletion orchestration. Release uses an unavailable implementation. */
+/** Build-selected durable deletion. Release uses an unavailable implementation. */
 interface AccountDeletionManager {
     suspend fun recoverAtStartup(): AccountDeletionResult
 

@@ -13,7 +13,7 @@ import com.example.ironpath.domain.time.TimeProvider
 import javax.inject.Inject
 import javax.inject.Singleton
 
-/** Room journal and compare-and-set local cleanup for the debug deletion demonstration. */
+/** Durable deletion journal and atomic local cleanup shared by demo and service-backed deletion. */
 @Singleton
 class RoomAccountDeletionStore
 @Inject
@@ -22,11 +22,16 @@ constructor(
     private val idProvider: IdProvider,
     private val timeProvider: TimeProvider,
     private val sentinel: InstallationSentinel,
-) {
-    suspend fun journal(): AccountDeletionProgress? =
+) : AccountDeletionStore {
+    override suspend fun journal(): AccountDeletionProgress? =
         database.accountDeletionDao().getJournal()?.toProgress()
 
-    suspend fun prepare(request: AccountDeletionRequest): AccountDeletionProgress? {
+    override suspend fun prepare(request: AccountDeletionRequest): AccountDeletionProgress? {
+        if (
+            request.expectedLocalOwnerUid != null &&
+                request.expectedLocalOwnerUid != request.accountId.opaqueValue
+        )
+            return null
         val operationId = idProvider.newId()
         val createdAt = timeProvider.epochMillis()
         return database.withTransaction {
@@ -38,7 +43,8 @@ constructor(
                         it.accountId == request.accountId.opaqueValue &&
                             it.sessionEpoch == request.sessionEpoch &&
                             it.profileGeneration == request.profileGeneration &&
-                            it.expectedLocalOwnerUid == request.expectedLocalOwnerUid
+                            it.expectedLocalOwnerUid == request.expectedLocalOwnerUid &&
+                            it.serviceBinding == request.serviceBinding
                     }
                     ?.toProgress()
             }
@@ -57,6 +63,7 @@ constructor(
                     sessionEpoch = request.sessionEpoch,
                     profileGeneration = request.profileGeneration,
                     expectedLocalOwnerUid = request.expectedLocalOwnerUid,
+                    serviceBinding = request.serviceBinding,
                     stage = AccountDeletionStage.PREPARED.name,
                     createdAtEpochMillis = createdAt,
                 )
@@ -65,7 +72,14 @@ constructor(
         }
     }
 
-    suspend fun advance(
+    override suspend fun matchesProfile(expected: AccountDeletionProgress): Boolean =
+        database.withTransaction {
+            val journal = database.accountDeletionDao().getJournal() ?: return@withTransaction false
+            val metadata = database.backupDao().getMetadata() ?: return@withTransaction false
+            journal.matches(expected) && metadata.matchesProfile(expected)
+        }
+
+    override suspend fun advance(
         expected: AccountDeletionProgress,
         next: AccountDeletionStage,
     ): Boolean =
@@ -81,7 +95,7 @@ constructor(
         }
 
     /** Data reset and the journal stage advance commit in the same Room transaction. */
-    suspend fun clearLocalProfile(expected: AccountDeletionProgress): Boolean {
+    override suspend fun clearLocalProfile(expected: AccountDeletionProgress): Boolean {
         val newInstallationId = idProvider.newId()
         val newGeneration =
             database.withTransaction {
@@ -91,9 +105,7 @@ constructor(
                 if (
                     !currentJournal.matches(expected) ||
                         currentJournal.stage != AccountDeletionStage.ACCOUNT_TOMBSTONED.name ||
-                        metadata.ownerUid != expected.expectedLocalOwnerUid ||
-                        metadata.profileGeneration != expected.profileGeneration ||
-                        metadata.pendingSignOutUid != null
+                        !metadata.matchesProfile(expected)
                 )
                     return@withTransaction null
 
@@ -119,20 +131,21 @@ constructor(
             database.backupDao().getMetadata()?.profileGeneration == newGeneration
     }
 
-    suspend fun ensureInstallationMarker(expected: AccountDeletionProgress): Boolean {
+    override suspend fun ensureInstallationMarker(expected: AccountDeletionProgress): Boolean {
         val journal = database.accountDeletionDao().getJournal() ?: return false
         val metadata = database.backupDao().getMetadata() ?: return false
         if (
             !journal.matches(expected) ||
                 journal.stage != AccountDeletionStage.LOCAL_CLEARED.name ||
                 metadata.ownerUid != null ||
+                metadata.pendingSignOutUid != null ||
                 metadata.profileGeneration != expected.profileGeneration + 1
         )
             return false
         return sentinel.writeInstallationId(metadata.installationId)
     }
 
-    suspend fun markComplete(expected: AccountDeletionProgress): Boolean =
+    override suspend fun markComplete(expected: AccountDeletionProgress): Boolean =
         database.withTransaction {
             val dao = database.accountDeletionDao()
             val journal = dao.getJournal() ?: return@withTransaction false
@@ -141,6 +154,7 @@ constructor(
                 !journal.matches(expected) ||
                     journal.stage != AccountDeletionStage.LOCAL_CLEARED.name ||
                     metadata.ownerUid != null ||
+                    metadata.pendingSignOutUid != null ||
                     metadata.profileGeneration != expected.profileGeneration + 1
             )
                 return@withTransaction false
@@ -153,7 +167,15 @@ constructor(
             accountId == progress.accountId.opaqueValue &&
             sessionEpoch == progress.sessionEpoch &&
             profileGeneration == progress.profileGeneration &&
-            expectedLocalOwnerUid == progress.expectedLocalOwnerUid
+            expectedLocalOwnerUid == progress.expectedLocalOwnerUid &&
+            serviceBinding == progress.serviceBinding
+
+    private fun AccountBackupMetadata.matchesProfile(progress: AccountDeletionProgress) =
+        (progress.expectedLocalOwnerUid == null ||
+            progress.expectedLocalOwnerUid == progress.accountId.opaqueValue) &&
+            ownerUid == progress.expectedLocalOwnerUid &&
+            profileGeneration == progress.profileGeneration &&
+            pendingSignOutUid == null
 
     private fun AccountDeletionJournal.toProgress() =
         AccountDeletionProgress(
@@ -163,6 +185,7 @@ constructor(
             profileGeneration = profileGeneration,
             stage = stage.toDeletionStage(),
             expectedLocalOwnerUid = expectedLocalOwnerUid,
+            serviceBinding = serviceBinding,
         )
 
     private fun String.toDeletionStage(): AccountDeletionStage =

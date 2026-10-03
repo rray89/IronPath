@@ -148,7 +148,9 @@ class MainActivity : ComponentActivity() {
                 suspend fun prepareApp(): StartupState {
                     val deletion =
                         try {
-                            accountDeletionManager.recoverAtStartup()
+                            // Only a deliberate Retry may open Google reauthentication.
+                            if (startupAttempt > 0) accountDeletionManager.retry()
+                            else accountDeletionManager.recoverAtStartup()
                         } catch (cancelled: CancellationException) {
                             throw cancelled
                         } catch (_: Exception) {
@@ -185,6 +187,8 @@ class MainActivity : ComponentActivity() {
                         }
                         is AccountDeletionResult.RetryRequired ->
                             StartupState.DeletionPending(deletion.progress)
+                        AccountDeletionResult.Cancelled,
+                        is AccountDeletionResult.Failed,
                         AccountDeletionResult.Unavailable -> {
                             val pending =
                                 try {

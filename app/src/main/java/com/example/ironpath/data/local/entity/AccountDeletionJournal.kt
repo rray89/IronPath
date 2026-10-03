@@ -14,6 +14,8 @@ data class AccountDeletionJournal(
     val stage: String,
     val createdAtEpochMillis: Long,
     val expectedLocalOwnerUid: String? = accountId,
+    /** Non-secret project and endpoint fingerprint; null identifies a legacy demo operation. */
+    val serviceBinding: String? = null,
 ) {
     companion object {
         const val SINGLETON_ID = 1

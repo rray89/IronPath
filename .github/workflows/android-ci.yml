@@ -5,7 +5,7 @@ on:
     branches: [main]
   pull_request:
     # Validate stacked cloud sync and restore while their reviewed dependencies are unmerged.
-    branches: [main, codex/feat11.4.4-cloud-backup, codex/feat11.4.5-cloud-sync]
+    branches: [main, codex/feat11.4.4-cloud-backup, codex/feat11.4.5-cloud-sync, codex/feat11.4.6-cloud-restore]
 
 concurrency:
   group: android-ci-${{ github.event.pull_request.number || github.ref }}
@@ -281,11 +281,17 @@ jobs:
       - name: Run Firestore Security Rules tests
         run: ./gradlew firebaseRulesTest
 
+      - name: Verify authoritative account deletion with isolated Auth and Firestore emulators
+        run: npm run test:deletion --prefix firebase
+
       - name: Configure Android SDK for the authpreview Kotlin transport suite
         run: echo "sdk.dir=$ANDROID_HOME" > local.properties
 
       - name: Run actual Kotlin Firestore REST transport against owner-scoped emulator rules
         run: npm run test:transport --prefix firebase
+
+      - name: Run Kotlin deletion client against authoritative emulator service
+        run: npm run test:deletion-transport --prefix firebase
 
       - name: Upload actual transport emulator results
         uses: actions/upload-artifact@v4
@@ -294,6 +300,8 @@ jobs:
           name: firestore-transport-results
           path: |
             app/build/test-results/firestoreTransportTest/
+            app/build/test-results/deletionTransportTest/
+            app/build/reports/tests/deletionTransportTest/
             app/build/reports/tests/firestoreTransportTest/
           if-no-files-found: warn
           retention-days: 14

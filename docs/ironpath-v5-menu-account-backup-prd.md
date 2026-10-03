@@ -1039,6 +1039,24 @@ Firebase Authentication deletion, authoritative server-side backup cleanup and
 verification, an external deletion-request path, and a published privacy policy. The
 demo slice is not evidence that production account deletion is available.
 
+### Feat11.4.7 isolated real-deletion service integration
+
+BOSS authorized the next bounded real-deletion implementation on October 2, 2026,
+with human validation moved to the combined backup/sync/restore/deletion candidate.
+The approved account/all-backups/all-local-data scope and two-step confirmation remain
+unchanged. Authpreview adds recent Google reauthentication and a durable authoritative
+service contract; isolated Firebase emulators exercise actual server cleanup and Auth
+deletion. A permanent per-UID rules fence prevents another client recreating backups.
+Local deletion waits for a verified service completion receipt and survives interruption.
+
+This is an implementation/testing exception for service source, not authorization to
+operate a custom live server, enable billing, provision IAM or deploy rules. Release
+remains unavailable, and authpreview deletion remains unavailable without explicit
+service configuration and verified capabilities. The emulator-only executable cannot
+be used as a production deployment. Exact activation prerequisites and combined QA are
+in [feat11.4.7-authoritative-account-deletion.md](feat11.4.7-authoritative-account-deletion.md).
+No live or manual acceptance is claimed by this candidate.
+
 ### Android platform backup
 
 V5 replaces the template Android backup files with an explicit policy:

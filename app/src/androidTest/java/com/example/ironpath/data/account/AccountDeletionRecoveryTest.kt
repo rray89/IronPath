@@ -8,6 +8,7 @@ import com.example.ironpath.data.backup.RemoteBackupRead
 import com.example.ironpath.data.backup.RemoteBackupStore
 import com.example.ironpath.data.local.AccountDeletionInProgressException
 import com.example.ironpath.data.local.entity.AccountBackupMetadata
+import com.example.ironpath.data.local.entity.AccountDeletionJournal
 import com.example.ironpath.data.local.entity.RestoreUndoMetadata
 import com.example.ironpath.data.repository.PlanRepository
 import com.example.ironpath.domain.account.AccountDeletionRequest
@@ -180,6 +181,52 @@ class AccountDeletionRecoveryTest {
             database.accountDeletionDao().getJournal()?.stage,
         )
         assertNull(database.accountDeletionDao().getJournal()?.expectedLocalOwnerUid)
+    }
+
+    @Test
+    fun serviceBoundJournalCannotBeResumedByTheDemoManagerAtAnyPendingStage() = runBlocking {
+        val database = databaseRule.database
+        populateOwnedProfile(database)
+        val sessions = FakeSessions(account)
+        val remote = FakeRemote(RemoteAccountPurge.Completed)
+        val gate = AccountSessionOperationGate()
+        val deletion = manager(database, remote, sessions, gate)
+
+        AccountDeletionStage.entries
+            .filter { it != AccountDeletionStage.COMPLETE }
+            .forEach { stage ->
+                val journal =
+                    AccountDeletionJournal(
+                        operationId = "real-service-operation",
+                        accountId = account.opaqueValue,
+                        sessionEpoch = 7,
+                        profileGeneration = 0,
+                        stage = stage.name,
+                        createdAtEpochMillis = 1,
+                        serviceBinding = "real-project-and-endpoint-binding",
+                    )
+                database.accountDeletionDao().save(journal)
+
+                val recovered = deletion.recoverAtStartup() as AccountDeletionResult.RetryRequired
+                val retried = deletion.retry() as AccountDeletionResult.RetryRequired
+                assertEquals(stage, recovered.progress.stage)
+                assertEquals(recovered, retried)
+                assertEquals(journal.serviceBinding, recovered.progress.serviceBinding)
+                assertEquals(journal, database.accountDeletionDao().getJournal())
+                assertFalse(
+                    gate.withManualOperation(waitForTurn = false, unavailable = false) { true }
+                )
+                assertEquals(0, remote.purgeCalls)
+                assertEquals(0, sessions.tombstones)
+                assertNotNull(sessions.readSession())
+                assertEquals(1, database.backupDao().getWorkoutLogs().size)
+                assertNotNull(database.recordDao().getRecordById("delete-record"))
+                assertNotNull(database.backupDao().getRestoreUndoMetadata())
+                assertNotNull(database.sessionDao().getActiveSession())
+                assertEquals(account.opaqueValue, database.backupDao().getMetadata()?.ownerUid)
+                assertEquals(0L, database.backupDao().getMetadata()?.profileGeneration)
+                assertEquals("installation-old", sentinel.installedId)
+            }
     }
 
     private suspend fun populateOwnedProfile(

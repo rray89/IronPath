@@ -7,6 +7,7 @@ import com.example.ironpath.domain.account.AccountContextReader
 import com.example.ironpath.domain.account.AccountDeletionProgress
 import com.example.ironpath.domain.account.AccountDeletionRequest
 import com.example.ironpath.domain.account.AccountExperienceCapabilities
+import com.example.ironpath.domain.account.AccountFailureReason
 import com.example.ironpath.domain.account.AccountGateway
 import com.example.ironpath.domain.account.AccountState
 import com.example.ironpath.domain.account.LocalOwnership
@@ -414,7 +415,7 @@ constructor(
         }
 
     fun retryAccountDeletion() {
-        if (!capabilities.canDeleteAccount) return
+        // An existing journal must remain recoverable after configuration becomes unavailable.
         if (!manual.value.accountDeletion.retryAvailable || manual.value.accountDeletion.busy)
             return
         mutableManual.update {
@@ -465,7 +466,10 @@ constructor(
                             undoAvailable = false,
                             status = BackupStatus.LocalOnly,
                             feedback =
-                                "The demo IronPath account, all demo backups, and this device's training data were deleted. Your Google account was not affected.",
+                                if (capabilities.mode == AccountExperienceCapabilities.Mode.Demo)
+                                    "The demo IronPath account, all demo backups, and this device's training data were deleted. Your Google account was not affected."
+                                else
+                                    "Your IronPath account, all cloud backups, and this device's training data were deleted. Your Google account was not affected.",
                             accountDeletion =
                                 it.accountDeletion.copy(
                                     target = null,
@@ -479,18 +483,25 @@ constructor(
                     refreshBackupStatus()
                 }
                 AccountActionResult.Cancelled -> {
-                    mutableManual.update {
-                        it.copy(
-                            busy = false,
-                            accountDeletion = AccountDeletionUiState(),
-                            feedback =
-                                "The account or local profile changed. No different account was deleted.",
-                        )
-                    }
+                    val pending = state.value as? AccountState.AccountDeletionPending
+                    if (pending != null) showDeletionRetry(pending.progress)
+                    else
+                        mutableManual.update {
+                            it.copy(
+                                busy = false,
+                                accountDeletion = AccountDeletionUiState(),
+                                feedback =
+                                    "Account deletion was cancelled. Training data and backups were not changed.",
+                            )
+                        }
                 }
                 AccountActionResult.Unavailable -> {
                     val pending = state.value as? AccountState.AccountDeletionPending
-                    if (pending != null) showDeletionRetry(pending.progress)
+                    if (pending != null)
+                        showDeletionRetry(
+                            pending.progress,
+                            "Deletion could not continue because the deletion service is unavailable. Retry when the service is available.",
+                        )
                     else
                         mutableManual.update {
                             it.copy(
@@ -508,9 +519,8 @@ constructor(
                         mutableManual.update {
                             it.copy(
                                 busy = false,
-                                accountDeletion = it.accountDeletion.copy(busy = false),
-                                feedback =
-                                    "Account deletion could not finish. Check the account state before trying again.",
+                                accountDeletion = AccountDeletionUiState(),
+                                feedback = accountDeletionFailureMessage(result.reason),
                             )
                         }
                 }
@@ -524,7 +534,7 @@ constructor(
                 mutableManual.update {
                     it.copy(
                         busy = false,
-                        accountDeletion = it.accountDeletion.copy(busy = false),
+                        accountDeletion = AccountDeletionUiState(),
                         feedback =
                             "Account deletion could not finish. Check the account state before trying again.",
                     )
@@ -532,12 +542,30 @@ constructor(
         }
     }
 
-    private fun showDeletionRetry(progress: AccountDeletionProgress) {
+    private fun accountDeletionFailureMessage(reason: AccountFailureReason): String =
+        when (reason) {
+            AccountFailureReason.ReauthenticationRequired ->
+                "Account deletion did not start. Verify the same Google account after reviewing deletion again."
+            AccountFailureReason.ServiceUnavailable ->
+                "Account deletion could not start because the deletion service is unavailable. Try again later."
+            AccountFailureReason.Offline ->
+                "Account deletion did not start. Connect to the internet and review deletion again."
+            AccountFailureReason.LocalStateUnavailable ->
+                "Account deletion could not start. Check account and training data status before trying again."
+            AccountFailureReason.Unknown ->
+                "Account deletion could not start. Check account status and try again."
+        }
+
+    private fun showDeletionRetry(
+        progress: AccountDeletionProgress,
+        feedback: String = ACCOUNT_DELETION_PENDING_MESSAGE,
+    ) {
         mutableManual.update {
             it.copy(
                 busy = true,
-                feedback =
-                    "Deletion is paused at ${progress.stage.name.lowercase().replace('_', ' ')}. Retry to finish the same operation.",
+                review = null,
+                signOutReview = null,
+                feedback = feedback,
                 accountDeletion =
                     it.accountDeletion.copy(
                         target = null,

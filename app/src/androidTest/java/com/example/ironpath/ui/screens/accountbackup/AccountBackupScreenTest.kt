@@ -173,9 +173,11 @@ class AccountBackupScreenTest {
         accountEmails[0].assertIsDisplayed()
         composeRule
             .onNodeWithText("This permanently deletes this demo IronPath account", substring = true)
+            .performScrollTo()
             .assertIsDisplayed()
         composeRule
             .onNodeWithText("Your Google account is not affected.", substring = true)
+            .performScrollTo()
             .assertIsDisplayed()
         composeRule.onNodeWithText("Keep local data").assertDoesNotExist()
         composeRule.onNodeWithText("DELETE ACCOUNT AND ALL DATA").performClick()

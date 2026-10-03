@@ -45,7 +45,7 @@ import com.example.ironpath.data.local.entity.WorkoutLog
             RestoreUndoChunk::class,
             AccountDeletionJournal::class,
         ],
-    version = 7,
+    version = 8,
     exportSchema = true,
 )
 abstract class IronPathDatabase : RoomDatabase() {
@@ -178,6 +178,15 @@ abstract class IronPathDatabase : RoomDatabase() {
                         )
                         """
                             .trimIndent()
+                    )
+                }
+            }
+
+        val MIGRATION_7_8 =
+            object : Migration(7, 8) {
+                override fun migrate(db: SupportSQLiteDatabase) {
+                    db.execSQL(
+                        "ALTER TABLE `account_deletion_journal` ADD COLUMN `serviceBinding` TEXT"
                     )
                 }
             }
