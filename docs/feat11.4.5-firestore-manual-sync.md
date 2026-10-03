@@ -1,6 +1,7 @@
 # Feat11.4.5 — Real manual sync
 
-Status: implementation in progress; combined backup + sync product acceptance pending.
+Status: [PR66](https://github.com/rray89/IronPath/pull/66) in review; combined backup +
+sync product acceptance pending.
 
 ## Scope and decisions
 
@@ -35,6 +36,16 @@ newer generation merely because it originated from this installation. Exact-cont
 backup receipt recovery remains safe for an already owned profile. No automatic
 sync or retry runs on sign-in, startup, resume, edits, or connectivity recovery.
 
+An interrupted UPLOADING snapshot retains PR65's exact-snapshot resume contract.
+If the candidate changes before retry (for example because more local edits arrive),
+the young upload slot cannot be overwritten; its existing 24-hour server lease must
+expire before safe reclamation. Local training remains available. This slice does
+not add a durable queued sync or a background recovery worker.
+
+Payload inspection uses the existing REST transaction and
+[batchGet transaction snapshot](https://firebase.google.com/docs/firestore/reference/rest/v1/projects.databases.documents/batchGet).
+Status Refresh remains metadata-only. The checked-in rules are unchanged.
+
 ## Verification plan
 
 - Red/green JVM coordinator and protocol tests for merge/conflict/cancel, ownership,
@@ -47,6 +58,33 @@ sync or retry runs on sign-in, startup, resume, edits, or connectivity recovery.
 - Local Android emulators and Seeker checks are deferred by BOSS; no device install,
   clear/uninstall, live backend write, or frozen PR65 APK replacement is permitted.
 - Two sequential independent Astra Ultra reviews before final PR delivery.
+
+## Local candidate and verified evidence
+
+Production revision `133a67a5e3e9ece96c1a21057f25c9b0dba09c5b` passed 450 debug
+and 447 authpreview JVM tests, core coverage 90.88% line / 71.00% branch, 25 Firebase
+rules tests, and four actual Kotlin REST emulator cases (zero failures or skips).
+JDK21 lint for debug/benchmark/authpreview, debug/release/authpreview assembly and
+instrumentation APK compilation passed. Release mapping excludes the live cloud
+coordinator, transport, Firebase account adapter and authpreview screen. Initial
+regression tests failed before the implementation and passed afterward. API29 UI,
+Room and journey execution is performed by cloud CI; local device execution remains
+deferred. The PR tracks final CI and the two review receipts.
+
+Build with JDK21 and the Android SDK, without private configuration:
+
+```bash
+./gradlew --no-daemon --max-workers=2 \
+  '-Dorg.gradle.jvmargs=-Xmx2048m -XX:MaxMetaspaceSize=768m -XX:ActiveProcessorCount=2' \
+  assembleAuthpreview
+```
+
+This creates `app/build/outputs/apk/authpreview/app-authpreview.apk` with package
+`com.example.ironpath.authpreview`; it cannot contact live Firebase without private
+configuration. Only the coordinator builds the configured acceptance candidate by
+adding `-PironpathAuthPreviewConfig=/absolute/private/path/firebase-authpreview.json`
+as described in the [identity preview](feat11.4.3-google-identity-auth-preview.md).
+No private values belong in source, public artifacts or this review packet.
 
 ## Combined acceptance (coordinator prepares the configured APK and live rules)
 
