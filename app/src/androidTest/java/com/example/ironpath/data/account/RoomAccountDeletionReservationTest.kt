@@ -4,6 +4,7 @@ import androidx.room.withTransaction
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.example.ironpath.data.backup.BackupSnapshotCodec
 import com.example.ironpath.data.backup.InstallationSentinel
+import com.example.ironpath.data.backup.InstallationValidationResult
 import com.example.ironpath.data.backup.RoomBackupStore
 import com.example.ironpath.data.local.AccountDeletionInProgressException
 import com.example.ironpath.data.local.IronPathDatabase
@@ -49,11 +50,15 @@ class RoomAccountDeletionReservationTest {
 
             override fun newId() = "local-${++sequence}"
         }
+    private var failSentinelReads = false
     private val sentinel =
         object : InstallationSentinel {
             private var value: String? = "installation"
 
-            override suspend fun readInstallationId() = value
+            override suspend fun readInstallationId(): String? {
+                check(!failSentinelReads) { "Isolated sentinel read failure" }
+                return value
+            }
 
             override suspend fun writeInstallationId(installationId: String): Boolean {
                 value = installationId
@@ -465,6 +470,56 @@ class RoomAccountDeletionReservationTest {
         assertTrue(store(reopened).acknowledgeTerminal(terminal))
         assertNull(store(reopened).journal())
         assertEquals(before, snapshot(reopened))
+    }
+
+    @Test
+    fun cancelledInstallationValidationIsReadOnlyUntilExactAcknowledgment() = runBlocking {
+        assertTerminalInstallationValidation(AccountDeletionStage.CANCELLED)
+    }
+
+    @Test
+    fun completedInstallationValidationIsReadOnlyUntilExactAcknowledgment() = runBlocking {
+        assertTerminalInstallationValidation(AccountDeletionStage.COMPLETE)
+    }
+
+    private suspend fun assertTerminalInstallationValidation(stage: AccountDeletionStage) {
+        val database = databases.open()
+        seed(database)
+        val terminal = terminal(database, stage)
+        val backup = RoomBackupStore(database, ids, sentinel)
+        val metadata = checkNotNull(database.backupDao().getMetadata())
+        val before = snapshot(database)
+        assertEquals(InstallationValidationResult.Validated, backup.validateInstallation())
+        assertEquals(before, snapshot(database))
+        assertEquals(terminal, store(database).journal())
+        assertTrue(
+            runCatching { database.withTransaction { database.requireWritesAllowed() } }
+                .exceptionOrNull() is AccountDeletionInProgressException
+        )
+
+        sentinel.writeInstallationId("foreign-terminal-marker")
+        assertEquals(InstallationValidationResult.Failed, backup.validateInstallation())
+        assertEquals(before, snapshot(database))
+        assertEquals("foreign-terminal-marker", sentinel.readInstallationId())
+        failSentinelReads = true
+        assertEquals(InstallationValidationResult.Failed, backup.validateInstallation())
+        assertEquals(before, snapshot(database))
+        failSentinelReads = false
+        sentinel.writeInstallationId(metadata.installationId)
+
+        database.openHelper.writableDatabase.execSQL("DELETE FROM account_backup_metadata")
+        val missingMetadata = snapshot(database)
+        assertEquals(InstallationValidationResult.Failed, backup.validateInstallation())
+        assertNull(database.backupDao().getMetadata())
+        assertEquals(missingMetadata, snapshot(database))
+        assertEquals(metadata.installationId, sentinel.readInstallationId())
+        assertEquals(terminal, store(database).journal())
+        database.backupDao().insertMetadataIfAbsent(metadata)
+
+        assertEquals(InstallationValidationResult.Validated, backup.validateInstallation())
+        assertTrue(store(database).acknowledgeTerminal(terminal))
+        database.withTransaction { database.requireWritesAllowed() }
+        assertEquals(before, snapshot(database))
     }
 
     private suspend fun assertTerminalAcknowledgmentSurvivesReopen(stage: AccountDeletionStage) {

@@ -42,6 +42,7 @@ import com.example.ironpath.testutil.AccountFilesUnchangedRule
 import com.example.ironpath.testutil.FakeAccountSessionAdapter
 import com.example.ironpath.testutil.FakeOnboardingRepository
 import com.example.ironpath.testutil.HiltTestDatabaseRule
+import com.example.ironpath.testutil.InMemoryInstallationSentinel
 import com.example.ironpath.testutil.TestData
 import com.example.ironpath.ui.navigation.Route
 import com.example.ironpath.ui.screens.accountbackup.ACCOUNT_DELETION_PENDING_MESSAGE
@@ -104,6 +105,7 @@ class AccountDeletionStartupRetryTest {
 
     @Inject lateinit var database: IronPathDatabase
     @Inject lateinit var installationGuard: InstallationGuard
+    @Inject lateinit var installationSentinel: InMemoryInstallationSentinel
     @Inject lateinit var localProfileResetter: LocalProfileResetter
     @Inject lateinit var session: FakeAccountSessionAdapter
     @Inject lateinit var onboarding: FakeOnboardingRepository
@@ -314,6 +316,46 @@ class AccountDeletionStartupRetryTest {
         composeRule.activityRule.scenario.recreate()
         waitForText("CONTINUE ON THIS DEVICE")
         assertEquals(1, deletion.retries.get())
+    }
+
+    @Test
+    fun cancelledAcknowledgmentFollowedByMarkerReadFailureRetriesOrdinaryStartup() {
+        assertPostAcknowledgmentStartupRetry(cancel = true)
+    }
+
+    @Test
+    fun completedAcknowledgmentFollowedByMarkerReadFailureRetriesOrdinaryStartup() {
+        assertPostAcknowledgmentStartupRetry(cancel = false)
+    }
+
+    private fun assertPostAcknowledgmentStartupRetry(cancel: Boolean) {
+        waitForText("Finishing account deletion")
+        deletion.afterAcknowledgment = { installationSentinel.failReads = true }
+        composeRule
+            .onNodeWithText(if (cancel) "CANCEL IF NOT STARTED" else "RETRY DELETION")
+            .performScrollTo()
+            .performClick()
+        waitForText("Local profile unavailable")
+        assertNull(runBlocking { deletion.pending() })
+        assertEquals(1, deletion.acknowledgments.get())
+        composeRule.onNodeWithText("Finishing account deletion").assertDoesNotExist()
+        composeRule.onNodeWithText("CONTINUE ON THIS DEVICE").assertDoesNotExist()
+        val local = runBlocking { localGraphSnapshot() }
+        val retries = deletion.retries.get()
+        val cancellations = deletion.cancellations.get()
+
+        installationSentinel.failReads = false
+        composeRule.onNodeWithText("RETRY").performClick()
+        waitForText("CONTINUE ON THIS DEVICE")
+        assertEquals(retries, deletion.retries.get())
+        assertEquals(cancellations, deletion.cancellations.get())
+        assertEquals(1, deletion.acknowledgments.get())
+        assertEquals(local, runBlocking { localGraphSnapshot() })
+        composeRule.activityRule.scenario.recreate()
+        waitForText("CONTINUE ON THIS DEVICE")
+        assertEquals(retries, deletion.retries.get())
+        assertEquals(cancellations, deletion.cancellations.get())
+        assertEquals(0, deletion.newDeletions.get())
     }
 
     @Test
@@ -564,6 +606,7 @@ class AccountDeletionStartupRetryTest {
         val cancellations = AtomicInteger()
         val acknowledgments = AtomicInteger()
         @Volatile var allowAcknowledgment = true
+        @Volatile var afterAcknowledgment: (() -> Unit)? = null
         @Volatile private var acknowledged = false
         @Volatile private var terminalResult: AccountDeletionResult? = null
         @Volatile var hasDeletion = true
@@ -595,12 +638,14 @@ class AccountDeletionStartupRetryTest {
 
         override suspend fun retry(): AccountDeletionResult {
             retries.incrementAndGet()
+            if (acknowledged || !hasDeletion) return AccountDeletionResult.Idle
             return retainResult(terminalResult ?: retryResult)
         }
 
         override suspend fun cancelUnactivated(): AccountDeletionResult {
             cancellations.incrementAndGet()
             cancellationGate?.await()
+            if (acknowledged || !hasDeletion) return AccountDeletionResult.Idle
             return retainResult(terminalResult ?: cancelResult)
         }
 
@@ -620,6 +665,7 @@ class AccountDeletionStartupRetryTest {
             acknowledgments.incrementAndGet()
             if (!allowAcknowledgment || terminalResult == null || expected != progress) return false
             acknowledged = true
+            afterAcknowledgment?.invoke()
             return true
         }
 

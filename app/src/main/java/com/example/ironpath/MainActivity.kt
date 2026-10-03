@@ -241,6 +241,13 @@ class MainActivity : ComponentActivity() {
                                     (reconciled != AccountActionResult.Completed || !stable)
                             )
                                 return StartupState.ProfileVerificationUnavailable
+                            if (terminalDeletion) {
+                                // Successful stable reconciliation already acknowledged this
+                                // deletion. Later independent startup checks must retry normally.
+                                observedStartupDeletion = false
+                                knownStartupDeletionProgress = null
+                                startupRecoveryAction = StartupRecoveryAction.Observe
+                            }
                             val installation =
                                 runCatching { installationGuard.validate() }.getOrNull()
                             if (
@@ -248,11 +255,6 @@ class MainActivity : ComponentActivity() {
                                     installation == InstallationValidationResult.Failed
                             )
                                 return StartupState.ProfileVerificationUnavailable
-                            if (terminalDeletion) {
-                                observedStartupDeletion = false
-                                knownStartupDeletionProgress = null
-                                startupRecoveryAction = StartupRecoveryAction.Observe
-                            }
                             readReadyProfile()
                         }
                         is AccountDeletionResult.RetryRequired -> deletionPending(deletion.progress)

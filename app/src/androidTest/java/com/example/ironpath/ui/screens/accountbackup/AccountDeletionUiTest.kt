@@ -294,7 +294,11 @@ class AccountDeletionUiTest {
                 progress.copy(
                     stage = AccountDeletionStage.BACKUPS_PURGED,
                     remoteState = AccountDeletionRemoteState.COMPLETE
-                ) to ACCOUNT_DELETION_PENDING_MESSAGE,
+                ) to ACCOUNT_DELETION_COMPLETED_VERIFICATION_MESSAGE,
+                progress.copy(
+                    stage = AccountDeletionStage.CANCELLED,
+                    remoteState = AccountDeletionRemoteState.CANCELLED_NO_DELETE
+                ) to ACCOUNT_DELETION_CANCELLED_VERIFICATION_MESSAGE,
                 reserved.copy(
                     receiptSecret = null,
                     subjectBinding = null,
