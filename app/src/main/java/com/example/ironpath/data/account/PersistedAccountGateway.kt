@@ -60,10 +60,21 @@ constructor(
             operationGate.withSessionObservation { _ ->
                 val result =
                     mutex.withLock {
+                        // A failed journal read is not proof that deletion ended. Preserve the
+                        // last known state, including its recovery UI, and leave admission closed.
+                        val pendingDeletion =
+                            try {
+                                deletionManager.pending()
+                            } catch (cancelled: CancellationException) {
+                                throw cancelled
+                            } catch (_: Exception) {
+                                return@withLock AccountActionResult.Failed(
+                                    AccountFailureReason.LocalStateUnavailable
+                                )
+                            }
                         safely {
                             // Auth callbacks are observations, not authority to retire a durable
                             // deletion. The deletion manager alone verifies completion.
-                            val pendingDeletion = deletionManager.pending()
                             if (pendingDeletion != null) {
                                 return@safely publishPendingDeletion(pendingDeletion)
                             }
@@ -88,7 +99,8 @@ constructor(
                 AccountSessionOperationGate.MutationResult(
                     result,
                     reopenAdmission =
-                        mutableState.value !is AccountState.SignOutPending &&
+                        result == AccountActionResult.Completed &&
+                            mutableState.value !is AccountState.SignOutPending &&
                             mutableState.value !is AccountState.AccountDeletionPending &&
                             mutableState.value != AccountState.DeletingAccount,
                 )

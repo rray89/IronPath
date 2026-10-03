@@ -18,6 +18,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Menu
@@ -48,13 +50,15 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.hideFromAccessibility
+import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.semantics.testTagsAsResourceId
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
@@ -383,20 +387,35 @@ class MainActivity : ComponentActivity() {
 
         data class DeletionPending(val progress: AccountDeletionProgress?) : StartupState
     }
+}
 
-    @Composable
-    private fun AccountDeletionStartupScreen(
-        title: String,
-        detail: String,
-        retryLabel: String = "RETRY DELETION",
-        onRetry: (() -> Unit)? = null,
-    ) {
+/** The cold-start barrier remains visible until deletion and local-profile checks finish. */
+@Composable
+internal fun AccountDeletionStartupScreen(
+    title: String,
+    detail: String,
+    retryLabel: String = "RETRY DELETION",
+    onRetry: (() -> Unit)? = null,
+) {
+    Surface(modifier = Modifier.fillMaxSize()) {
         Column(
-            modifier = Modifier.fillMaxSize().padding(24.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterVertically),
+            modifier =
+                Modifier.fillMaxSize()
+                    .safeDrawingPadding()
+                    .verticalScroll(rememberScrollState())
+                    .padding(24.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             Text(title, style = MaterialTheme.typography.headlineMedium)
-            Text(detail, style = MaterialTheme.typography.bodyLarge)
+            Text(
+                detail,
+                style = MaterialTheme.typography.bodyLarge,
+                modifier =
+                    Modifier.semantics {
+                        stateDescription = title
+                        liveRegion = LiveRegionMode.Polite
+                    },
+            )
             onRetry?.let { retry ->
                 Button(onClick = retry, modifier = Modifier.fillMaxWidth()) { Text(retryLabel) }
             }

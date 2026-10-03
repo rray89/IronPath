@@ -332,6 +332,37 @@ class PersistedAccountGatewayTest {
     }
 
     @Test
+    fun `journal read failure during provider observation preserves known deletion barrier`() =
+        runTest {
+            val progress =
+                AccountDeletionProgress(
+                    "delete-operation",
+                    profile.id,
+                    0,
+                    0,
+                    AccountDeletionStage.PREPARED,
+                )
+            val deletion = RecordingDeletionManager().apply { pendingProgress = progress }
+            val source = Source().apply { session = profile }
+            val gate = AccountSessionOperationGate()
+            val gateway = gateway(source, Reader(), gate = gate, deletionManager = deletion)
+            gateway.refreshLocal()
+            deletion.pendingFailure = IllegalStateException("journal temporarily unavailable")
+
+            assertEquals(
+                AccountActionResult.Failed(AccountFailureReason.LocalStateUnavailable),
+                gateway.reconcileSessionChange(),
+            )
+            assertEquals(AccountState.AccountDeletionPending(progress), gateway.state.value)
+            assertFalse(gate.withManualOperation(waitForTurn = false, unavailable = false) { true })
+            assertEquals(0, source.clearCalls)
+
+            deletion.pendingFailure = null
+            assertEquals(AccountActionResult.Completed, gateway.reconcileSessionChange())
+            assertEquals(AccountState.AccountDeletionPending(progress), gateway.state.value)
+        }
+
+    @Test
     fun `startup reconciliation clears stale in-memory pending deletion after recovery`() =
         runTest {
             val deletion =
@@ -1375,6 +1406,7 @@ class PersistedAccountGatewayTest {
         var lastRequest: AccountDeletionRequest? = null
         var result: AccountDeletionResult = AccountDeletionResult.Unavailable
         var pendingProgress: AccountDeletionProgress? = null
+        var pendingFailure: Exception? = null
         var retryAction: suspend () -> AccountDeletionResult = { AccountDeletionResult.Idle }
 
         override suspend fun recoverAtStartup() = AccountDeletionResult.Idle
@@ -1387,7 +1419,10 @@ class PersistedAccountGatewayTest {
 
         override suspend fun retry() = retryAction()
 
-        override suspend fun pending(): AccountDeletionProgress? = pendingProgress
+        override suspend fun pending(): AccountDeletionProgress? {
+            pendingFailure?.let { throw it }
+            return pendingProgress
+        }
     }
 
     private class Reader : AccountContextReader {

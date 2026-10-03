@@ -77,6 +77,29 @@ class AccountDeletionStartupRetryTest {
         assertEquals(0, deletion.newDeletions.get())
     }
 
+    @Test
+    fun unavailableStartupRetryWithoutReportedProgressKeepsTrainingClosedUntilCleanupCompletes() {
+        waitForText("Finishing account deletion")
+        deletion.retryResult = AccountDeletionResult.Unavailable
+        deletion.reportPendingProgress = false
+
+        composeRule.onNodeWithText("RETRY DELETION").performScrollTo().performClick()
+        waitForText("Finishing account deletion")
+        assertEquals(1, deletion.retries.get())
+        composeRule.onNodeWithText("CONTINUE ON THIS DEVICE").assertDoesNotExist()
+        composeRule.onNodeWithText("No workout plan yet").assertDoesNotExist()
+        composeRule.onNodeWithTag(TestTags.bottomNav(Route.HOME)).assertDoesNotExist()
+        listOf("CANCEL", "SIGN OUT", "BACK UP NOW", "CONTINUE ANYWAY").forEach {
+            composeRule.onNodeWithText(it).assertDoesNotExist()
+        }
+
+        deletion.retryResult = AccountDeletionResult.Completed
+        composeRule.onNodeWithText("RETRY DELETION").performScrollTo().performClick()
+        waitForText("CONTINUE ON THIS DEVICE")
+        assertEquals(2, deletion.retries.get())
+        assertEquals(0, deletion.newDeletions.get())
+    }
+
     private fun waitForText(text: String) {
         composeRule.waitUntil(timeoutMillis = 10_000) {
             composeRule.onAllNodesWithText(text).fetchSemanticsNodes().isNotEmpty()
@@ -90,6 +113,8 @@ class AccountDeletionStartupRetryTest {
         val retries = AtomicInteger()
         val newDeletions = AtomicInteger()
         @Volatile private var completed = false
+        @Volatile var retryResult: AccountDeletionResult = AccountDeletionResult.Completed
+        @Volatile var reportPendingProgress = true
         private val progress =
             AccountDeletionProgress(
                 operationId = "startup-explicit-retry",
@@ -108,8 +133,9 @@ class AccountDeletionStartupRetryTest {
 
         override suspend fun retry(): AccountDeletionResult {
             retries.incrementAndGet()
-            completed = true
-            return AccountDeletionResult.Completed
+            val result = retryResult
+            if (result == AccountDeletionResult.Completed) completed = true
+            return result
         }
 
         override suspend fun delete(request: AccountDeletionRequest): AccountDeletionResult {
@@ -117,6 +143,7 @@ class AccountDeletionStartupRetryTest {
             return AccountDeletionResult.Unavailable
         }
 
-        override suspend fun pending(): AccountDeletionProgress? = progress.takeUnless { completed }
+        override suspend fun pending(): AccountDeletionProgress? =
+            progress.takeIf { !completed && reportPendingProgress }
     }
 }
