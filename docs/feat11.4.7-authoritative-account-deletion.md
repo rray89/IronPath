@@ -12,70 +12,82 @@ service-account provisioning, IAM changes or live Firebase operations.
 
 ## Deletion contract
 
-The two confirmation layers identify the current account and state that deletion removes
-the IronPath account, every backup, all local training records, active workouts and the
-restore/undo state. There is no keep-data option. The Google account itself is unaffected.
-The final confirmation requests a fresh Google credential and reauthenticates the existing
-Firebase user; it never signs in a different account to perform deletion. Cancelling or
-failing reauthentication before the durable deletion journal leaves data unchanged.
+The two confirmation layers name the current account and full deletion scope: the
+IronPath account, all backups, local training, active workout, and restore/undo state.
+The Google account itself is unaffected. There is no keep-data option once deletion
+starts. BOSS explicitly approved v2 source and isolated tests on October 3, 2026,
+including recovery receipt storage, cancellation before activation, and authpreview
+system-backup/device-transfer exclusion. Deployment, billing and real data operations
+remain outside this authorization.
 
-The client requires a configured HTTPS service origin, a matching Firebase project and
-capability response before preparing deletion. A Room v7→v8 migration adds a nullable
-service-binding fingerprint to the existing journal. The fingerprint binds retries to the
-same project and endpoint. Existing demo journals retain a null binding and keep their
-prior behavior. Production release still binds the unavailable deletion manager.
+The client validates an HTTPS origin and a v2 capability response with the configured
+Firebase project and immutable service instance. It stores a nonblocking DRAFT with
+UUID v4, a random 256-bit receipt secret, and the captured owner, profile generation,
+installation and service binding. Fresh Google reauthentication must verify the same
+Firebase UID. Reservation is non-destructive: it creates no tombstone, job or worker.
+Only a validated server acknowledgment can promote that exact draft to PREPARED in
+Room and close local write admission. A lost acknowledgment or crash before promotion
+leaves local training available; an orphan reservation cannot delete data.
 
-After the journal commits PREPARED, training/profile writes remain blocked. There is no
-cancel action. The journal's cryptographically random UUID v4 is the operation identifier
-and recovery capability; no Google or Firebase token is persisted in it. A lost submission
-receipt is resolved through the same operation. Startup never opens a Google chooser.
-An unknown server operation requires an explicit Retry and another recent reauthentication
-before submission; changing service configuration cannot silently redirect the operation.
-The current client does not retain the initial credential after the submission call returns,
-so a warm Retry cannot reuse that proof even while it would still be recent.
+A receipt grants only status and cancellation of an unactivated reservation. It cannot
+activate deletion. Activation follows an explicit confirmation or Retry with fresh
+same-UID Google proof, after the journal commits and context is rechecked. The client
+never stores or automatically replays an ID token; cold startup only reads status and
+never opens a Google chooser. Authentication is checked at server request admission,
+including expiry, five-minute auth_time, project, provider and revocation. Auth changes
+after admission cannot atomically revoke an in-flight Firestore transaction: it may
+still commit. Cancellation and activation transact against the same UID fence, so the
+server decides which happened first.
 
-The service verifies a current, nonrevoked Firebase ID token, `google.com` provider and
-`auth_time` no older than five minutes. The UID is derived exclusively from the verified
-token. It atomically creates a permanent UID tombstone and durable deletion job. Checked-in
-Firestore rules deny all client access to a tombstoned UID, including attempts by another
-installation to publish an upload. Clients cannot read, create or remove jobs/tombstones.
+If status is RESERVED, the user may explicitly ask to cancel. Only the atomic server
+result CANCELLED_NO_DELETE retires the matching local journal and preserves every
+training, active, ownership, baseline and undo row. Local account/installation
+stabilization must finish before normal admission reopens. This result means this
+reservation did not start deletion; another device may start deletion later. A cancelled
+receipt remains terminal even after that later deletion and can never authorize cleanup.
+If another device already activated, cancellation returns PENDING or COMPLETE instead.
+Unknown, malformed, stale or mismatched receipts leave the barrier closed.
 
-A worker resumes pending jobs independently of HTTP requests, including after restart or
-client uninstall. It recursively removes the entire `users/{uid}` subtree without trusting
-manifest shape or the backup registry. This includes complete and interrupted snapshots,
-chunks below missing manifests, malformed metadata and unexpected descendants. It verifies
-the root and descendants are absent before deleting the Firebase Auth user. Only then does
-it publish COMPLETE. A crash after Auth deletion but before COMPLETE safely repeats cleanup.
-Permanent tombstones fence stale tokens; a later Google sign-in receives a fresh Firebase
-UID and cannot recover the retired UID's backups.
+Activation atomically creates the permanent UID tombstone and canonical deletion job.
+Firestore rules deny client access to that UID, including stale uploads from another
+installation. Clients cannot read or mutate receipt, quota, job or tombstone records.
+The independent worker recursively purges the entire users/{uid} subtree, including
+orphan chunks, interrupted snapshots and malformed descendants. It independently
+verifies absence, deletes Firebase Auth, then durably publishes COMPLETE. Restart or
+loss of the HTTP client does not stop an already activated job.
 
-Concurrent same-account confirmations receive separate capabilities linked to the same
-canonical server job. Only recently verified same-UID credentials may attach another
-receipt; an already completed job also permits signature-verified recent proof of the
-retired UID, without starting destructive work. Firebase Admin's emulator forces an
-existence/revocation check even for `verifyIdToken(false)`, so this completion-only branch
-has a test-only signature-result seam and still needs approved production verification.
+An acknowledged RESERVED receipt observes another device's PENDING or COMPLETE without
+Auth or a retained token. This closes the v1 unknown-operation lock when the other
+device removes Auth before this device activates. Status uses one serializable snapshot
+of receipt, fence and canonical job. Terminal cancellation is checked before later
+canonical work. No receipt mapping TTL is used. Synthetic creation quotas reject new
+reservations before ACK and never block existing receipt status/cancel/activation or
+already activated workers; live retention, cost and operational ownership still need
+separate approval.
 
-There is one explicit recovery limit in both the current warm process and after a cold
-restart: if a second operation was never accepted and another device already deleted Auth,
-the client has no retained recent credential with which to authenticate the unknown
-capability, and fresh reauthentication of that retired Firebase user cannot succeed.
-The completion-only server alias path therefore does not by itself solve this client gap.
-Deletion stays pending with local data locked. A future deployment must provide an
-authoritative receipt-recovery procedure; the client never guesses success, blindly erases
-local data or signs up a new UID as a substitute. Already accepted jobs and receipts do not
-have this limitation, because their existing operation capability remains resumable.
-This remains an unresolved correctness gate for reliable multi-device deletion. Documenting
-it does not resolve the review finding or establish product acceptance. A proposed bounded,
-memory-only credential retry has not been applied; even that proposal would still require
-an authoritative recovery design for process death or expired proof.
+The Room v8→v9 migration adds the DRAFT table and nullable v2 receipt, subject, version,
+state and installation fields. It preserves old v1 journals with null authority. A
+service-bound v1 journal cannot auto-upgrade, silently reopen writes or authorize
+cleanup; it requires explicit integrity recovery help. Null-bound debug/demo journals
+retain their existing contract. The release deletion manager remains unavailable.
 
-The client accepts only an exact operation receipt from its configured service. COMPLETE
-advances the local journal through remote verification, then the shared Room transaction
-clears the full training graph, active state, ownership, baseline and undo and advances the
-profile generation. It rechecks the journal, local owner/profile and current session before
-cleanup. A different session is never signed out. Marker or local cleanup failures remain
-retryable without repeating an already confirmed remote deletion.
+Only matching COMPLETE permits atomic cleanup of the captured local graph, with exact
+journal/owner/profile/installation checks and monotonic receipt versions. Session state
+is independent: a foreign Firebase session is preserved and does not prevent cleanup
+of the confirmed old graph. Scope replacement or corruption fails closed. Marker and
+local cleanup failures remain retryable. Pending state guards the full app and survives
+recreation; scroll, safe insets and Back handling retain the recovery actions.
+
+DRAFT, receipt secret and journal share the same Room database. The authpreview variant
+excludes the entire database and its WAL/SHM sidecars from Android cloud backup and
+device transfer, including legacy rules and device-protected domains. API31+ transfer
+allows only non-secret onboarding preferences; its include allowlist disables all
+other default domains, including database sidecars ([Android backup rules](https://developer.android.com/identity/data/autobackup#IncludeExclude)).
+Debug and release policy is unchanged.
+Training transfer remains available through the application's explicit cloud
+backup/restore workflow. Training exports and logs must never include receipt secrets.
+Uninstall/data loss, permanent service loss, and legacy transferred journals require
+separate recovery assistance; they are not proof of deletion completion.
 
 ## Source and emulator verification
 
@@ -129,14 +141,17 @@ A future activation needs:
    pointing at a Firebase project is not proof that its rules are safe.
 3. A reviewed production entrypoint replacing the deliberately emulator-only runner,
    durable worker restart guarantees, monitoring/retry handling and a recovery procedure
-   for a permanently failing job. Keep the tombstone and receipt until an independently
-   reviewed retention policy can preserve replay safety.
+   for a permanently failing job. Keep permanent tombstones and all acknowledged receipt
+   identity mappings without TTL. Approve retention/privacy, new-reservation abuse limits
+   and operational cost; limits must never strand existing recovery or active jobs.
 4. TLS without redirects and sanitized access/error logs. Operation UUIDs are recovery
-   capabilities; proxy/server logs must not retain deletion URL paths, tokens or payloads.
+   identifiers; the separate secret is the recovery capability. Proxy/server logs must not
+   retain deletion URL paths, receipt headers, tokens or payloads.
 5. Add optional `deletionServiceEndpoint` (an HTTPS origin with no path/query/credentials)
    to the owner's private `ironpathAuthPreviewConfig` file. Its capability response must
-   report `ironpath-account-deletion-v1`, the configured project, authoritative cleanup and
-   resumable jobs. Build a new private candidate; do not overwrite frozen APK evidence.
+   report `ironpath-account-deletion-v2`, the configured project, an immutable valid
+   serviceInstanceId, authoritative cleanup and resumable jobs. The instance and original
+   recovery route must remain pinned for all acknowledged receipts. Build a new private candidate; do not overwrite frozen APK evidence.
 6. Run the combined synthetic-account QA below and record the exact source/APK hashes.
    An external deletion-request path and public privacy package remain separate scope.
 
@@ -153,11 +168,17 @@ Do not clear/uninstall a device app to follow this guide.
    and full scope, and cancel each confirmation. Verify all local data and backups remain.
 4. Confirm both layers, then cancel the Google chooser. Verify the account, local graph,
    active workout, undo and remote backup are unchanged.
-5. Reopen and reauthenticate the matching Google account. Interrupt connectivity or restart
-   after submission. Verify pending UI blocks training and backup/sync/restore/sign-out,
-   and Retry resumes the same operation without claiming success prematurely.
-6. Verify server cleanup and identity deletion complete, then local data clears and Home
+5. Reopen and reauthenticate the matching Google account. Interrupt connectivity at
+   reservation/activation or restart after PREPARED. DRAFT alone must leave training
+   available; acknowledged pending state must block training/backup/sync/restore/sign-out.
+   Cold startup reads status only. If still RESERVED, Retry requires fresh same-UID proof;
+   Cancel asks the server for CANCELLED_NO_DELETE and preserves every local row. Confirm
+   activation wins are reported as pending/completed rather than as cancelled.
+6. With two installations, reserve on one and activate/complete on the other. Confirm
+   the first can verify completion without Auth, and a previously cancelled receipt
+   never turns into COMPLETE. A different current session must remain signed in.
+7. Verify server cleanup and identity deletion complete, then local data clears and Home
    reopens with usable new Records navigation. Sign in with the same Google identity and
    verify a fresh IronPath account with no old backup or training data appears.
-7. Verify another installation's stale upload cannot recreate the old account's backups,
+8. Verify another installation's stale upload cannot recreate the old account's backups,
    and a different local owner cannot enter this destructive flow.

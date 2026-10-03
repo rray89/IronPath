@@ -501,6 +501,9 @@ if (project.hasProperty("enableCoverage")) {
 // The real REST adapter integration suite is a separate, explicit emulator-only JVM task.
 // Default unit tests never require a network service, Google account, or private project.
 tasks.withType<Test>().configureEach {
+    if (name == "testAuthpreviewUnitTest") {
+        dependsOn("processAuthpreviewMainManifest", "packageAuthpreviewResources")
+    }
     if (name != "firestoreTransportTest")
         filter.excludeTestsMatching("*FirestoreTransportEmulatorTest")
     if (name != "deletionTransportTest")

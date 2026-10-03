@@ -36,6 +36,7 @@ import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.rememberDrawerState
@@ -67,7 +68,9 @@ import androidx.navigation.NavHostController
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.example.ironpath.data.backup.InstallationGuard
+import com.example.ironpath.data.backup.InstallationValidationResult
 import com.example.ironpath.data.onboarding.OnboardingRepository
+import com.example.ironpath.domain.account.AccountActionResult
 import com.example.ironpath.domain.account.AccountContextReader
 import com.example.ironpath.domain.account.AccountCredentialActivityHost
 import com.example.ironpath.domain.account.AccountDeletionManager
@@ -84,13 +87,16 @@ import com.example.ironpath.ui.navigation.Route
 import com.example.ironpath.ui.navigation.TopNavigationIcon
 import com.example.ironpath.ui.navigation.navigationChrome
 import com.example.ironpath.ui.navigation.startupRoute
+import com.example.ironpath.ui.screens.accountbackup.ACCOUNT_DELETION_CANCELLATION_SCOPE
 import com.example.ironpath.ui.screens.accountbackup.ACCOUNT_EXPERIENCE_PREVIEW_ENABLED
 import com.example.ironpath.ui.screens.accountbackup.AccountBackupViewModel
 import com.example.ironpath.ui.screens.accountbackup.AccountDeletionRecoveryScreen
 import com.example.ironpath.ui.screens.accountbackup.ManualBackupActions
 import com.example.ironpath.ui.screens.accountbackup.ManualBackupUiState
+import com.example.ironpath.ui.screens.accountbackup.accountDeletionRecoveryMessage
 import com.example.ironpath.ui.screens.accountbackup.accountExperiencePreviewTopBarTitle
 import com.example.ironpath.ui.screens.accountbackup.blocksAccountActions
+import com.example.ironpath.ui.screens.accountbackup.canCancelBeforeActivation
 import com.example.ironpath.ui.screens.accountbackup.isAccountBackupRoute
 import com.example.ironpath.ui.testing.TestTags
 import com.example.ironpath.ui.theme.IronPathTheme
@@ -130,6 +136,9 @@ class MainActivity : ComponentActivity() {
             IronPathTheme {
                 var startup by remember { mutableStateOf<StartupState>(StartupState.Loading) }
                 var startupAttempt by remember { mutableIntStateOf(0) }
+                var startupRecoveryAction by remember {
+                    mutableStateOf(StartupRecoveryAction.Observe)
+                }
                 suspend fun readReadyProfile(expectedGeneration: Long? = null): StartupState {
                     try {
                         val observed = accountContextReader.read()
@@ -155,9 +164,15 @@ class MainActivity : ComponentActivity() {
                 suspend fun prepareApp(): StartupState {
                     val deletion =
                         try {
-                            // Only a deliberate Retry may open Google reauthentication.
-                            if (startupAttempt > 0) accountDeletionManager.retry()
-                            else accountDeletionManager.recoverAtStartup()
+                            // Recreation always observes. Only explicit actions may activate or
+                            // cancel.
+                            when (startupRecoveryAction) {
+                                StartupRecoveryAction.Observe ->
+                                    accountDeletionManager.recoverAtStartup()
+                                StartupRecoveryAction.Retry -> accountDeletionManager.retry()
+                                StartupRecoveryAction.CancelUnactivated ->
+                                    accountDeletionManager.cancelUnactivated()
+                            }
                         } catch (cancelled: CancellationException) {
                             throw cancelled
                         } catch (_: Exception) {
@@ -165,14 +180,16 @@ class MainActivity : ComponentActivity() {
                         }
                     return when (deletion) {
                         AccountDeletionResult.Idle,
+                        AccountDeletionResult.Cancelled,
                         AccountDeletionResult.Completed -> {
-                            try {
-                                accountGateway.reconcileAfterDeletionRecovery()
-                            } catch (cancelled: CancellationException) {
-                                throw cancelled
-                            } catch (_: Exception) {
-                                // Keep the existing recoverable account state available to the UI.
-                            }
+                            val reconciled =
+                                try {
+                                    accountGateway.reconcileAfterDeletionRecovery()
+                                } catch (cancelled: CancellationException) {
+                                    throw cancelled
+                                } catch (_: Exception) {
+                                    AccountActionResult.Unavailable
+                                }
                             when (val accountState = accountGateway.state.value) {
                                 is AccountState.AccountDeletionPending ->
                                     return StartupState.DeletionPending(accountState.progress)
@@ -189,12 +206,25 @@ class MainActivity : ComponentActivity() {
                                 }
                                 else -> Unit
                             }
-                            runCatching { installationGuard.validate() }
+                            val stable =
+                                accountGateway.state.value.let {
+                                    it == AccountState.LocalOnly ||
+                                        it is AccountState.SignedIn ||
+                                        it is AccountState.AwaitingDataChoice
+                                }
+                            if (reconciled != AccountActionResult.Completed || !stable)
+                                return StartupState.ProfileVerificationUnavailable
+                            val installation =
+                                runCatching { installationGuard.validate() }.getOrNull()
+                            if (
+                                installation == null ||
+                                    installation == InstallationValidationResult.Failed
+                            )
+                                return StartupState.ProfileVerificationUnavailable
                             readReadyProfile()
                         }
                         is AccountDeletionResult.RetryRequired ->
                             StartupState.DeletionPending(deletion.progress)
-                        AccountDeletionResult.Cancelled,
                         is AccountDeletionResult.Failed,
                         AccountDeletionResult.Unavailable -> {
                             val pending =
@@ -251,9 +281,19 @@ class MainActivity : ComponentActivity() {
                         )
                     StartupState.VerifyingProfile ->
                         AccountDeletionStartupScreen(
-                            title = "Checking local profile",
+                            title =
+                                if (
+                                    startupRecoveryAction == StartupRecoveryAction.CancelUnactivated
+                                )
+                                    "Checking cancellation"
+                                else "Checking local profile",
                             detail =
-                                "Verifying the current training profile and onboarding status.",
+                                if (
+                                    startupRecoveryAction == StartupRecoveryAction.CancelUnactivated
+                                )
+                                    "Checking whether the service can cancel this reservation. Training data remains locked until the result is verified."
+                                else
+                                    "Verifying the current training profile and onboarding status.",
                         )
                     StartupState.ProfileVerificationUnavailable ->
                         AccountDeletionStartupScreen(
@@ -263,6 +303,7 @@ class MainActivity : ComponentActivity() {
                                     "Training data stays closed until verification succeeds.",
                             retryLabel = "RETRY",
                             onRetry = {
+                                startupRecoveryAction = StartupRecoveryAction.Observe
                                 startup = StartupState.VerifyingProfile
                                 startupAttempt++
                             },
@@ -271,12 +312,30 @@ class MainActivity : ComponentActivity() {
                         AccountDeletionStartupScreen(
                             title = "Finishing account deletion",
                             detail =
-                                "IronPath will open after the saved deletion steps finish. " +
-                                    "Training data stays unavailable while cleanup is pending.",
+                                accountDeletionRecoveryMessage(
+                                    current.progress,
+                                    accountExperienceCapabilities.mode ==
+                                        AccountExperienceCapabilities.Mode.Demo,
+                                ),
+                            progress = current.progress,
                             onRetry = {
+                                startupRecoveryAction = StartupRecoveryAction.Retry
                                 startup = StartupState.VerifyingProfile
                                 startupAttempt++
                             },
+                            onCancelUnactivated =
+                                if (
+                                    accountExperienceCapabilities.mode ==
+                                        AccountExperienceCapabilities.Mode.AuthPreview &&
+                                        current.progress?.canCancelBeforeActivation() == true
+                                ) {
+                                    {
+                                        startupRecoveryAction =
+                                            StartupRecoveryAction.CancelUnactivated
+                                        startup = StartupState.VerifyingProfile
+                                        startupAttempt++
+                                    }
+                                } else null,
                         )
                     is StartupState.Ready -> {
                         val accountViewModel =
@@ -351,6 +410,9 @@ class MainActivity : ComponentActivity() {
                                         retryAccountDeletion = {
                                             accountViewModel?.retryAccountDeletion()
                                         },
+                                        cancelAccountDeletion = {
+                                            accountViewModel?.cancelAccountDeletion()
+                                        },
                                         acknowledgeDeletionNavigation = {
                                             accountViewModel?.acknowledgeDeletionNavigation(it)
                                         },
@@ -371,6 +433,12 @@ class MainActivity : ComponentActivity() {
     override fun onDestroy() {
         accountCredentialActivityHost.detach(this)
         super.onDestroy()
+    }
+
+    private enum class StartupRecoveryAction {
+        Observe,
+        Retry,
+        CancelUnactivated
     }
 
     private sealed interface StartupState {
@@ -396,7 +464,10 @@ internal fun AccountDeletionStartupScreen(
     detail: String,
     retryLabel: String = "RETRY DELETION",
     onRetry: (() -> Unit)? = null,
+    progress: AccountDeletionProgress? = null,
+    onCancelUnactivated: (() -> Unit)? = null,
 ) {
+    BackHandler { /* Startup recovery cannot reveal unverified training data. */}
     Surface(modifier = Modifier.fillMaxSize()) {
         Column(
             modifier =
@@ -418,6 +489,15 @@ internal fun AccountDeletionStartupScreen(
             )
             onRetry?.let { retry ->
                 Button(onClick = retry, modifier = Modifier.fillMaxWidth()) { Text(retryLabel) }
+            }
+            if (progress?.canCancelBeforeActivation() == true && onCancelUnactivated != null) {
+                Text(
+                    ACCOUNT_DELETION_CANCELLATION_SCOPE,
+                    style = MaterialTheme.typography.bodyMedium
+                )
+                TextButton(onClick = onCancelUnactivated, modifier = Modifier.fillMaxWidth()) {
+                    Text("CANCEL IF NOT STARTED")
+                }
             }
         }
     }
@@ -442,7 +522,7 @@ fun IronPathApp(
     onAccountLeave: (() -> Unit) -> Unit = { it() },
 ) {
     if (manualBackupState.accountDeletion.blocksAccountActions(accountState)) {
-        BackHandler { /* Pending cleanup has no back or cancellation path. */}
+        BackHandler { /* Leaving cannot bypass recovery; cancellation needs its explicit server check. */}
         Surface(modifier = Modifier.fillMaxSize()) {
             AccountDeletionRecoveryScreen(
                 state = accountState,
@@ -450,6 +530,10 @@ fun IronPathApp(
                 onRetry = manualBackupActions.retryAccountDeletion,
                 modifier = Modifier.safeDrawingPadding(),
                 demoStorage = accountExperienceMode == AccountExperienceCapabilities.Mode.Demo,
+                onCancelUnactivated =
+                    manualBackupActions.cancelAccountDeletion.takeIf {
+                        accountExperienceMode == AccountExperienceCapabilities.Mode.AuthPreview
+                    },
             )
         }
         return

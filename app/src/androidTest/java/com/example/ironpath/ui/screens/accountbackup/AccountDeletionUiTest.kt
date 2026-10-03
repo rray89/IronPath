@@ -3,11 +3,13 @@ package com.example.ironpath.ui.screens.accountbackup
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
+import com.example.ironpath.AccountDeletionStartupScreen
 import com.example.ironpath.domain.account.*
 import com.example.ironpath.ui.theme.IronPathTheme
 import org.junit.Assert.assertEquals
@@ -25,7 +27,19 @@ class AccountDeletionUiTest {
             profile.email
         )
     private val progress =
-        AccountDeletionProgress("operation", profile.id, 7, 12, AccountDeletionStage.PREPARED)
+        AccountDeletionProgress(
+            operationId = "5b24b8c6-781b-491c-a798-8cfb3913c53a",
+            accountId = profile.id,
+            sessionEpoch = 7,
+            profileGeneration = 12,
+            stage = AccountDeletionStage.PREPARED,
+            serviceBinding = "isolated-v2-service-binding",
+            receiptSecret = "isolated-ui-receipt-secret",
+            subjectBinding = "isolated-ui-subject-binding",
+            receiptVersion = 2,
+            remoteState = AccountDeletionRemoteState.PENDING,
+            installationId = "isolated-ui-installation",
+        )
 
     @Test
     fun realDeletionRequiresBothReviewsAndNamesIdentityAndCompleteScopeAtLargeFont() {
@@ -161,7 +175,8 @@ class AccountDeletionUiTest {
             AccountDeletionRecoveryScreen(
                 AccountState.AccountDeletionPending(progress),
                 manual.value,
-                { retries++ }
+                { retries++ },
+                onCancelUnactivated = { error("Activated deletion cannot be cancelled") },
             )
         }
         composeRule
@@ -197,6 +212,151 @@ class AccountDeletionUiTest {
             .assertExists()
         assertUnrelatedActionsAbsent()
         composeRule.onNodeWithText("demo", substring = true, ignoreCase = true).assertDoesNotExist()
+        composeRule.onNodeWithText("CANCEL IF NOT STARTED").assertDoesNotExist()
+    }
+
+    @Test
+    fun reservedCancellationIsReachableAndDisablesBothActionsWhileCheckingAtLargeFontLandscape() {
+        val reserved =
+            progress.copy(remoteState = AccountDeletionRemoteState.RESERVED, receiptVersion = 1)
+        val manual =
+            mutableStateOf(
+                ManualBackupUiState(
+                    accountDeletion =
+                        AccountDeletionUiState(progress = reserved, retryAvailable = true)
+                )
+            )
+        var cancellations = 0
+        var retries = 0
+        setContent(DpSize(640.dp, 320.dp)) {
+            AccountDeletionRecoveryScreen(
+                AccountState.AccountDeletionPending(reserved),
+                manual.value,
+                onRetry = { retries++ },
+                onCancelUnactivated = {
+                    cancellations++
+                    manual.value =
+                        manual.value.copy(
+                            accountDeletion =
+                                manual.value.accountDeletion.copy(busy = true, cancelling = true)
+                        )
+                },
+            )
+        }
+        composeRule
+            .onNodeWithText(ACCOUNT_DELETION_RESERVED_MESSAGE)
+            .performScrollTo()
+            .assertIsDisplayed()
+        composeRule
+            .onNodeWithText(ACCOUNT_DELETION_CANCELLATION_SCOPE)
+            .performScrollTo()
+            .assertIsDisplayed()
+        composeRule
+            .onNodeWithText("CANCEL IF NOT STARTED")
+            .performScrollTo()
+            .assertIsDisplayed()
+            .assertIsEnabled()
+            .assert(SemanticsMatcher.expectValue(SemanticsProperties.Role, Role.Button))
+            .performClick()
+        assertEquals(1, cancellations)
+        assertEquals(0, retries)
+        composeRule.onNodeWithText("Checking cancellation").performScrollTo().assertIsDisplayed()
+        composeRule
+            .onNode(
+                SemanticsMatcher.expectValue(
+                    SemanticsProperties.StateDescription,
+                    "Account cancellation in progress"
+                )
+            )
+            .assertExists()
+        composeRule.onNodeWithText("RETRY DELETION").performScrollTo().assertIsNotEnabled()
+        composeRule.onNodeWithText("CANCEL IF NOT STARTED").performScrollTo().assertIsNotEnabled()
+        assertUnrelatedActionsAbsent()
+    }
+
+    @Test
+    fun activatedLegacyAndIncompleteReceiptStatesNeverOfferCancellation() {
+        val reserved =
+            progress.copy(remoteState = AccountDeletionRemoteState.RESERVED, receiptVersion = 1)
+        val current = mutableStateOf(progress)
+        var cancellations = 0
+        setContent {
+            AccountDeletionRecoveryScreen(
+                AccountState.AccountDeletionPending(current.value),
+                ManualBackupUiState(),
+                onRetry = {},
+                onCancelUnactivated = { cancellations++ },
+            )
+        }
+        val nonCancellable =
+            listOf(
+                progress to ACCOUNT_DELETION_PENDING_MESSAGE,
+                progress.copy(
+                    stage = AccountDeletionStage.BACKUPS_PURGED,
+                    remoteState = AccountDeletionRemoteState.COMPLETE
+                ) to ACCOUNT_DELETION_PENDING_MESSAGE,
+                reserved.copy(
+                    receiptSecret = null,
+                    subjectBinding = null,
+                    receiptVersion = 0,
+                    installationId = null
+                ) to ACCOUNT_DELETION_INTEGRITY_MESSAGE,
+                reserved.copy(subjectBinding = null) to ACCOUNT_DELETION_INTEGRITY_MESSAGE,
+                reserved.copy(installationId = null) to ACCOUNT_DELETION_INTEGRITY_MESSAGE,
+                reserved.copy(receiptVersion = 0) to ACCOUNT_DELETION_INTEGRITY_MESSAGE,
+            )
+        nonCancellable.forEach { (saved, message) ->
+            composeRule.runOnIdle { current.value = saved }
+            composeRule.onNodeWithText(message).performScrollTo().assertIsDisplayed()
+            composeRule.onNodeWithText("CANCEL IF NOT STARTED").assertDoesNotExist()
+            composeRule.onNodeWithText("RETRY DELETION").performScrollTo().assertIsEnabled()
+        }
+        assertEquals(0, cancellations)
+    }
+
+    @Test
+    fun startupReservedCancellationAndRetryAreReachableAtLargeFontLandscape() {
+        var cancellations = 0
+        var retries = 0
+        val current =
+            mutableStateOf(
+                progress.copy(remoteState = AccountDeletionRemoteState.RESERVED, receiptVersion = 1)
+            )
+        setContent(DpSize(640.dp, 320.dp)) {
+            AccountDeletionStartupScreen(
+                title = "Finishing account deletion",
+                detail = accountDeletionRecoveryMessage(current.value, demoStorage = false),
+                progress = current.value,
+                onRetry = { retries++ },
+                onCancelUnactivated = { cancellations++ },
+            )
+        }
+        composeRule
+            .onNodeWithText(ACCOUNT_DELETION_RESERVED_MESSAGE)
+            .performScrollTo()
+            .assertIsDisplayed()
+        composeRule
+            .onNodeWithText("RETRY DELETION")
+            .performScrollTo()
+            .assertIsEnabled()
+            .performClick()
+        composeRule
+            .onNodeWithText(ACCOUNT_DELETION_CANCELLATION_SCOPE)
+            .performScrollTo()
+            .assertIsDisplayed()
+        composeRule
+            .onNodeWithText("CANCEL IF NOT STARTED")
+            .performScrollTo()
+            .assertIsEnabled()
+            .performClick()
+        assertEquals(1, retries)
+        assertEquals(1, cancellations)
+        composeRule.runOnIdle { current.value = progress }
+        composeRule
+            .onNodeWithText(ACCOUNT_DELETION_PENDING_MESSAGE)
+            .performScrollTo()
+            .assertIsDisplayed()
+        composeRule.onNodeWithText("CANCEL IF NOT STARTED").assertDoesNotExist()
     }
 
     @Test

@@ -17,80 +17,155 @@ class DeletionServiceRestClient(
     private val allowLoopbackForTests: Boolean = false,
 ) : AccountDeletionService {
     private val validEndpoint = validDeletionEndpoint(endpoint, allowLoopbackForTests)
-    override val binding: String? =
-        if (!validEndpoint || projectId.isBlank()) null
-        else
-            MessageDigest.getInstance("SHA-256")
-                .digest("$projectId\n$endpoint".toByteArray())
-                .joinToString("") { "%02x".format(it) }
+    @Volatile private var instanceId: String? = null
+    override val binding: String?
+        get() =
+            instanceId?.let { instance ->
+                if (!validEndpoint || projectId.isBlank()) null
+                else
+                    sha256(
+                        "ironpath-account-deletion-v2\n$projectId\n$instance\n$endpoint"
+                            .toByteArray()
+                    )
+            }
 
     override suspend fun available(): Boolean {
-        if (binding == null) return false
-        val response = request("GET", "/v1/capabilities") ?: return false
-        return response.code == 200 &&
-            response.body?.let { body ->
-                (body["protocol"] as? JsonPrimitive)?.contentOrNull ==
-                    "ironpath-account-deletion-v1" &&
-                    (body["projectId"] as? JsonPrimitive)?.contentOrNull == projectId &&
-                    (body["authoritative"] as? JsonPrimitive)?.booleanOrNull == true &&
-                    (body["resumable"] as? JsonPrimitive)?.booleanOrNull == true
-            } == true
+        if (!validEndpoint || projectId.isBlank()) return false
+        val response = request("GET", "/v2/capabilities") ?: return false
+        val body = response.body ?: return false
+        val instance = (body["serviceInstanceId"] as? JsonPrimitive)?.contentOrNull ?: return false
+        if (
+            response.code != 200 ||
+                (body["protocol"] as? JsonPrimitive)?.contentOrNull != PROTOCOL ||
+                (body["projectId"] as? JsonPrimitive)?.contentOrNull != projectId ||
+                (body["authoritative"] as? JsonPrimitive)?.booleanOrNull != true ||
+                (body["resumable"] as? JsonPrimitive)?.booleanOrNull != true ||
+                !instance.matches(Regex("[A-Za-z0-9_-]{1,128}")) ||
+                instanceId != null && instanceId != instance
+        )
+            return false
+        instanceId = instance
+        return true
     }
 
-    override suspend fun start(operationId: String, token: String): DeletionServiceResult {
+    // Legacy APIs cannot create or recover an unknown operation through this v2 client.
+    override suspend fun start(operationId: String, token: String) =
+        DeletionServiceResult.Unavailable
+
+    override suspend fun resume(operationId: String) = DeletionServiceResult.Unavailable
+
+    override suspend fun reserve(
+        draft: AccountDeletionDraft,
+        token: String
+    ): DeletionServiceResult =
+        rpc(
+            draft.operationId,
+            draft.receiptSecret,
+            draft.request.accountId.opaqueValue,
+            draft.request.serviceBinding,
+            "/v2/reservations",
+            token,
+            buildJsonObject { put("operationId", draft.operationId) }
+        )
+
+    override suspend fun status(
+        progress: com.example.ironpath.domain.account.AccountDeletionProgress
+    ) = progressRpc(progress, "status")
+
+    override suspend fun activate(
+        progress: com.example.ironpath.domain.account.AccountDeletionProgress,
+        token: String
+    ) = progressRpc(progress, "activate", token)
+
+    override suspend fun cancel(
+        progress: com.example.ironpath.domain.account.AccountDeletionProgress
+    ) = progressRpc(progress, "cancel-unactivated")
+
+    private suspend fun progressRpc(
+        progress: com.example.ironpath.domain.account.AccountDeletionProgress,
+        action: String,
+        token: String? = null
+    ): DeletionServiceResult {
+        val result =
+            rpc(
+                progress.operationId,
+                progress.receiptSecret ?: return DeletionServiceResult.Unavailable,
+                progress.accountId.opaqueValue,
+                progress.serviceBinding,
+                "/v2/operations/${progress.operationId}/$action",
+                token
+            )
+        val receipt = (result as? DeletionServiceResult.Receipt)?.value ?: return result
+        if (
+            receipt.subjectBinding != progress.subjectBinding ||
+                receipt.version < progress.receiptVersion
+        )
+            return DeletionServiceResult.Unavailable
+        return result
+    }
+
+    private suspend fun rpc(
+        operationId: String,
+        secret: String,
+        expectedUid: String,
+        expectedBinding: String?,
+        path: String,
+        token: String? = null,
+        body: JsonObject = buildJsonObject {}
+    ): DeletionServiceResult {
         if (
             !validOperation(operationId) ||
-                token.isBlank() ||
-                token.any { it == '\r' || it == '\n' } ||
-                !available()
+                !secret.matches(Regex("[A-Za-z0-9_-]{43}")) ||
+                token != null &&
+                    (token.isBlank() ||
+                        token.length > 16384 ||
+                        token.any { it == '\r' || it == '\n' }) ||
+                !available() ||
+                expectedBinding == null ||
+                expectedBinding != binding
         )
             return DeletionServiceResult.Unavailable
-        return receipt(
-            operationId,
-            request(
-                "POST",
-                "/v1/deletions",
-                buildJsonObject { put("operationId", operationId) },
-                token
-            ),
-            allowMissing = false
+        val response =
+            request("POST", path, body, token, secret) ?: return DeletionServiceResult.Unavailable
+        if (response.code == 404) return DeletionServiceResult.Missing
+        val value = response.body ?: return DeletionServiceResult.Unavailable
+        val instance = instanceId ?: return DeletionServiceResult.Unavailable
+        if (
+            (value["protocol"] as? JsonPrimitive)?.contentOrNull != PROTOCOL ||
+                (value["projectId"] as? JsonPrimitive)?.contentOrNull != projectId ||
+                (value["serviceInstanceId"] as? JsonPrimitive)?.contentOrNull != instance ||
+                (value["operationId"] as? JsonPrimitive)?.contentOrNull != operationId ||
+                (value["subjectBinding"] as? JsonPrimitive)?.contentOrNull !=
+                    deletionSubjectBinding(projectId, instance, operationId, expectedUid)
         )
-    }
-
-    override suspend fun resume(operationId: String): DeletionServiceResult {
-        if (!validOperation(operationId) || !available()) return DeletionServiceResult.Unavailable
-        return receipt(
-            operationId,
-            request("POST", "/v1/deletions/$operationId/resume", buildJsonObject {}),
-            allowMissing = true
-        )
-    }
-
-    private fun receipt(
-        operationId: String,
-        response: Response?,
-        allowMissing: Boolean
-    ): DeletionServiceResult {
-        if (response == null) return DeletionServiceResult.Unavailable
-        if (allowMissing && response.code == 404) return DeletionServiceResult.Missing
-        val body = response.body ?: return DeletionServiceResult.Unavailable
-        if ((body["operationId"] as? JsonPrimitive)?.contentOrNull != operationId)
             return DeletionServiceResult.Unavailable
-        return when {
-            response.code == 200 &&
-                (body["state"] as? JsonPrimitive)?.contentOrNull == "COMPLETE" ->
-                DeletionServiceResult.Complete
-            response.code == 202 && (body["state"] as? JsonPrimitive)?.contentOrNull == "PENDING" ->
-                DeletionServiceResult.Pending
-            else -> DeletionServiceResult.Unavailable
-        }
+        val state =
+            com.example.ironpath.domain.account.AccountDeletionRemoteState.entries.firstOrNull {
+                it.name == (value["state"] as? JsonPrimitive)?.contentOrNull
+            } ?: return DeletionServiceResult.Unavailable
+        val version =
+            (value["version"] as? JsonPrimitive)?.longOrNull?.takeIf { it > 0 }
+                ?: return DeletionServiceResult.Unavailable
+        val expectedCode =
+            if (state == com.example.ironpath.domain.account.AccountDeletionRemoteState.PENDING) 202
+            else 200
+        if (response.code != expectedCode) return DeletionServiceResult.Unavailable
+        return DeletionServiceResult.Receipt(
+            DeletionServiceReceipt(
+                operationId,
+                value.getValue("subjectBinding").jsonPrimitive.content,
+                state,
+                version
+            )
+        )
     }
 
     private suspend fun request(
         method: String,
         path: String,
         body: JsonObject? = null,
-        token: String? = null
+        token: String? = null,
+        receiptSecret: String? = null
     ): Response? =
         withContext(Dispatchers.IO) {
             if (!validEndpoint) return@withContext null
@@ -103,6 +178,7 @@ class DeletionServiceRestClient(
                     connection.readTimeout = 15_000
                     connection.setRequestProperty("Accept", "application/json")
                     token?.let { connection.setRequestProperty("Authorization", "Bearer $it") }
+                    receiptSecret?.let { connection.setRequestProperty("Deletion-Receipt", it) }
                     body?.let {
                         val bytes = it.toString().toByteArray(Charsets.UTF_8)
                         connection.doOutput = true
@@ -140,6 +216,13 @@ class DeletionServiceRestClient(
         }
     }
 
+    private fun sha256(bytes: ByteArray) =
+        MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it) }
+
+    private companion object {
+        const val PROTOCOL = "ironpath-account-deletion-v2"
+    }
+
     private data class Response(val code: Int, val body: JsonObject?)
 
     private fun validOperation(value: String) =
@@ -162,3 +245,20 @@ internal fun validDeletionEndpoint(value: String, allowLoopbackForTests: Boolean
     } catch (_: Exception) {
         false
     }
+
+internal fun deletionSubjectBinding(
+    project: String,
+    instance: String,
+    operation: String,
+    uid: String
+): String {
+    val bytes = java.io.ByteArrayOutputStream()
+    for (part in listOf("ironpath-delete-v2", project, instance, operation, uid)) {
+        val encoded = part.toByteArray(Charsets.UTF_8)
+        bytes.write(java.nio.ByteBuffer.allocate(4).putInt(encoded.size).array())
+        bytes.write(encoded)
+    }
+    return MessageDigest.getInstance("SHA-256").digest(bytes.toByteArray()).joinToString("") {
+        "%02x".format(it)
+    }
+}

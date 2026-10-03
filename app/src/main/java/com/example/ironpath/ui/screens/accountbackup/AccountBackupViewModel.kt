@@ -36,6 +36,7 @@ constructor(
     val state = accountGateway.state
     private val mutableManual = MutableStateFlow(ManualBackupUiState())
     val manual: StateFlow<ManualBackupUiState> = mutableManual
+    private var deletionActionInFlight = false
 
     init {
         viewModelScope.launch {
@@ -72,13 +73,22 @@ constructor(
                                 accountDeletion = it.accountDeletion.copy(busy = true),
                             )
                         }
-                    is AccountState.AccountDeletionPending ->
-                        showDeletionRetry(accountState.progress)
+                    is AccountState.AccountDeletionPending -> {
+                        if (deletionActionInFlight) {
+                            mutableManual.update {
+                                it.copy(
+                                    accountDeletion =
+                                        it.accountDeletion.copy(progress = accountState.progress)
+                                )
+                            }
+                        } else showDeletionRetry(accountState.progress)
+                    }
                     else ->
                         mutableManual.update {
                             if (
-                                it.accountDeletion.progress != null ||
-                                    it.accountDeletion.retryAvailable
+                                !deletionActionInFlight &&
+                                    (it.accountDeletion.progress != null ||
+                                        it.accountDeletion.retryAvailable)
                             )
                                 it.copy(
                                     busy = false,
@@ -393,6 +403,7 @@ constructor(
                 accountDeletion = it.accountDeletion.copy(busy = true),
             )
         }
+        deletionActionInFlight = true
         viewModelScope.launch { performAccountDeletion(target.request, retry = false) }
     }
 
@@ -425,7 +436,26 @@ constructor(
                 accountDeletion = it.accountDeletion.copy(busy = true),
             )
         }
+        deletionActionInFlight = true
         viewModelScope.launch { performAccountDeletion(null, retry = true) }
+    }
+
+    fun cancelAccountDeletion() {
+        if (capabilities.mode != AccountExperienceCapabilities.Mode.AuthPreview) return
+        val deletion = manual.value.accountDeletion
+        val progress = (state.value as? AccountState.AccountDeletionPending)?.progress ?: return
+        if (deletionActionInFlight || deletion.busy || !progress.canCancelBeforeActivation()) return
+        deletionActionInFlight = true
+        mutableManual.update {
+            it.copy(
+                busy = true,
+                feedback = null,
+                accountDeletion = it.accountDeletion.copy(busy = true, cancelling = true),
+            )
+        }
+        viewModelScope.launch {
+            performAccountDeletion(null, retry = false, cancelUnactivated = true)
+        }
     }
 
     fun acknowledgeDeletionNavigation(targetGeneration: Long) {
@@ -441,6 +471,7 @@ constructor(
     private suspend fun performAccountDeletion(
         request: AccountDeletionRequest?,
         retry: Boolean,
+        cancelUnactivated: Boolean = false,
     ) {
         val sourceProfileGeneration =
             request?.profileGeneration
@@ -454,8 +485,11 @@ constructor(
             }
         try {
             val result =
-                if (retry) accountGateway.retryAccountDeletion()
-                else accountGateway.deleteAccount(checkNotNull(request))
+                when {
+                    cancelUnactivated -> accountGateway.cancelAccountDeletion()
+                    retry -> accountGateway.retryAccountDeletion()
+                    else -> accountGateway.deleteAccount(checkNotNull(request))
+                }
             when (result) {
                 AccountActionResult.Completed -> {
                     mutableManual.update {
@@ -469,11 +503,12 @@ constructor(
                                 if (capabilities.mode == AccountExperienceCapabilities.Mode.Demo)
                                     "The demo IronPath account, all demo backups, and this device's training data were deleted. Your Google account was not affected."
                                 else
-                                    "Your IronPath account, all cloud backups, and this device's training data were deleted. Your Google account was not affected.",
+                                    "The requested IronPath account, all of its cloud backups, and this device's reviewed training data were deleted. Your Google account was not affected.",
                             accountDeletion =
                                 it.accountDeletion.copy(
                                     target = null,
                                     busy = false,
+                                    cancelling = false,
                                     progress = null,
                                     retryAvailable = false,
                                     completionTargetGeneration = completionTargetGeneration,
@@ -491,7 +526,7 @@ constructor(
                                 busy = false,
                                 accountDeletion = AccountDeletionUiState(),
                                 feedback =
-                                    "Account deletion was cancelled. Training data and backups were not changed.",
+                                    "This deletion request was cancelled. This device's training data was preserved. Another device can still request account deletion later.",
                             )
                         }
                 }
@@ -539,6 +574,8 @@ constructor(
                             "Account deletion could not finish. Check the account state before trying again.",
                     )
                 }
+        } finally {
+            deletionActionInFlight = false
         }
     }
 
@@ -570,6 +607,7 @@ constructor(
                     it.accountDeletion.copy(
                         target = null,
                         busy = false,
+                        cancelling = false,
                         progress = progress,
                         retryAvailable = true,
                     ),

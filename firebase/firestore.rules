@@ -405,6 +405,12 @@ service cloud.firestore {
     match /accountDeletionTombstones/{uid} {
       allow read, write: if false;
     }
+    match /accountDeletionReceipts/{operationId} {
+      allow read, write: if false;
+    }
+    match /accountDeletionReservationQuotas/{uid} {
+      allow read, write: if false;
+    }
     match /accountDeletionJobs/{operationId} {
       allow read, write: if false;
     }

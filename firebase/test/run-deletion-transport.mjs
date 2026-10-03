@@ -3,7 +3,7 @@ import { once } from "node:events";
 
 // Called only by emulators:exec; main.mjs validates the synthetic project/hosts.
 const service = fork("service/main.mjs", [], {
-  env: { ...process.env, IRONPATH_DELETION_MODE: "emulator", PORT: "0" },
+  env: { ...process.env, IRONPATH_DELETION_MODE: "emulator", IRONPATH_DELETION_SERVICE_INSTANCE_ID: "ironpath-deletion-emulator-v2", PORT: "0" },
   stdio: ["ignore", "inherit", "inherit", "ipc"],
 });
 let gradle;

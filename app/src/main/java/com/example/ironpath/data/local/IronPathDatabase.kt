@@ -11,6 +11,7 @@ import com.example.ironpath.data.local.dao.PlanDao
 import com.example.ironpath.data.local.dao.RecordDao
 import com.example.ironpath.data.local.dao.SessionDao
 import com.example.ironpath.data.local.entity.AccountBackupMetadata
+import com.example.ironpath.data.local.entity.AccountDeletionDraftEntity
 import com.example.ironpath.data.local.entity.AccountDeletionJournal
 import com.example.ironpath.data.local.entity.ActiveSession
 import com.example.ironpath.data.local.entity.BackupBaselineChunk
@@ -44,8 +45,9 @@ import com.example.ironpath.data.local.entity.WorkoutLog
             RestoreUndoMetadata::class,
             RestoreUndoChunk::class,
             AccountDeletionJournal::class,
+            AccountDeletionDraftEntity::class,
         ],
-    version = 8,
+    version = 9,
     exportSchema = true,
 )
 abstract class IronPathDatabase : RoomDatabase() {
@@ -187,6 +189,45 @@ abstract class IronPathDatabase : RoomDatabase() {
                 override fun migrate(db: SupportSQLiteDatabase) {
                     db.execSQL(
                         "ALTER TABLE `account_deletion_journal` ADD COLUMN `serviceBinding` TEXT"
+                    )
+                }
+            }
+
+        val MIGRATION_8_9 =
+            object : Migration(8, 9) {
+                override fun migrate(db: SupportSQLiteDatabase) {
+                    db.execSQL(
+                        "ALTER TABLE `account_deletion_journal` ADD COLUMN `receiptSecret` TEXT"
+                    )
+                    db.execSQL(
+                        "ALTER TABLE `account_deletion_journal` ADD COLUMN `subjectBinding` TEXT"
+                    )
+                    db.execSQL(
+                        "ALTER TABLE `account_deletion_journal` ADD COLUMN `receiptVersion` INTEGER NOT NULL DEFAULT 0"
+                    )
+                    db.execSQL(
+                        "ALTER TABLE `account_deletion_journal` ADD COLUMN `remoteState` TEXT"
+                    )
+                    db.execSQL(
+                        "ALTER TABLE `account_deletion_journal` ADD COLUMN `installationId` TEXT"
+                    )
+                    db.execSQL(
+                        """
+                        CREATE TABLE IF NOT EXISTS `account_deletion_draft` (
+                            `id` INTEGER NOT NULL,
+                            `operationId` TEXT NOT NULL,
+                            `receiptSecret` TEXT NOT NULL,
+                            `accountId` TEXT NOT NULL,
+                            `sessionEpoch` INTEGER NOT NULL,
+                            `profileGeneration` INTEGER NOT NULL,
+                            `expectedLocalOwnerUid` TEXT,
+                            `serviceBinding` TEXT NOT NULL,
+                            `installationId` TEXT NOT NULL,
+                            `createdAtEpochMillis` INTEGER NOT NULL,
+                            PRIMARY KEY(`id`)
+                        )
+                        """
+                            .trimIndent()
                     )
                 }
             }

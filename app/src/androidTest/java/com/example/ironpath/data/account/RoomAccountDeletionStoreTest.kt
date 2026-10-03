@@ -40,21 +40,34 @@ class RoomAccountDeletionStoreTest {
     fun serviceBindingSurvivesReopenAndDifferentTargetCannotResumeOrAdvance() = runBlocking {
         val firstDatabase = databaseRule.open()
         seedProfile(firstDatabase)
-        val prepared = checkNotNull(store(firstDatabase).prepare(request()))
+        val firstStore = store(firstDatabase)
+        val draft =
+            checkNotNull(firstStore.createDraft(request().copy(serviceBinding = SERVICE_BINDING)))
+        val receipt =
+            DeletionServiceReceipt(
+                draft.operationId,
+                "a".repeat(64),
+                com.example.ironpath.domain.account.AccountDeletionRemoteState.RESERVED,
+                1
+            )
+        val prepared = checkNotNull(firstStore.prepareReservation(draft, receipt))
         firstDatabase.close()
-
         val reopenedDatabase = databaseRule.open()
         val reopened = store(reopenedDatabase)
         assertEquals(prepared, reopened.journal())
-        assertEquals(prepared, reopened.prepare(request()))
+        assertEquals(prepared, reopened.prepareReservation(draft, receipt))
         assertEquals(SERVICE_BINDING, prepared.serviceBinding)
-        assertNull(reopened.prepare(request().copy(serviceBinding = OTHER_SERVICE_BINDING)))
-        assertNull(reopened.prepare(request().copy(serviceBinding = null)))
+        assertNull(
+            reopened.prepareReservation(
+                draft.copy(request = draft.request.copy(serviceBinding = OTHER_SERVICE_BINDING)),
+                receipt
+            )
+        )
         assertFalse(reopened.matchesProfile(prepared.copy(serviceBinding = OTHER_SERVICE_BINDING)))
         assertFalse(
             reopened.advance(
                 prepared.copy(serviceBinding = OTHER_SERVICE_BINDING),
-                AccountDeletionStage.BACKUPS_PURGED,
+                AccountDeletionStage.BACKUPS_PURGED
             )
         )
         assertEquals(prepared, reopened.journal())
@@ -145,7 +158,7 @@ class RoomAccountDeletionStoreTest {
         assertProfileCleared(firstDatabase)
         val cleared = checkNotNull(store.journal())
         assertEquals(AccountDeletionStage.LOCAL_CLEARED, cleared.stage)
-        assertEquals(SERVICE_BINDING, cleared.serviceBinding)
+        assertEquals(tombstoned.serviceBinding, cleared.serviceBinding)
         firstDatabase.close()
 
         val reopenedDatabase = databaseRule.open()
@@ -246,7 +259,7 @@ class RoomAccountDeletionStoreTest {
             accountId = account,
             sessionEpoch = 7,
             profileGeneration = PROFILE_GENERATION,
-            serviceBinding = SERVICE_BINDING,
+            serviceBinding = null,
         )
 
     private fun store(database: IronPathDatabase) =

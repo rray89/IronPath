@@ -37,6 +37,7 @@ constructor(
     @Volatile private var canCancel = false
     private var observedRemote: Pair<AccountId, RemoteSnapshotPresence>? = null
     private var signOutAccountId: AccountId? = null
+    @Volatile private var deletionRecoveryInFlight = false
 
     override val sessionChanges = sessions.sessionChanges
 
@@ -45,15 +46,18 @@ constructor(
 
     override suspend fun refreshLocal(): AccountActionResult = refreshContext(inspectRemote = false)
 
-    override suspend fun reconcileAfterDeletionRecovery(): AccountActionResult {
-        mutex.withLock {
-            if (mutableState.value == AccountState.DeletingAccount) {
-                canCancel = false
-                mutableState.value = AccountState.Loading
+    override suspend fun reconcileAfterDeletionRecovery(): AccountActionResult =
+        withContext(NonCancellable) {
+            operationGate.withSessionObservation {
+                mutex.withLock {
+                    settleDeletionTerminal(
+                        actionResult = AccountActionResult.Completed,
+                        previousProgress =
+                            (mutableState.value as? AccountState.AccountDeletionPending)?.progress,
+                    )
+                }
             }
         }
-        return refreshContext(inspectRemote = false)
-    }
 
     override suspend fun reconcileSessionChange(): AccountActionResult =
         withContext(NonCancellable) {
@@ -100,9 +104,7 @@ constructor(
                     result,
                     reopenAdmission =
                         result == AccountActionResult.Completed &&
-                            mutableState.value !is AccountState.SignOutPending &&
-                            mutableState.value !is AccountState.AccountDeletionPending &&
-                            mutableState.value != AccountState.DeletingAccount,
+                            mutableState.value.isStableAccountState(),
                 )
             }
         }
@@ -111,7 +113,17 @@ constructor(
         mutex.withLock {
             if (mutableState.value.isTransitioning())
                 return@withLock AccountActionResult.Unavailable
-            val pendingDeletion = deletionManager.pending()
+            val pendingDeletion =
+                try {
+                    deletionManager.pending()
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (_: Exception) {
+                    operationGate.closeAdmission()
+                    return@withLock AccountActionResult.Failed(
+                        AccountFailureReason.LocalStateUnavailable
+                    )
+                }
             if (pendingDeletion != null) {
                 return@withLock publishPendingDeletion(pendingDeletion)
             }
@@ -643,17 +655,11 @@ constructor(
                             )
                         }
                         when (val deletion = deletionManager.delete(request)) {
-                            AccountDeletionResult.Completed -> {
-                                generation++
-                                observedRemote = null
-                                canCancel = false
-                                mutableState.value = AccountState.LocalOnly
-                                operationGate.advanceSessionEpoch()
-                                AccountSessionOperationGate.MutationResult(
+                            AccountDeletionResult.Completed ->
+                                settleDeletionTerminal(
                                     AccountActionResult.Completed,
-                                    reopenAdmission = true,
+                                    deletedAccount = request.accountId,
                                 )
-                            }
                             is AccountDeletionResult.RetryRequired -> {
                                 canCancel = false
                                 mutableState.value =
@@ -665,13 +671,8 @@ constructor(
                                     reopenAdmission = false,
                                 )
                             }
-                            AccountDeletionResult.Cancelled -> {
-                                restorePriorSignOutState(plan.priorState)
-                                AccountSessionOperationGate.MutationResult(
-                                    AccountActionResult.Cancelled,
-                                    reopenAdmission = true
-                                )
-                            }
+                            AccountDeletionResult.Cancelled ->
+                                settleDeletionTerminal(AccountActionResult.Cancelled)
                             is AccountDeletionResult.Failed -> {
                                 restorePriorSignOutState(plan.priorState)
                                 AccountSessionOperationGate.MutationResult(
@@ -741,96 +742,161 @@ constructor(
         }
     }
 
-    override suspend fun retryAccountDeletion(): AccountActionResult {
+    override suspend fun retryAccountDeletion(): AccountActionResult =
+        continuePendingDeletion(cancelUnactivated = false)
+
+    override suspend fun cancelAccountDeletion(): AccountActionResult =
+        continuePendingDeletion(cancelUnactivated = true)
+
+    private suspend fun continuePendingDeletion(cancelUnactivated: Boolean): AccountActionResult {
+        if (deletionRecoveryInFlight) return AccountActionResult.Unavailable
         val previousProgress =
             mutex.withLock {
+                if (deletionRecoveryInFlight) return AccountActionResult.Unavailable
                 val pending =
                     mutableState.value as? AccountState.AccountDeletionPending
                         ?: return AccountActionResult.Unavailable
+                if (
+                    cancelUnactivated &&
+                        (capabilities.mode != AccountExperienceCapabilities.Mode.AuthPreview ||
+                            !pending.progress.isCancellableReservation())
+                ) {
+                    return AccountActionResult.Unavailable
+                }
+                deletionRecoveryInFlight = true
+                operationGate.closeAdmission()
                 canCancel = false
                 mutableState.value = AccountState.DeletingAccount
                 pending.progress
             }
-        return try {
-            when (val deletion = withContext(NonCancellable) { deletionManager.retry() }) {
-                AccountDeletionResult.Completed,
-                AccountDeletionResult.Idle -> {
+        // Keep the serialized transition and its reconciliation together even if the screen leaves.
+        return withContext(NonCancellable) {
+            try {
+                operationGate.withSessionMutation { _, _ ->
                     mutex.withLock {
-                        generation++
-                        observedRemote = null
-                        mutableState.value = AccountState.LocalOnly
-                    }
-                    operationGate.advanceSessionEpoch()
-                    operationGate.reopenAdmission()
-                    AccountActionResult.Completed
-                }
-                is AccountDeletionResult.RetryRequired -> {
-                    mutex.withLock {
-                        mutableState.value = AccountState.AccountDeletionPending(deletion.progress)
-                    }
-                    AccountActionResult.Failed(AccountFailureReason.ServiceUnavailable)
-                }
-                AccountDeletionResult.Cancelled,
-                is AccountDeletionResult.Failed,
-                AccountDeletionResult.Unavailable -> {
-                    val pending = deletionManager.pending()
-                    mutex.withLock {
-                        mutableState.value =
-                            pending?.let(AccountState::AccountDeletionPending)
-                                ?: AccountState.RecoverableError(
-                                    AccountFailureReason.LocalStateUnavailable
+                        when (
+                            val result =
+                                if (cancelUnactivated) deletionManager.cancelUnactivated()
+                                else deletionManager.retry()
+                        ) {
+                            AccountDeletionResult.Completed ->
+                                settleDeletionTerminal(
+                                    AccountActionResult.Completed,
+                                    previousProgress,
+                                    previousProgress.accountId
                                 )
-                    }
-                    AccountActionResult.Unavailable
-                }
-            }
-        } catch (cancelled: CancellationException) {
-            withContext(NonCancellable) {
-                var pendingReadSucceeded = false
-                var pending: AccountDeletionProgress? = null
-                try {
-                    pending = deletionManager.pending()
-                    pendingReadSucceeded = true
-                } catch (_: Exception) {
-                    // Retain the last progress and keep writes fenced until it is readable.
-                }
-                mutex.withLock {
-                    if (mutableState.value == AccountState.DeletingAccount) {
-                        when {
-                            !pendingReadSucceeded -> {
-                                operationGate.closeAdmission()
-                                mutableState.value =
-                                    AccountState.AccountDeletionPending(previousProgress)
+                            AccountDeletionResult.Cancelled ->
+                                settleDeletionTerminal(
+                                    AccountActionResult.Cancelled,
+                                    previousProgress
+                                )
+                            is AccountDeletionResult.RetryRequired -> {
+                                publishPendingDeletion(result.progress)
+                                AccountSessionOperationGate.MutationResult(
+                                    AccountActionResult.Failed(
+                                        AccountFailureReason.ServiceUnavailable
+                                    ),
+                                    false,
+                                )
                             }
-                            pending != null -> {
-                                operationGate.closeAdmission()
-                                mutableState.value =
-                                    AccountState.AccountDeletionPending(checkNotNull(pending))
-                            }
-                            else -> {
-                                generation++
-                                observedRemote = null
-                                mutableState.value = AccountState.LocalOnly
-                                operationGate.advanceSessionEpoch()
-                                operationGate.reopenAdmission()
+                            AccountDeletionResult.Idle,
+                            AccountDeletionResult.Unavailable,
+                            is AccountDeletionResult.Failed -> {
+                                retainDeletionBarrier(previousProgress)
+                                AccountSessionOperationGate.MutationResult(
+                                    if (result is AccountDeletionResult.Failed)
+                                        AccountActionResult.Failed(result.reason)
+                                    else AccountActionResult.Unavailable,
+                                    reopenAdmission = false,
+                                )
                             }
                         }
                     }
                 }
+            } catch (cancelled: CancellationException) {
+                mutex.withLock { retainDeletionBarrier(previousProgress) }
+                throw cancelled
+            } catch (_: Exception) {
+                mutex.withLock { retainDeletionBarrier(previousProgress) }
+                AccountActionResult.Failed(AccountFailureReason.LocalStateUnavailable)
+            } finally {
+                mutex.withLock { deletionRecoveryInFlight = false }
             }
-            throw cancelled
-        } catch (_: Exception) {
-            val pending = deletionManager.pending()
-            mutex.withLock {
-                if (pending != null)
-                    mutableState.value = AccountState.AccountDeletionPending(pending)
-                else
-                    mutableState.value =
-                        AccountState.RecoverableError(AccountFailureReason.LocalStateUnavailable)
-            }
-            AccountActionResult.Failed(AccountFailureReason.LocalStateUnavailable)
         }
     }
+
+    private fun AccountDeletionProgress.isCancellableReservation(): Boolean =
+        stage == AccountDeletionStage.PREPARED &&
+            remoteState == AccountDeletionRemoteState.RESERVED &&
+            !serviceBinding.isNullOrBlank() &&
+            !receiptSecret.isNullOrBlank() &&
+            !subjectBinding.isNullOrBlank() &&
+            !installationId.isNullOrBlank() &&
+            receiptVersion > 0
+
+    /**
+     * A terminal service outcome still requires stable local and provider state before admission.
+     */
+    private suspend fun settleDeletionTerminal(
+        actionResult: AccountActionResult,
+        previousProgress: AccountDeletionProgress? = null,
+        deletedAccount: AccountId? = null,
+    ): AccountSessionOperationGate.MutationResult<AccountActionResult> {
+        return try {
+            deletionManager.pending()?.let { pending ->
+                publishPendingDeletion(pending)
+                return AccountSessionOperationGate.MutationResult(
+                    AccountActionResult.Failed(AccountFailureReason.LocalStateUnavailable),
+                    false,
+                )
+            }
+            val beforeValidation = readSession()
+            validateInstallation()
+            val local = localContext.read()
+            check(local.pendingSignOutUid == null)
+            val current = readSession()
+            check(beforeValidation?.id == current?.id)
+            check(deletedAccount == null || current?.id != deletedAccount)
+            generation++
+            observedRemote = null
+            canCancel = false
+            operationGate.advanceSessionEpoch()
+            // Do not clear a foreign session or reset any training/ownership state here.
+            publishSession(current, inspectRemote = false, local = local)
+            val stable = mutableState.value.isStableAccountState()
+            AccountSessionOperationGate.MutationResult(
+                if (stable) actionResult
+                else AccountActionResult.Failed(AccountFailureReason.LocalStateUnavailable),
+                reopenAdmission = stable,
+            )
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            operationGate.closeAdmission()
+            mutableState.value =
+                previousProgress?.let(AccountState::AccountDeletionPending)
+                    ?: AccountState.RecoverableError(AccountFailureReason.LocalStateUnavailable)
+            AccountSessionOperationGate.MutationResult(
+                AccountActionResult.Failed(AccountFailureReason.LocalStateUnavailable),
+                false,
+            )
+        }
+    }
+
+    private suspend fun retainDeletionBarrier(previousProgress: AccountDeletionProgress) {
+        val current =
+            try {
+                deletionManager.pending()
+            } catch (_: Exception) {
+                null
+            }
+        publishPendingDeletion(current ?: previousProgress)
+    }
+
+    private fun AccountState.isStableAccountState(): Boolean =
+        this == AccountState.LocalOnly ||
+            this is AccountState.SignedIn ||
+            this is AccountState.AwaitingDataChoice
 
     private suspend fun completeSignOut(
         request: SignOutRequest,

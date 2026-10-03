@@ -21,7 +21,8 @@ class FileBackedRoomTestDatabaseRule : TestWatcher() {
                 IronPathDatabase.MIGRATION_4_5,
                 IronPathDatabase.MIGRATION_5_6,
                 IronPathDatabase.MIGRATION_6_7,
-                IronPathDatabase.MIGRATION_7_8
+                IronPathDatabase.MIGRATION_7_8,
+                IronPathDatabase.MIGRATION_8_9
             )
             .build()
             .also(opened::add)

@@ -6,6 +6,7 @@ enum class AccountDeletionStage {
     ACCOUNT_TOMBSTONED,
     LOCAL_CLEARED,
     COMPLETE,
+    CANCELLED,
 }
 
 data class AccountDeletionRequest(
@@ -16,6 +17,13 @@ data class AccountDeletionRequest(
     val serviceBinding: String? = null,
 )
 
+enum class AccountDeletionRemoteState {
+    RESERVED,
+    PENDING,
+    COMPLETE,
+    CANCELLED_NO_DELETE
+}
+
 data class AccountDeletionProgress(
     val operationId: String,
     val accountId: AccountId,
@@ -24,7 +32,15 @@ data class AccountDeletionProgress(
     val stage: AccountDeletionStage,
     val expectedLocalOwnerUid: String? = accountId.opaqueValue,
     val serviceBinding: String? = null,
-)
+    val receiptSecret: String? = null,
+    val subjectBinding: String? = null,
+    val receiptVersion: Long = 0,
+    val remoteState: AccountDeletionRemoteState? = null,
+    val installationId: String? = null,
+) {
+    override fun toString() =
+        "AccountDeletionProgress(operationId=$operationId, stage=$stage, remoteState=$remoteState, receipt=<redacted>)"
+}
 
 sealed interface AccountDeletionResult {
     data object Idle : AccountDeletionResult
@@ -49,6 +65,8 @@ interface AccountDeletionManager {
     suspend fun retry(): AccountDeletionResult
 
     suspend fun pending(): AccountDeletionProgress?
+
+    suspend fun cancelUnactivated(): AccountDeletionResult = AccountDeletionResult.Unavailable
 }
 
 object UnavailableAccountDeletionManager : AccountDeletionManager {

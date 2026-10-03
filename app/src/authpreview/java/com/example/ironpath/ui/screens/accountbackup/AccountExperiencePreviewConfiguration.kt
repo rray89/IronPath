@@ -10,6 +10,9 @@ import androidx.navigation.NavHostController
 import androidx.navigation.compose.composable
 import com.example.ironpath.domain.account.AccountState
 
+internal const val ANDROID_TRAINING_BACKUP_POLICY =
+    "Android system backup and device transfer do not copy this test version's training database. Transfer training data through the app's manual cloud backup and restore after reviewing and confirming the operation."
+
 internal const val ACCOUNT_EXPERIENCE_PREVIEW_ENABLED = true
 
 private const val ACCOUNT_BACKUP_ROUTE = "account_backup"
@@ -18,7 +21,8 @@ internal val accountExperienceEntryContent =
     AccountExperienceEntryContent(
         privacyCopy =
             "Google sign-in identifies your account. Training data stays local until you review " +
-                "and confirm a manual cloud backup.",
+                "and confirm a manual cloud backup. " +
+                ANDROID_TRAINING_BACKUP_POLICY,
         signInLabel = "SIGN IN WITH GOOGLE",
         signInNotice = "Signing in does not upload or associate local training data.",
     )

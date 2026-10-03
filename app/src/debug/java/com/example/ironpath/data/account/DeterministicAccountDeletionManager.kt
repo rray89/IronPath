@@ -29,7 +29,9 @@ constructor(
     private val mutex = Mutex()
 
     override suspend fun pending(): AccountDeletionProgress? =
-        store.journal()?.takeIf { it.stage != AccountDeletionStage.COMPLETE }
+        store.journal()?.takeIf {
+            it.stage != AccountDeletionStage.COMPLETE && it.stage != AccountDeletionStage.CANCELLED
+        }
 
     override suspend fun recoverAtStartup(): AccountDeletionResult =
         mutex.withLock {
@@ -100,6 +102,7 @@ constructor(
                         progress = progress.copy(stage = AccountDeletionStage.COMPLETE)
                     }
                     AccountDeletionStage.COMPLETE -> Unit
+                    AccountDeletionStage.CANCELLED -> return AccountDeletionResult.Cancelled
                 }
             }
             AccountDeletionResult.Completed

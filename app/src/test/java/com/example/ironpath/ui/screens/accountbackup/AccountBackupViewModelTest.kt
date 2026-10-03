@@ -683,7 +683,7 @@ class AccountBackupViewModelTest {
             assertFalse(subject.manual.value.busy)
             assertEquals(0L, subject.manual.value.profileResetEpoch)
             assertTrue(subject.manual.value.feedback.orEmpty().contains("cancelled"))
-            assertTrue(subject.manual.value.feedback.orEmpty().contains("not changed"))
+            assertTrue(subject.manual.value.feedback.orEmpty().contains("preserved"))
         }
 
     @Test
@@ -735,7 +735,7 @@ class AccountBackupViewModelTest {
         advanceUntilIdle()
 
         val feedback = subject.manual.value.feedback.orEmpty()
-        assertTrue(feedback.contains("IronPath account, all cloud backups"))
+        assertTrue(feedback.contains("requested IronPath account, all of its cloud backups"))
         assertTrue(feedback.contains("Google account was not affected"))
         assertFalse(feedback.contains("demo", ignoreCase = true))
         assertEquals(1L, subject.manual.value.profileResetEpoch)
@@ -839,6 +839,168 @@ class AccountBackupViewModelTest {
             assertNull(subject.manual.value.accountDeletion.target)
         }
 
+    @Test
+    fun `confirmed reservation cancellation preserves backup presentation and local generation`() =
+        runTest {
+            val progress = reservedDeletionProgress()
+            val gateway =
+                Gateway().apply {
+                    state.value = AccountState.AccountDeletionPending(progress)
+                    cancellationAction = {
+                        state.value = AccountState.LocalOnly
+                        AccountActionResult.Cancelled
+                    }
+                }
+            val backup =
+                Backup().apply {
+                    latestSummary.value = summary
+                    undoAvailable.value = true
+                }
+            val subject =
+                viewModel(gateway, backup, capabilities = AccountExperienceCapabilities.AuthPreview)
+            advanceUntilIdle()
+            subject.cancelAccountDeletion()
+            advanceUntilIdle()
+
+            assertEquals(1, gateway.deletionCancellations)
+            assertEquals(0L, subject.manual.value.profileResetEpoch)
+            assertNull(subject.manual.value.accountDeletion.completionTargetGeneration)
+            assertNull(subject.manual.value.accountDeletion.progress)
+            assertEquals(backup.summary, subject.manual.value.latest)
+            assertTrue(subject.manual.value.undoAvailable)
+            assertFalse(subject.manual.value.busy)
+            assertTrue(
+                subject.manual.value.feedback.orEmpty().contains("training data was preserved")
+            )
+            assertTrue(subject.manual.value.feedback.orEmpty().contains("Another device can still"))
+        }
+
+    @Test
+    fun `reservation cancellation racing completed deletion uses the actual cleanup navigation`() =
+        runTest {
+            val progress = reservedDeletionProgress()
+            val gateway =
+                Gateway().apply {
+                    state.value = AccountState.AccountDeletionPending(progress)
+                    cancellationAction = {
+                        state.value = AccountState.LocalOnly
+                        AccountActionResult.Completed
+                    }
+                }
+            val subject =
+                viewModel(gateway, capabilities = AccountExperienceCapabilities.AuthPreview)
+            advanceUntilIdle()
+            subject.cancelAccountDeletion()
+            advanceUntilIdle()
+
+            assertEquals(1L, subject.manual.value.profileResetEpoch)
+            assertEquals(
+                progress.profileGeneration + 1,
+                subject.manual.value.accountDeletion.completionTargetGeneration
+            )
+            assertFalse(subject.manual.value.feedback.orEmpty().contains("cancelled"))
+            assertTrue(subject.manual.value.feedback.orEmpty().contains("were deleted"))
+        }
+
+    @Test
+    fun `pending activation or unavailable cancellation keeps the manual barrier locked`() =
+        runTest {
+            listOf(
+                    AccountActionResult.Unavailable,
+                    AccountActionResult.Failed(AccountFailureReason.ServiceUnavailable)
+                )
+                .forEach { result ->
+                    val progress = reservedDeletionProgress()
+                    val gateway =
+                        Gateway().apply {
+                            state.value = AccountState.AccountDeletionPending(progress)
+                            cancellationAction = { result }
+                        }
+                    val subject =
+                        viewModel(gateway, capabilities = AccountExperienceCapabilities.AuthPreview)
+                    advanceUntilIdle()
+                    subject.cancelAccountDeletion()
+                    advanceUntilIdle()
+                    assertEquals(progress, subject.manual.value.accountDeletion.progress)
+                    assertTrue(subject.manual.value.busy)
+                    assertTrue(subject.manual.value.accountDeletion.retryAvailable)
+                    assertFalse(subject.manual.value.accountDeletion.cancelling)
+                    assertEquals(0L, subject.manual.value.profileResetEpoch)
+                }
+        }
+
+    @Test
+    fun `observed pending status cannot enable duplicate actions during reservation cancellation`() =
+        runTest {
+            val finish = CompletableDeferred<Unit>()
+            val progress = reservedDeletionProgress()
+            val gateway =
+                Gateway().apply {
+                    state.value = AccountState.AccountDeletionPending(progress)
+                    cancellationAction = {
+                        finish.await()
+                        AccountActionResult.Unavailable
+                    }
+                }
+            val subject =
+                viewModel(gateway, capabilities = AccountExperienceCapabilities.AuthPreview)
+            advanceUntilIdle()
+            subject.cancelAccountDeletion()
+            gateway.state.value =
+                AccountState.AccountDeletionPending(progress.copy(receiptVersion = 2))
+            advanceUntilIdle()
+            subject.cancelAccountDeletion()
+            subject.retryAccountDeletion()
+            assertEquals(1, gateway.deletionCancellations)
+            assertEquals(0, gateway.deletionRetries)
+            assertTrue(subject.manual.value.accountDeletion.busy)
+            assertTrue(subject.manual.value.accountDeletion.cancelling)
+            finish.complete(Unit)
+            advanceUntilIdle()
+            assertFalse(subject.manual.value.accountDeletion.busy)
+            assertTrue(subject.manual.value.busy)
+        }
+
+    @Test
+    fun `active and legacy progress and demo mode cannot request reserved cancellation`() =
+        runTest {
+            listOf(
+                    reservedDeletionProgress()
+                        .copy(remoteState = AccountDeletionRemoteState.PENDING) to
+                        AccountExperienceCapabilities.AuthPreview,
+                    reservedDeletionProgress().copy(receiptSecret = null) to
+                        AccountExperienceCapabilities.AuthPreview,
+                    reservedDeletionProgress() to AccountExperienceCapabilities.Demo,
+                )
+                .forEach { (progress, capability) ->
+                    val gateway =
+                        Gateway().apply {
+                            state.value = AccountState.AccountDeletionPending(progress)
+                        }
+                    val subject = viewModel(gateway, capabilities = capability)
+                    advanceUntilIdle()
+                    subject.cancelAccountDeletion()
+                    advanceUntilIdle()
+                    assertEquals(0, gateway.deletionCancellations)
+                    assertTrue(subject.manual.value.busy)
+                }
+        }
+
+    private fun reservedDeletionProgress() =
+        AccountDeletionProgress(
+            "reserved-operation",
+            AccountId("google-uid"),
+            9,
+            12,
+            AccountDeletionStage.PREPARED,
+            serviceBinding = "isolated-service",
+            receiptSecret = "isolated-test-receipt",
+            subjectBinding = "isolated-subject",
+            installationId = "installation",
+            receiptVersion = 1,
+            remoteState = AccountDeletionRemoteState.RESERVED,
+        )
+
     private fun deletableGateway() =
         Gateway().apply {
             val profile =
@@ -893,6 +1055,10 @@ class AccountBackupViewModelTest {
         val signOutRequests = mutableListOf<SignOutRequest>()
         val deletionRequests = mutableListOf<AccountDeletionRequest>()
         var deletionRetries = 0
+        var deletionCancellations = 0
+        var cancellationAction: suspend () -> AccountActionResult = {
+            AccountActionResult.Unavailable
+        }
         var deletionAction: suspend (AccountDeletionRequest) -> AccountActionResult = {
             AccountActionResult.Unavailable
         }
@@ -944,6 +1110,11 @@ class AccountBackupViewModelTest {
         override suspend fun retryAccountDeletion(): AccountActionResult {
             deletionRetries++
             return retryAction()
+        }
+
+        override suspend fun cancelAccountDeletion(): AccountActionResult {
+            deletionCancellations++
+            return cancellationAction()
         }
     }
 

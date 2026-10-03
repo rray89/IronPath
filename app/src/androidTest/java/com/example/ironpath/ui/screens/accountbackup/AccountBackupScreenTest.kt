@@ -186,6 +186,48 @@ class AccountBackupScreenTest {
     }
 
     @Test
+    fun demoPendingDeletionKeepsDemoCopyAndDoesNotOfferReservationCancellation() {
+        val progress =
+            AccountDeletionProgress(
+                operationId = "demo-pending-operation",
+                accountId = AccountId("demo"),
+                sessionEpoch = 4,
+                profileGeneration = 9,
+                stage = AccountDeletionStage.PREPARED,
+            )
+        var deletionRetries = 0
+        var deletionCancellations = 0
+        setScreen(
+            AccountState.AccountDeletionPending(progress),
+            size = DpSize(640.dp, 320.dp),
+            actions =
+                ManualBackupActions(
+                    retryAccountDeletion = { deletionRetries++ },
+                    cancelAccountDeletion = { deletionCancellations++ },
+                ),
+        )
+        composeRule
+            .onNodeWithText("Demo account. No Google or cloud connection.")
+            .performScrollTo()
+            .assertIsDisplayed()
+        composeRule
+            .onNodeWithText(ACCOUNT_DELETION_PENDING_MESSAGE)
+            .performScrollTo()
+            .assertIsDisplayed()
+        composeRule
+            .onNodeWithText("RETRY DELETION")
+            .performScrollTo()
+            .assertIsEnabled()
+            .performClick()
+        composeRule.onNodeWithText("CANCEL IF NOT STARTED").assertDoesNotExist()
+        composeRule.onNodeWithText(ACCOUNT_DELETION_INTEGRITY_MESSAGE).assertDoesNotExist()
+        composeRule.onNodeWithText("SIGN OUT").assertDoesNotExist()
+        composeRule.onNodeWithText("BACK UP NOW").assertDoesNotExist()
+        assertEquals(1, deletionRetries)
+        assertEquals(0, deletionCancellations)
+    }
+
+    @Test
     fun signOutReview_defaultsToKeepingData_andCancelDoesNotSubmit() {
         val profile = AccountProfile(AccountId("demo"), "Demo Athlete", "athlete@example.invalid")
         val manual =

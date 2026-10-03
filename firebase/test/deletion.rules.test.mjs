@@ -25,7 +25,7 @@ test("permanent tombstone blocks a still-valid owner from recreating a deleted s
 
 test("tombstones and durable deletion jobs are admin-only for every client", async () => {
   for (const context of [environment.unauthenticatedContext(), environment.authenticatedContext("tombstone-owner"), environment.authenticatedContext("other")]) {
-    for (const path of ["accountDeletionTombstones/tombstone-owner", "accountDeletionJobs/receipt"]) {
+    for (const path of ["accountDeletionTombstones/tombstone-owner", "accountDeletionJobs/receipt", "accountDeletionReceipts/receipt", "accountDeletionReservationQuotas/tombstone-owner"]) {
       const ref = doc(context.firestore(), path);
       await assertFails(setDoc(ref, { operationId: "receipt" }));
       await assertFails(getDoc(ref));

@@ -56,6 +56,7 @@ import com.example.ironpath.data.local.dao.SessionDao
 import com.example.ironpath.data.local.entity.WorkoutStatus
 import com.example.ironpath.domain.account.AccountContextReader
 import com.example.ironpath.domain.account.AccountDeletionProgress
+import com.example.ironpath.domain.account.AccountDeletionRemoteState
 import com.example.ironpath.domain.account.AccountDeletionStage
 import com.example.ironpath.domain.account.AccountExperienceCapabilities
 import com.example.ironpath.domain.account.AccountId
@@ -66,6 +67,7 @@ import com.example.ironpath.testutil.FakeOnboardingRepository
 import com.example.ironpath.testutil.HiltTestDatabaseRule
 import com.example.ironpath.testutil.TestData
 import com.example.ironpath.ui.screens.accountbackup.ACCOUNT_DELETION_PENDING_MESSAGE
+import com.example.ironpath.ui.screens.accountbackup.ACCOUNT_DELETION_RESERVED_MESSAGE
 import com.example.ironpath.ui.screens.accountbackup.AccountBackupViewModel
 import com.example.ironpath.ui.screens.accountbackup.AccountDeletionUiState
 import com.example.ironpath.ui.screens.accountbackup.ManualBackupActions
@@ -731,10 +733,9 @@ class IronPathNavigationTest {
         setGlobalDeletionContent(
             accountState,
             manual,
-            AccountExperienceCapabilities.Mode.AuthPreview
-        ) {
-            retries.incrementAndGet()
-        }
+            AccountExperienceCapabilities.Mode.AuthPreview,
+            onRetry = { retries.incrementAndGet() },
+        )
         waitForRoute(Route.HOME)
         val routesBeforeDeletion = backStackRoutes()
         composeRule.runOnIdle {
@@ -759,7 +760,12 @@ class IronPathNavigationTest {
                 2,
                 0,
                 AccountDeletionStage.PREPARED,
-                serviceBinding = "real-service-binding",
+                serviceBinding = "isolated-v2-service-binding",
+                receiptSecret = "isolated-navigation-receipt-secret",
+                subjectBinding = "isolated-navigation-subject-binding",
+                receiptVersion = 2,
+                remoteState = AccountDeletionRemoteState.PENDING,
+                installationId = "isolated-navigation-installation",
             )
         composeRule.runOnIdle {
             accountState.value = AccountState.AccountDeletionPending(progress)
@@ -783,6 +789,7 @@ class IronPathNavigationTest {
             .assertIsEnabled()
             .performClick()
         assertEquals(1, retries.get())
+        composeRule.onNodeWithText("CANCEL IF NOT STARTED").assertDoesNotExist()
         assertDeletionNavigationLocked(routesBeforeDeletion)
 
         composeRule.runOnIdle {
@@ -808,6 +815,80 @@ class IronPathNavigationTest {
     }
 
     @Test
+    fun globalReservedCancellationKeepsBackLockedUntilConfirmedThenReopensExistingNavigation() {
+        enterApp()
+        navigateToBottomDestination(Route.HISTORY)
+        val accountState = mutableStateOf<AccountState>(AccountState.LocalOnly)
+        val manual = mutableStateOf(ManualBackupUiState())
+        val cancellations = AtomicInteger()
+        val retries = AtomicInteger()
+        setGlobalDeletionContent(
+            accountState,
+            manual,
+            AccountExperienceCapabilities.Mode.AuthPreview,
+            onRetry = { retries.incrementAndGet() },
+            onCancel = {
+                cancellations.incrementAndGet()
+                manual.value =
+                    manual.value.copy(
+                        accountDeletion =
+                            manual.value.accountDeletion.copy(busy = true, cancelling = true)
+                    )
+            },
+        )
+        val routesBeforeDeletion = backStackRoutes()
+        val reserved =
+            AccountDeletionProgress(
+                operationId = "ef1736e7-e3d3-41e4-b766-69874ca8f120",
+                accountId = AccountId("isolated-navigation-account"),
+                sessionEpoch = 2,
+                profileGeneration = 0,
+                stage = AccountDeletionStage.PREPARED,
+                serviceBinding = "isolated-v2-service-binding",
+                receiptSecret = "isolated-navigation-receipt-secret",
+                subjectBinding = "isolated-navigation-subject-binding",
+                receiptVersion = 1,
+                remoteState = AccountDeletionRemoteState.RESERVED,
+                installationId = "isolated-navigation-installation",
+            )
+        composeRule.runOnIdle {
+            accountState.value = AccountState.AccountDeletionPending(reserved)
+            manual.value =
+                ManualBackupUiState(
+                    accountDeletion =
+                        AccountDeletionUiState(progress = reserved, retryAvailable = true)
+                )
+        }
+        composeRule
+            .onNodeWithText(ACCOUNT_DELETION_RESERVED_MESSAGE)
+            .performScrollTo()
+            .assertIsDisplayed()
+        assertDeletionNavigationLocked(routesBeforeDeletion)
+        composeRule
+            .onNodeWithText("CANCEL IF NOT STARTED")
+            .performScrollTo()
+            .assertIsEnabled()
+            .performClick()
+        assertEquals(1, cancellations.get())
+        assertEquals(0, retries.get())
+        composeRule.onNodeWithText("Checking cancellation").performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithText("CANCEL IF NOT STARTED").performScrollTo().assertIsNotEnabled()
+        composeRule.onNodeWithText("RETRY DELETION").performScrollTo().assertIsNotEnabled()
+        assertDeletionNavigationLocked(routesBeforeDeletion)
+
+        // The gateway's terminal cancellation keeps the current profile and back stack.
+        composeRule.runOnIdle {
+            accountState.value = AccountState.LocalOnly
+            manual.value = ManualBackupUiState()
+        }
+        waitForBarsVisible()
+        assertEquals(routesBeforeDeletion, backStackRoutes())
+        composeRule.onNodeWithTag(TestTags.bottomNav(Route.HISTORY)).assertIsSelected()
+        navigateToBottomDestination(Route.HOME)
+        composeRule.onNodeWithText("CANCEL IF NOT STARTED").assertDoesNotExist()
+    }
+
+    @Test
     fun globalDemoDeletionRecoveryKeepsItsDemoScopeExplicit() {
         val accountState = mutableStateOf<AccountState>(AccountState.DeletingAccount)
         val manual =
@@ -828,6 +909,7 @@ class IronPathNavigationTest {
             .onNodeWithText("Complete Google verification", substring = true)
             .assertDoesNotExist()
         assertApplicationBarsDoNotExist()
+        composeRule.onNodeWithText("CANCEL IF NOT STARTED").assertDoesNotExist()
     }
 
     private fun setGlobalDeletionContent(
@@ -835,6 +917,7 @@ class IronPathNavigationTest {
         manual: State<ManualBackupUiState>,
         mode: AccountExperienceCapabilities.Mode,
         onRetry: () -> Unit = {},
+        onCancel: () -> Unit = {},
     ) {
         composeRule.runOnUiThread {
             composeRule.activity.setContent {
@@ -850,7 +933,10 @@ class IronPathNavigationTest {
                             accountExperienceMode = mode,
                             manualBackupState = manual.value,
                             manualBackupActions =
-                                ManualBackupActions(retryAccountDeletion = onRetry),
+                                ManualBackupActions(
+                                    retryAccountDeletion = onRetry,
+                                    cancelAccountDeletion = onCancel,
+                                ),
                         )
                     }
                 }

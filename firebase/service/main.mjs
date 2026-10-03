@@ -9,6 +9,7 @@ import { createDeletionServer } from "./http-server.mjs";
 const env = process.env;
 const loopback = /^127\.0\.0\.1:[1-9][0-9]{0,4}$/;
 if (env.IRONPATH_DELETION_MODE !== "emulator" ||
+    !/^[A-Za-z0-9_-]{1,128}$/.test(env.IRONPATH_DELETION_SERVICE_INSTANCE_ID ?? "") ||
     !/^demo-[a-z0-9-]+$/.test(env.GCLOUD_PROJECT ?? "") ||
     !loopback.test(env.FIRESTORE_EMULATOR_HOST ?? "") ||
     !loopback.test(env.FIREBASE_AUTH_EMULATOR_HOST ?? "")) {
@@ -17,7 +18,12 @@ if (env.IRONPATH_DELETION_MODE !== "emulator" ||
 // Emulator execution must never probe the cloud metadata server for credentials.
 env.METADATA_SERVER_DETECTION = "none";
 const app = initializeApp({ projectId: env.GCLOUD_PROJECT });
-const service = new DeletionService({ firestore: getFirestore(app), auth: getAuth(app), projectId: env.GCLOUD_PROJECT });
+const service = new DeletionService({ firestore: getFirestore(app), auth: getAuth(app),
+  projectId: env.GCLOUD_PROJECT, serviceInstanceId: env.IRONPATH_DELETION_SERVICE_INSTANCE_ID,
+  reservationLimit: Number(env.IRONPATH_DELETION_MAX_RESERVATIONS ?? 100),
+  reservationWindowLimit: Number(env.IRONPATH_DELETION_RESERVATIONS_PER_WINDOW ?? 20),
+  reservationWindowMs: Number(env.IRONPATH_DELETION_RESERVATION_WINDOW_MS ?? 3600000),
+});
 const stopWorker = startWorker(service);
 const server = createDeletionServer(service);
 server.listen(Number(env.PORT ?? 8787), "127.0.0.1", () => {

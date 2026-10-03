@@ -546,6 +546,62 @@ class IronPathDatabaseMigrationTest {
 
     @Test
     @Throws(IOException::class)
+    fun migrate8To9_preservesLegacyServiceJournalWithoutInventingReservationAuthority() {
+        val name = "reservation-v2-migration-8.db"
+        helper.createDatabase(name, 8).apply {
+            seedVersionOneData()
+            execSQL(
+                "INSERT INTO account_backup_metadata VALUES (1, 'owner', 'installation', 12, 10, 'backup', 3, 'digest', 'source', 100, 1, NULL, 9)"
+            )
+            execSQL(
+                "INSERT INTO account_deletion_journal (id, operationId, accountId, sessionEpoch, profileGeneration, stage, createdAtEpochMillis, expectedLocalOwnerUid, serviceBinding) VALUES (1, 'unknown-v1-operation', 'owner', 7, 9, 'PREPARED', 10000, 'owner', 'legacy-service')"
+            )
+            close()
+        }
+        helper.runMigrationsAndValidate(name, 9, true, IronPathDatabase.MIGRATION_8_9).use {
+            database ->
+            database.assertSingleRow("SELECT * FROM account_deletion_journal WHERE id = 1") {
+                assertEquals("unknown-v1-operation", string("operationId"))
+                assertEquals("owner", string("accountId"))
+                assertEquals("owner", string("expectedLocalOwnerUid"))
+                assertEquals("legacy-service", string("serviceBinding"))
+                assertEquals("PREPARED", string("stage"))
+                assertEquals(7L, long("sessionEpoch"))
+                assertEquals(9L, long("profileGeneration"))
+                assertEquals(10000L, long("createdAtEpochMillis"))
+                assertNull(nullableString("receiptSecret"))
+                assertNull(nullableString("subjectBinding"))
+                assertNull(nullableString("remoteState"))
+                assertNull(nullableString("installationId"))
+                assertEquals(0L, long("receiptVersion"))
+            }
+            database.assertSingleRow("SELECT * FROM account_backup_metadata WHERE id = 1") {
+                assertEquals("owner", string("ownerUid"))
+                assertEquals("installation", string("installationId"))
+                assertEquals(9L, long("profileGeneration"))
+                assertEquals(12L, long("localChangeRevision"))
+            }
+            database.assertSingleRow("SELECT * FROM weekly_plans WHERE id = '$PLAN_ID'") {
+                assertEquals("Active", string("status"))
+            }
+            database.assertSingleRow("SELECT * FROM session_sets WHERE id = '$SESSION_SET_ID'") {
+                assertEquals(105.0, double("weightKg"), 0.0)
+            }
+            database.assertLatestConstraintsAndIndexes()
+            assertEquals(0, database.rowCount("account_deletion_draft"))
+            database.execSQL(
+                "INSERT INTO account_deletion_draft VALUES (1, 'draft-operation', 'synthetic-secret', 'owner', 7, 9, 'owner', 'v2-binding', 'installation', 10000)"
+            )
+            assertThrows(SQLiteConstraintException::class.java) {
+                database.execSQL(
+                    "INSERT INTO account_deletion_draft SELECT * FROM account_deletion_draft WHERE id = 1"
+                )
+            }
+        }
+    }
+
+    @Test
+    @Throws(IOException::class)
     fun allMigrations_openLatestSchemaAndAllDaosRemainUsable() {
         helper.createDatabase(ALL_MIGRATIONS_DATABASE, 1).apply {
             seedVersionOneData()
@@ -554,7 +610,7 @@ class IronPathDatabaseMigrationTest {
         helper
             .runMigrationsAndValidate(
                 ALL_MIGRATIONS_DATABASE,
-                8,
+                9,
                 true,
                 IronPathDatabase.MIGRATION_1_2,
                 IronPathDatabase.MIGRATION_2_3,
@@ -563,10 +619,12 @@ class IronPathDatabaseMigrationTest {
                 IronPathDatabase.MIGRATION_5_6,
                 IronPathDatabase.MIGRATION_6_7,
                 IronPathDatabase.MIGRATION_7_8,
+                IronPathDatabase.MIGRATION_8_9,
             )
             .use { database ->
                 database.assertLatestConstraintsAndIndexes()
                 assertEquals(0, database.rowCount("account_deletion_journal"))
+                assertEquals(0, database.rowCount("account_deletion_draft"))
             }
 
         val context = ApplicationProvider.getApplicationContext<Context>()
@@ -579,7 +637,8 @@ class IronPathDatabaseMigrationTest {
                     IronPathDatabase.MIGRATION_4_5,
                     IronPathDatabase.MIGRATION_5_6,
                     IronPathDatabase.MIGRATION_6_7,
-                    IronPathDatabase.MIGRATION_7_8
+                    IronPathDatabase.MIGRATION_7_8,
+                    IronPathDatabase.MIGRATION_8_9
                 )
                 .build()
         try {

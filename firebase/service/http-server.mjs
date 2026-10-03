@@ -7,38 +7,51 @@ export function createDeletionServer(service) {
     response.setHeader("Cache-Control", "no-store");
     try {
       let result;
-      if (request.method === "GET" && request.url === "/v1/capabilities") {
+      if (request.method === "GET" && request.url === "/v2/capabilities") {
         result = service.capabilities();
-      } else if (request.method === "POST" && request.url === "/v1/deletions") {
+      } else if (request.method === "POST" && request.url === "/v2/reservations") {
         const body = await readBody(request);
-        if (!body || typeof body !== "object" || Array.isArray(body) || Object.keys(body).length !== 1 || !("operationId" in body)) {
-          throw new RequestError(400, "INVALID_REQUEST");
+        if (Object.keys(body).length !== 1 || !("operationId" in body)) throw new RequestError(400, "INVALID_REQUEST");
+        result = await service.reserve(body.operationId, request.headers["deletion-receipt"], bearer(request));
+      } else if (request.method === "POST" && /^\/v2\/operations\/[^/]+\/(status|activate|cancel-unactivated)$/.test(request.url)) {
+        const body = await readBody(request);
+        if (Object.keys(body).length !== 0) throw new RequestError(400, "INVALID_REQUEST");
+        const [, , , operationId, action] = request.url.split("/");
+        const secret = request.headers["deletion-receipt"];
+        if (action === "status") result = await service.status(operationId, secret);
+        else if (action === "cancel-unactivated") result = await service.cancelUnactivated(operationId, secret);
+        else {
+          result = await service.activate(operationId, secret, bearer(request));
+          // Only fresh, explicitly admitted activation may accelerate the worker.
+          // Reservation, status and cancellation never enqueue or trigger work.
+          if (result.state === "PENDING") void service.runPending().catch(() => {});
         }
-        const match = /^Bearer ([^\s]+)$/.exec(request.headers.authorization ?? "");
-        result = await service.start(body.operationId, match?.[1]);
-        // Reduce ordinary latency; the independent startup/periodic worker remains
-        // responsible for durable recovery if this request/process disappears.
-        if (result.state === "PENDING") void service.runPending().catch(() => {});
       } else if (request.method === "POST" && /^\/v1\/deletions\/[^/]+\/resume$/.test(request.url)) {
-        // The UUID is an unguessable persisted recovery capability. This endpoint
-        // only returns coarse status; it cannot create/rebind a job or reveal UID.
         const body = await readBody(request, true);
         if (Object.keys(body).length !== 0) throw new RequestError(400, "INVALID_REQUEST");
-        result = await service.resume(request.url.split("/")[3]);
+        result = await service.resumeLegacy(request.url.split("/")[3]);
       } else {
+        // v1 capabilities/new-start are deliberately unavailable. Unknown old
+        // operations cannot silently acquire v2 authority or a new identity.
         throw new RequestError(404, "NOT_FOUND");
       }
       response.statusCode = result.state === "PENDING" ? 202 : 200;
-      response.end(JSON.stringify(result));
+      if (!response.destroyed && !response.writableEnded) response.end(JSON.stringify(result));
     } catch (error) {
       response.statusCode = error instanceof RequestError ? error.status : 503;
-      response.end(JSON.stringify({ error: error instanceof RequestError ? error.code : "UNAVAILABLE" }));
+      if (!response.destroyed && !response.writableEnded) {
+        response.end(JSON.stringify({ error: error instanceof RequestError ? error.code : "UNAVAILABLE" }));
+      }
     }
   });
   server.requestTimeout = 10000;
   server.headersTimeout = 10000;
   server.maxConnections = 64;
   return server;
+}
+
+function bearer(request) {
+  return /^Bearer ([^\s]+)$/.exec(request.headers.authorization ?? "")?.[1];
 }
 
 async function readBody(request, allowEmpty = false) {
