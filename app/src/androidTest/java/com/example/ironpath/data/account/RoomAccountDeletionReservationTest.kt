@@ -13,6 +13,7 @@ import com.example.ironpath.data.local.entity.BackupBaselineChunk
 import com.example.ironpath.data.local.entity.RestoreUndoChunk
 import com.example.ironpath.data.local.entity.RestoreUndoMetadata
 import com.example.ironpath.data.local.requireWritesAllowed
+import com.example.ironpath.domain.account.AccountDeletionProgress
 import com.example.ironpath.domain.account.AccountDeletionRemoteState
 import com.example.ironpath.domain.account.AccountDeletionRequest
 import com.example.ironpath.domain.account.AccountDeletionStage
@@ -174,7 +175,10 @@ class RoomAccountDeletionReservationTest {
         assertEquals(AccountDeletionRemoteState.CANCELLED_NO_DELETE, cancelled.remoteState)
         assertEquals(2L, cancelled.receiptVersion)
         assertEquals(before, snapshot(database))
-        database.withTransaction { database.requireWritesAllowed(9) }
+        assertTrue(
+            runCatching { database.withTransaction { database.requireWritesAllowed(9) } }
+                .exceptionOrNull() is AccountDeletionInProgressException
+        )
         val lateComplete = receipt(draft, AccountDeletionRemoteState.COMPLETE, 3)
         assertNull(store.recordReceipt(prepared, lateComplete))
         assertNull(store.recordReceipt(cancelled, lateComplete))
@@ -182,6 +186,8 @@ class RoomAccountDeletionReservationTest {
         assertFalse(store.clearLocalProfile(cancelled))
         assertEquals(cancelled, store.journal())
         assertEquals(before, snapshot(database))
+        assertTrue(store.acknowledgeTerminal(cancelled))
+        database.withTransaction { database.requireWritesAllowed(9) }
         val nextDraft = checkNotNull(store.createDraft(request))
         assertNotEquals(draft.operationId, nextDraft.operationId)
         assertNotEquals(draft.receiptSecret, nextDraft.receiptSecret)
@@ -334,6 +340,194 @@ class RoomAccountDeletionReservationTest {
             assertNotNull(store.prepareReservation(fresh, receipt(fresh)))
             assertFalse(store.discardDraft(fresh))
         }
+
+    @Test
+    fun terminalAcknowledgmentRejectsNonterminalAndEveryStaleIdentityField() = runBlocking {
+        val database = databases.open()
+        seed(database)
+        val store = store(database)
+        val draft = checkNotNull(store.createDraft(request))
+        val prepared = checkNotNull(store.prepareReservation(draft, receipt(draft)))
+        assertFalse(store.acknowledgeTerminal(prepared))
+        assertEquals(prepared, store.journal())
+        assertTrue(
+            store.cancelReservation(
+                prepared,
+                receipt(draft, AccountDeletionRemoteState.CANCELLED_NO_DELETE, 2)
+            )
+        )
+        val terminal = checkNotNull(store.journal())
+        val before = snapshot(database)
+        listOf(
+                terminal.copy(operationId = UUID.randomUUID().toString()),
+                terminal.copy(accountId = AccountId("other-account")),
+                terminal.copy(sessionEpoch = terminal.sessionEpoch + 1),
+                terminal.copy(profileGeneration = terminal.profileGeneration + 1),
+                terminal.copy(expectedLocalOwnerUid = null),
+                terminal.copy(serviceBinding = "other-service"),
+                terminal.copy(receiptSecret = "other-receipt"),
+                terminal.copy(subjectBinding = "b".repeat(64)),
+                terminal.copy(receiptVersion = terminal.receiptVersion - 1),
+                terminal.copy(receiptVersion = terminal.receiptVersion + 1),
+                terminal.copy(remoteState = AccountDeletionRemoteState.COMPLETE),
+                terminal.copy(installationId = "other-installation"),
+                terminal.copy(stage = AccountDeletionStage.COMPLETE),
+                terminal.copy(stage = AccountDeletionStage.PREPARED),
+            )
+            .forEach { stale ->
+                assertFalse(store.acknowledgeTerminal(stale))
+                assertEquals(terminal, store.journal())
+                assertEquals(before, snapshot(database))
+            }
+    }
+
+    @Test
+    fun matchingButInvalidTerminalReceiptCannotBeAcknowledged() = runBlocking {
+        val database = databases.open()
+        seed(database)
+        terminal(database, AccountDeletionStage.CANCELLED)
+        val original = checkNotNull(database.accountDeletionDao().getJournal())
+        val before = snapshot(database)
+        listOf(
+                original.copy(remoteState = AccountDeletionRemoteState.PENDING.name),
+                original.copy(receiptSecret = null),
+                original.copy(subjectBinding = null),
+                original.copy(receiptVersion = 0),
+                original.copy(installationId = null),
+                original.copy(serviceBinding = null),
+            )
+            .forEach { invalid ->
+                database.accountDeletionDao().save(invalid)
+                assertFalse(
+                    store(database).acknowledgeTerminal(checkNotNull(store(database).journal()))
+                )
+                assertEquals(invalid, database.accountDeletionDao().getJournal())
+                assertEquals(before, snapshot(database))
+            }
+    }
+
+    @Test
+    fun exactCancelledAcknowledgmentSurvivesReopenAndPreservesEveryProfileRow() = runBlocking {
+        assertTerminalAcknowledgmentSurvivesReopen(AccountDeletionStage.CANCELLED)
+    }
+
+    @Test
+    fun exactCompletedAcknowledgmentSurvivesReopenAndPreservesClearedProfile() = runBlocking {
+        assertTerminalAcknowledgmentSurvivesReopen(AccountDeletionStage.COMPLETE)
+    }
+
+    @Test
+    fun terminalAcknowledgmentRejectsChangedLocalScopePendingSignOutAndSentinel() = runBlocking {
+        val database = databases.open()
+        seed(database)
+        val terminal = terminal(database, AccountDeletionStage.CANCELLED)
+        val store = store(database)
+        val metadata = checkNotNull(database.backupDao().getMetadata())
+        listOf(
+                metadata.copy(ownerUid = "replacement-owner"),
+                metadata.copy(profileGeneration = metadata.profileGeneration + 1),
+                metadata.copy(installationId = "replacement-installation"),
+                metadata.copy(pendingSignOutUid = request.accountId.opaqueValue),
+            )
+            .forEach { changed ->
+                database.backupDao().updateMetadata(changed)
+                val before = snapshot(database)
+                assertFalse(store.acknowledgeTerminal(terminal))
+                assertEquals(terminal, store.journal())
+                assertEquals(before, snapshot(database))
+            }
+        database.backupDao().updateMetadata(metadata)
+        sentinel.writeInstallationId("foreign-sentinel")
+        val before = snapshot(database)
+        assertFalse(store.acknowledgeTerminal(terminal))
+        assertEquals(terminal, store.journal())
+        assertEquals(before, snapshot(database))
+        assertEquals("foreign-sentinel", sentinel.readInstallationId())
+    }
+
+    @Test
+    fun failedTerminalAcknowledgmentRollsBackAndRemainsRecoverableAfterReopen() = runBlocking {
+        val first = databases.open()
+        seed(first)
+        val terminal = terminal(first, AccountDeletionStage.CANCELLED)
+        val before = snapshot(first)
+        first.openHelper.writableDatabase.execSQL(
+            "CREATE TRIGGER reject_terminal_ack BEFORE DELETE ON account_deletion_journal BEGIN SELECT RAISE(ABORT, 'test interruption'); END"
+        )
+        assertFalse(runCatching { store(first).acknowledgeTerminal(terminal) }.getOrDefault(false))
+        assertEquals(terminal, store(first).journal())
+        assertEquals(before, snapshot(first))
+        first.close()
+        val reopened = databases.open()
+        assertEquals(terminal, store(reopened).journal())
+        assertEquals(before, snapshot(reopened))
+        reopened.openHelper.writableDatabase.execSQL("DROP TRIGGER reject_terminal_ack")
+        assertTrue(store(reopened).acknowledgeTerminal(terminal))
+        assertNull(store(reopened).journal())
+        assertEquals(before, snapshot(reopened))
+    }
+
+    private suspend fun assertTerminalAcknowledgmentSurvivesReopen(stage: AccountDeletionStage) {
+        val first = databases.open()
+        seed(first)
+        val terminal = terminal(first, stage)
+        assertTrue(
+            runCatching { first.withTransaction { first.requireWritesAllowed() } }.exceptionOrNull()
+                is AccountDeletionInProgressException
+        )
+        val before = snapshot(first)
+        val installation = sentinel.readInstallationId()
+        first.close()
+        val reopened = databases.open()
+        assertEquals(terminal, store(reopened).journal())
+        assertTrue(store(reopened).acknowledgeTerminal(terminal))
+        assertNull(store(reopened).journal())
+        assertFalse(store(reopened).acknowledgeTerminal(terminal))
+        assertEquals(before, snapshot(reopened))
+        assertEquals(installation, sentinel.readInstallationId())
+        reopened.close()
+        val again = databases.open()
+        assertNull(store(again).journal())
+        assertEquals(before, snapshot(again))
+        again.withTransaction { again.requireWritesAllowed() }
+    }
+
+    private suspend fun terminal(
+        database: IronPathDatabase,
+        stage: AccountDeletionStage
+    ): AccountDeletionProgress {
+        val store = store(database)
+        val draft = checkNotNull(store.createDraft(request))
+        val prepared = checkNotNull(store.prepareReservation(draft, receipt(draft)))
+        if (stage == AccountDeletionStage.CANCELLED) {
+            assertTrue(
+                store.cancelReservation(
+                    prepared,
+                    receipt(draft, AccountDeletionRemoteState.CANCELLED_NO_DELETE, 2)
+                )
+            )
+        } else {
+            val complete =
+                checkNotNull(
+                    store.recordReceipt(
+                        prepared,
+                        receipt(draft, AccountDeletionRemoteState.COMPLETE, 2)
+                    )
+                )
+            assertTrue(store.advance(complete, AccountDeletionStage.BACKUPS_PURGED))
+            assertTrue(
+                store.advance(
+                    checkNotNull(store.journal()),
+                    AccountDeletionStage.ACCOUNT_TOMBSTONED
+                )
+            )
+            assertTrue(store.clearLocalProfile(checkNotNull(store.journal())))
+            val cleared = checkNotNull(store.journal())
+            assertTrue(store.ensureInstallationMarker(cleared))
+            assertTrue(store.markComplete(cleared))
+        }
+        return checkNotNull(store.journal()).also { assertEquals(stage, it.stage) }
+    }
 
     private fun store(database: IronPathDatabase) =
         RoomAccountDeletionStore(database, ids, time, sentinel)

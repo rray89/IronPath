@@ -67,6 +67,9 @@ interface AccountDeletionManager {
     suspend fun pending(): AccountDeletionProgress?
 
     suspend fun cancelUnactivated(): AccountDeletionResult = AccountDeletionResult.Unavailable
+
+    /** Retire exactly the observed terminal journal only after local/provider stabilization. */
+    suspend fun acknowledgeTerminalRecovery(expected: AccountDeletionProgress?): Boolean = true
 }
 
 object UnavailableAccountDeletionManager : AccountDeletionManager {

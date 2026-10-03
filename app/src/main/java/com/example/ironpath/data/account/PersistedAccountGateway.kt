@@ -82,7 +82,10 @@ constructor(
                             if (pendingDeletion != null) {
                                 return@safely publishPendingDeletion(pendingDeletion)
                             }
-                            if (mutableState.value == AccountState.DeletingAccount) {
+                            if (
+                                mutableState.value is AccountState.AccountDeletionPending ||
+                                    mutableState.value == AccountState.DeletingAccount
+                            ) {
                                 return@safely AccountActionResult.Completed
                             }
                             val profile = readSession()
@@ -126,6 +129,11 @@ constructor(
                 }
             if (pendingDeletion != null) {
                 return@withLock publishPendingDeletion(pendingDeletion)
+            }
+            if (mutableState.value is AccountState.AccountDeletionPending) {
+                // A null journal is not acknowledgment of a known failed terminal stabilization.
+                operationGate.closeAdmission()
+                return@withLock AccountActionResult.Unavailable
             }
             safely { refreshSessionContext(inspectRemote) }
         }
@@ -842,12 +850,25 @@ constructor(
         previousProgress: AccountDeletionProgress? = null,
         deletedAccount: AccountId? = null,
     ): AccountSessionOperationGate.MutationResult<AccountActionResult> {
+        var recoveryProgress = previousProgress
         return try {
             deletionManager.pending()?.let { pending ->
-                publishPendingDeletion(pending)
-                return AccountSessionOperationGate.MutationResult(
-                    AccountActionResult.Failed(AccountFailureReason.LocalStateUnavailable),
-                    false,
+                recoveryProgress = pending
+                if (
+                    pending.stage !in
+                        setOf(AccountDeletionStage.COMPLETE, AccountDeletionStage.CANCELLED)
+                ) {
+                    publishPendingDeletion(pending)
+                    return AccountSessionOperationGate.MutationResult(
+                        AccountActionResult.Failed(AccountFailureReason.LocalStateUnavailable),
+                        false,
+                    )
+                }
+                check(
+                    previousProgress == null ||
+                        (pending.operationId == previousProgress.operationId &&
+                            pending.accountId == previousProgress.accountId &&
+                            pending.serviceBinding == previousProgress.serviceBinding)
                 )
             }
             val beforeValidation = readSession()
@@ -862,7 +883,15 @@ constructor(
             canCancel = false
             operationGate.advanceSessionEpoch()
             // Do not clear a foreign session or reset any training/ownership state here.
-            publishSession(current, inspectRemote = false, local = local)
+            publishSession(
+                current,
+                inspectRemote = false,
+                local = local,
+                beforePublish = { settled ->
+                    check(settled.isStableAccountState())
+                    check(deletionManager.acknowledgeTerminalRecovery(recoveryProgress))
+                }
+            )
             val stable = mutableState.value.isStableAccountState()
             AccountSessionOperationGate.MutationResult(
                 if (stable) actionResult
@@ -874,7 +903,7 @@ constructor(
         } catch (_: Exception) {
             operationGate.closeAdmission()
             mutableState.value =
-                previousProgress?.let(AccountState::AccountDeletionPending)
+                recoveryProgress?.let(AccountState::AccountDeletionPending)
                     ?: AccountState.RecoverableError(AccountFailureReason.LocalStateUnavailable)
             AccountSessionOperationGate.MutationResult(
                 AccountActionResult.Failed(AccountFailureReason.LocalStateUnavailable),
@@ -1305,8 +1334,10 @@ constructor(
         profile: AccountProfile?,
         inspectRemote: Boolean = true,
         local: LocalAccountContext,
+        beforePublish: suspend (AccountState) -> Unit = {},
     ) {
         if (!capabilities.canAssociateLocalData) {
+            beforePublish(identityOnlySessionState(profile, local, operationGate.sessionEpoch))
             publishIdentityOnlySession(profile, local, operationGate.sessionEpoch)
             return
         }
@@ -1372,7 +1403,7 @@ constructor(
             )
         canCancel = false
         val sessionEpoch = operationGate.sessionEpoch
-        mutableState.value =
+        val settledState =
             when (resolved) {
                 is AccountState.SignedIn ->
                     resolved.copy(
@@ -1396,6 +1427,8 @@ constructor(
                     )
                 else -> resolved
             }
+        beforePublish(settledState)
+        mutableState.value = settledState
     }
 
     private fun publishIdentityOnlySession(
@@ -1405,25 +1438,32 @@ constructor(
     ) {
         canCancel = false
         observedRemote = null
+        mutableState.value = identityOnlySessionState(profile, local, sessionEpoch)
+    }
+
+    private fun identityOnlySessionState(
+        profile: AccountProfile?,
+        local: LocalAccountContext,
+        sessionEpoch: Long,
+    ): AccountState {
         val pendingUid = local.pendingSignOutUid
-        mutableState.value =
-            when {
-                pendingUid != null ->
-                    AccountState.SignOutPending(
-                        accountId = AccountId(pendingUid),
-                        profile = profile?.takeIf { it.id.opaqueValue == pendingUid },
-                        sessionEpoch = sessionEpoch,
-                    )
-                profile == null -> AccountState.LocalOnly
-                else ->
-                    AccountState.SignedIn(
-                        accountId = profile.id,
-                        profile = profile,
-                        sessionEpoch = sessionEpoch,
-                        profileGeneration = local.profileGeneration,
-                        canDeleteAccount = false,
-                    )
-            }
+        return when {
+            pendingUid != null ->
+                AccountState.SignOutPending(
+                    accountId = AccountId(pendingUid),
+                    profile = profile?.takeIf { it.id.opaqueValue == pendingUid },
+                    sessionEpoch = sessionEpoch,
+                )
+            profile == null -> AccountState.LocalOnly
+            else ->
+                AccountState.SignedIn(
+                    accountId = profile.id,
+                    profile = profile,
+                    sessionEpoch = sessionEpoch,
+                    profileGeneration = local.profileGeneration,
+                    canDeleteAccount = false,
+                )
+        }
     }
 
     private fun AccountState.sessionAccountId(): AccountId? =

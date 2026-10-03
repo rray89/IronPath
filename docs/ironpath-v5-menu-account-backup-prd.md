@@ -1076,6 +1076,11 @@ or automatically replayed. Only CANCELLED_NO_DELETE can unlock the matching jour
 without changing local training, active, ownership, baseline or undo data. Another
 device may start deletion later; a cancelled receipt remains terminal and cannot then
 authorize cleanup. A pending/completed canonical job wins a later cancellation attempt.
+A service terminal remains a local recovery/write barrier until account, profile and
+installation stabilization succeeds and the exact terminal Room journal is acknowledged.
+Acknowledgment removes only the journal, preserves other local rows, and prevents old
+terminal results trapping a later ordinary sign-out recovery. Failed acknowledgment stays
+closed through provider/local observations; null-bound demo terminal behavior is unchanged.
 
 Acknowledged receipts survive Auth disappearance and service/client restart, and status
 uses a consistent receipt/fence/job snapshot. Exact service/subject/operation/version,

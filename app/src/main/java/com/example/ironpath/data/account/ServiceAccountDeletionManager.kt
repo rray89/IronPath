@@ -23,10 +23,27 @@ constructor(
     private val installation: InstallationGuard,
 ) : AccountDeletionManager {
     private val mutex = Mutex()
+    private var observedTerminal: AccountDeletionProgress? = null
 
-    override suspend fun pending() =
-        store.journal()?.takeIf {
-            it.stage !in setOf(AccountDeletionStage.COMPLETE, AccountDeletionStage.CANCELLED)
+    // Terminal outcomes still block until the gateway durably acknowledges stable local state.
+    override suspend fun pending() = store.journal()
+
+    override suspend fun acknowledgeTerminalRecovery(expected: AccountDeletionProgress?): Boolean =
+        mutex.withLock {
+            withContext(NonCancellable) {
+                val observed = observedTerminal
+                if (observed == null) return@withContext expected == null && store.journal() == null
+                if (expected != observed) return@withContext false
+                try {
+                    if (!store.acknowledgeTerminal(observed)) return@withContext false
+                    observedTerminal = null
+                    true
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (_: Exception) {
+                    false
+                }
+            }
         }
 
     override suspend fun delete(request: AccountDeletionRequest): AccountDeletionResult =
@@ -126,10 +143,16 @@ constructor(
         mutex.withLock {
             withContext(NonCancellable) {
                 val stored = store.journal() ?: return@withContext AccountDeletionResult.Idle
-                if (stored.stage == AccountDeletionStage.CANCELLED)
-                    return@withContext AccountDeletionResult.Cancelled
-                if (stored.stage == AccountDeletionStage.COMPLETE)
-                    return@withContext AccountDeletionResult.Completed
+                if (
+                    stored.stage in
+                        setOf(AccountDeletionStage.CANCELLED, AccountDeletionStage.COMPLETE)
+                ) {
+                    observedTerminal = stored
+                    gate.closeAdmission()
+                    return@withContext if (stored.stage == AccountDeletionStage.CANCELLED)
+                        AccountDeletionResult.Cancelled
+                    else AccountDeletionResult.Completed
+                }
                 val progress = stored
                 gate.closeAdmission()
                 try {
@@ -200,8 +223,10 @@ constructor(
             AccountDeletionRemoteState.RESERVED,
             AccountDeletionRemoteState.PENDING -> AccountDeletionResult.RetryRequired(progress)
             AccountDeletionRemoteState.CANCELLED_NO_DELETE -> {
-                if (store.cancelReservation(progress, receipt)) AccountDeletionResult.Cancelled
-                else retryWithCurrent(progress)
+                if (store.cancelReservation(progress, receipt)) {
+                    observedTerminal = progress.copy(stage = AccountDeletionStage.CANCELLED)
+                    AccountDeletionResult.Cancelled
+                } else retryWithCurrent(progress)
             }
             AccountDeletionRemoteState.COMPLETE -> finish(progress)
         }
@@ -244,11 +269,15 @@ constructor(
                             return retryWithCurrent(progress)
                         progress = progress.copy(stage = AccountDeletionStage.COMPLETE)
                     }
-                    AccountDeletionStage.CANCELLED -> return AccountDeletionResult.Cancelled
+                    AccountDeletionStage.CANCELLED -> {
+                        observedTerminal = progress
+                        return AccountDeletionResult.Cancelled
+                    }
                     AccountDeletionStage.COMPLETE -> Unit
                 }
             }
-            // Gateway owns admission reopening after session/local context stabilization.
+            // Gateway owns exact acknowledgment and admission after local/session stabilization.
+            observedTerminal = progress
             AccountDeletionResult.Completed
         } catch (cancelled: CancellationException) {
             throw cancelled

@@ -286,6 +286,37 @@ class AccountDeletionStartupRetryTest {
     }
 
     @Test
+    fun terminalAcknowledgmentFailureKeepsStartupLockedAcrossRecreationUntilVerifiedRetry() {
+        waitForText("Finishing account deletion")
+        deletion.allowAcknowledgment = false
+        composeRule.onNodeWithText("CANCEL IF NOT STARTED").performScrollTo().performClick()
+        waitForText("Finishing account deletion")
+        assertEquals(1, deletion.cancellations.get())
+        assertTrue(deletion.acknowledgments.get() > 0)
+        assertEquals(AccountDeletionStage.CANCELLED, runBlocking { deletion.pending() }?.stage)
+        composeRule.onNodeWithText("CANCEL IF NOT STARTED").assertDoesNotExist()
+        assertStartupNavigationClosed()
+
+        val acknowledgments = deletion.acknowledgments.get()
+        composeRule.activityRule.scenario.recreate()
+        waitForText("Finishing account deletion")
+        assertTrue(deletion.acknowledgments.get() > acknowledgments)
+        assertStartupNavigationClosed()
+        assertEquals(1, deletion.cancellations.get())
+        assertEquals(0, deletion.retries.get())
+
+        deletion.allowAcknowledgment = true
+        composeRule.onNodeWithText("RETRY DELETION").performScrollTo().performClick()
+        waitForText("CONTINUE ON THIS DEVICE")
+        assertNull(runBlocking { deletion.pending() })
+        assertEquals(1, deletion.retries.get())
+        assertEquals(1, deletion.cancellations.get())
+        composeRule.activityRule.scenario.recreate()
+        waitForText("CONTINUE ON THIS DEVICE")
+        assertEquals(1, deletion.retries.get())
+    }
+
+    @Test
     fun idleExplicitDeletionActionsWithoutReportedProgressKeepKnownRecoveryLocked() {
         waitForText("Finishing account deletion")
         deletion.retryResult = AccountDeletionResult.Idle
@@ -405,7 +436,7 @@ class AccountDeletionStartupRetryTest {
 
     @Test
     fun ordinaryStartupWithUnreadableSessionKeepsExplicitAccountRecoveryReachableWithoutClearingTraining() {
-        waitForText("CONTINUE ON THIS DEVICE")
+        continueToLocalHome()
         val before = runBlocking {
             installationGuard.validate()
             database
@@ -413,7 +444,6 @@ class AccountDeletionStartupRetryTest {
                 .insertWorkoutLogs(
                     listOf(TestData.log(title = "Unreadable session preserved workout"))
                 )
-            onboarding.complete()
             localGraphSnapshot()
         }
         deletion.hasDeletion = false
@@ -443,29 +473,35 @@ class AccountDeletionStartupRetryTest {
     private fun prepareCommittedSignOut(
         currentSession: AccountProfile?
     ): com.example.ironpath.data.local.entity.AccountBackupMetadata {
-        waitForText("CONTINUE ON THIS DEVICE")
-        val committed = runBlocking {
-            installationGuard.validate()
-            database
-                .backupDao()
-                .insertWorkoutLogs(listOf(TestData.log(id = "removed-sign-out-log")))
-            val result =
-                localProfileResetter.resetLocalProfile(
-                    pendingSignOutUid = "pending-sign-out",
-                    expectedProfileGeneration = 0,
-                )
-            assertTrue(result is LocalProfileResetResult.Committed)
-            assertTrue(database.backupDao().getWorkoutLogs().isEmpty())
-            onboarding.complete()
-            requireNotNull(database.backupDao().getMetadata()).also {
-                assertEquals(1L, it.profileGeneration)
-                assertEquals("pending-sign-out", it.pendingSignOutUid)
-                assertNull(it.ownerUid)
+        continueToLocalHome()
+        // Keep the provider and committed marker coherent before Room observers can run.
+        return composeRule.runOnIdle {
+            session.session = currentSession
+            runBlocking {
+                installationGuard.validate()
+                database
+                    .backupDao()
+                    .insertWorkoutLogs(listOf(TestData.log(id = "removed-sign-out-log")))
+                val result =
+                    localProfileResetter.resetLocalProfile(
+                        pendingSignOutUid = "pending-sign-out",
+                        expectedProfileGeneration = 0,
+                    )
+                assertTrue(result is LocalProfileResetResult.Committed)
+                assertTrue(database.backupDao().getWorkoutLogs().isEmpty())
+                requireNotNull(database.backupDao().getMetadata()).also {
+                    assertEquals(1L, it.profileGeneration)
+                    assertEquals("pending-sign-out", it.pendingSignOutUid)
+                    assertNull(it.ownerUid)
+                }
             }
         }
-        session.session = currentSession
-        deletion.hasDeletion = false
-        return committed
+    }
+
+    private fun continueToLocalHome() {
+        waitForText("CONTINUE ON THIS DEVICE")
+        composeRule.onNodeWithText("CONTINUE ON THIS DEVICE").performScrollTo().performClick()
+        waitForText("No workout plan yet")
     }
 
     private fun openAccountBackup() {
@@ -526,7 +562,10 @@ class AccountDeletionStartupRetryTest {
         val retries = AtomicInteger()
         val newDeletions = AtomicInteger()
         val cancellations = AtomicInteger()
-        @Volatile private var completed = false
+        val acknowledgments = AtomicInteger()
+        @Volatile var allowAcknowledgment = true
+        @Volatile private var acknowledged = false
+        @Volatile private var terminalResult: AccountDeletionResult? = null
         @Volatile var hasDeletion = true
         @Volatile var cancelResult: AccountDeletionResult = AccountDeletionResult.Cancelled
         @Volatile var cancellationGate: CompletableDeferred<Unit>? = null
@@ -550,28 +589,19 @@ class AccountDeletionStartupRetryTest {
 
         override suspend fun recoverAtStartup(): AccountDeletionResult {
             recoveries.incrementAndGet()
-            return if (completed || !hasDeletion) AccountDeletionResult.Idle
-            else AccountDeletionResult.RetryRequired(progress)
+            return if (acknowledged || !hasDeletion) AccountDeletionResult.Idle
+            else terminalResult ?: AccountDeletionResult.RetryRequired(progress)
         }
 
         override suspend fun retry(): AccountDeletionResult {
             retries.incrementAndGet()
-            val result = retryResult
-            if (result == AccountDeletionResult.Completed) completed = true
-            return result
+            return retainResult(terminalResult ?: retryResult)
         }
 
         override suspend fun cancelUnactivated(): AccountDeletionResult {
             cancellations.incrementAndGet()
             cancellationGate?.await()
-            val result = cancelResult
-            if (
-                result == AccountDeletionResult.Cancelled ||
-                    result == AccountDeletionResult.Completed
-            )
-                completed = true
-            if (result is AccountDeletionResult.RetryRequired) progress = result.progress
-            return result
+            return retainResult(terminalResult ?: cancelResult)
         }
 
         override suspend fun delete(request: AccountDeletionRequest): AccountDeletionResult {
@@ -580,7 +610,42 @@ class AccountDeletionStartupRetryTest {
         }
 
         override suspend fun pending(): AccountDeletionProgress? =
-            progress.takeIf { hasDeletion && !completed && reportPendingProgress }
+            progress.takeIf {
+                hasDeletion && !acknowledged && (reportPendingProgress || terminalResult != null)
+            }
+
+        override suspend fun acknowledgeTerminalRecovery(
+            expected: AccountDeletionProgress?
+        ): Boolean {
+            acknowledgments.incrementAndGet()
+            if (!allowAcknowledgment || terminalResult == null || expected != progress) return false
+            acknowledged = true
+            return true
+        }
+
+        private fun retainResult(result: AccountDeletionResult): AccountDeletionResult {
+            if (result is AccountDeletionResult.RetryRequired) progress = result.progress
+            if (
+                terminalResult == null &&
+                    (result == AccountDeletionResult.Cancelled ||
+                        result == AccountDeletionResult.Completed)
+            ) {
+                terminalResult = result
+                progress =
+                    progress.copy(
+                        stage =
+                            if (result == AccountDeletionResult.Cancelled)
+                                AccountDeletionStage.CANCELLED
+                            else AccountDeletionStage.COMPLETE,
+                        remoteState =
+                            if (result == AccountDeletionResult.Cancelled)
+                                AccountDeletionRemoteState.CANCELLED_NO_DELETE
+                            else AccountDeletionRemoteState.COMPLETE,
+                        receiptVersion = progress.receiptVersion + 1,
+                    )
+            }
+            return result
+        }
     }
 
     class SessionReadControl {

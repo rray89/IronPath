@@ -37,99 +37,100 @@ For the isolated authpreview slice, the portfolio owner controls private live se
 Service-account keys, Firebase CLI tokens, and private App Check debug tokens must never be added
 to the app, this directory, or CI.
 
-## Authoritative deletion protocol (feat11.4.7)
+## Authoritative deletion protocol v2 (feat11.4.7)
 
-To initiate deletion, `service/deletion-service.mjs` requires a Firebase Admin-verified, non-revoked ID token whose
-`firebase.sign_in_provider` is `google.com` and whose `auth_time` is no more than 300 seconds old
-(and not in the future). Refreshing an old session's token does not satisfy this requirement.
-The UID comes exclusively from that verified token. Requests may not supply a UID.
+The client persists a nonblocking DRAFT containing a UUID v4, a random 256-bit receipt
+secret encoded as canonical unpadded base64url, and the captured account/profile/installation.
+It pins the capability response to its configured Firebase project and immutable service
+instance. Only a valid durable reservation acknowledgment promotes that exact draft to the
+blocking Room journal. A lost reservation response leaves training available; an orphan
+reservation creates no job, fence or worker activity.
 
-| Request | Result |
+| Request | Authority and result |
 | --- | --- |
-| `GET /v1/capabilities` | `200 {"protocol":"ironpath-account-deletion-v1","projectId":"configured-project","authoritative":true,"resumable":true}` |
-| `POST /v1/deletions`, `Authorization: Bearer <Firebase ID token>`, exact body `{"operationId":"lowercase-UUID-v4"}` | `202 {"operationId":"...","state":"PENDING"}` after the durable job and permanent fence commit atomically; `200` for a previously completed matching operation |
-| `POST /v1/deletions/<UUID>/resume`, empty body or `{}` | `202 PENDING`, `200 COMPLETE`, or `404 NOT_FOUND`; no account identity or backup data is returned |
+| `GET /v2/capabilities` | `200` with `protocol: ironpath-account-deletion-v2`, `projectId`, immutable `serviceInstanceId`, `authoritative: true`, `resumable: true` |
+| `POST /v2/reservations`, exact body `{"operationId":"lowercase-UUID-v4"}` | Fresh Google Firebase ID token in `Authorization: Bearer ...` and secret in `Deletion-Receipt`; non-destructive `RESERVED`, or an existing canonical `PENDING`/`COMPLETE` |
+| `POST /v2/operations/<UUID>/status`, body `{}` | `Deletion-Receipt` only; reads the existing reservation's status without Auth, activation or worker scheduling |
+| `POST /v2/operations/<UUID>/activate`, body `{}` | The same secret and a fresh same-UID Google Firebase ID token; atomically activates the canonical job/fence or observes its current state |
+| `POST /v2/operations/<UUID>/cancel-unactivated`, body `{}` | `Deletion-Receipt` only; atomically returns `CANCELLED_NO_DELETE` if activation has not won, otherwise canonical `PENDING`/`COMPLETE` |
 
-The client persists a cryptographically random UUID v4 before starting deletion. This UUID is
-also its recovery capability after Auth removal. It must stay private (never log URL paths).
-The resume endpoint cannot create a job, change its UID, or initiate another deletion. A caller
-without the capability cannot enumerate receipts. Responses use `Cache-Control: no-store`.
-Clients must match the advertised project to their configured Firebase project, require HTTPS
-outside loopback tests, disallow redirects, and reject unexpected operation IDs/states.
+Successful operation responses include the exact protocol, project, instance, operation ID,
+UID-bound `subjectBinding`, state and version. `RESERVED` is version 1; `PENDING` and
+`CANCELLED_NO_DELETE` are version 2; `COMPLETE` is version 3. HTTP status is 202 for PENDING
+and 200 for the other states. Responses use `Cache-Control: no-store`. The Android client
+requires HTTPS outside isolated loopback tests, rejects redirects and binding/identity/version
+mismatches, and never exports or logs the receipt secret. The service stores only its SHA-256
+hash. The UUID alone cannot read, cancel or activate a v2 receipt.
 
-Errors are sanitized JSON: `{"error":"INVALID_REQUEST"}` (400),
-`REAUTHENTICATION_REQUIRED` (401), `NOT_FOUND` (404), `OPERATION_CONFLICT` (409), or
-`UNAVAILABLE` (503). A service/verification outage is not reported as an authentication failure.
-Invalid credentials never initiate a deletion or create a fence. Reusing an operation ID for
-another verified UID fails without rebinding either operation. A second device that confirms
-deletion of the same UID receives a separate durable alias under its own operation ID. That
-receipt follows the original canonical job; it never exposes the first device's recovery
-capability or runs a second destructive cleanup.
+Reservation and activation require Firebase Admin verification with revocation checking,
+the configured audience/issuer, `google.com` provider and `auth_time` no more than 300 seconds
+old or in the future. UID comes exclusively from the verified token, never the request body.
+Refreshing an old session token is insufficient. Proof is admitted once before bounded
+Firestore retries; a later Auth change cannot atomically cancel an already admitted request.
+A restarted request requires new explicit fresh proof. No ID token is persisted or automatically
+replayed, and there is no revoked/deleted-token completion fallback.
 
-There is one narrow completion-proof recovery case: when recent token verification fails only
-because Auth is already missing or the token was revoked, the service verifies its signature,
-audience, issuer, expiry, Google provider and five-minute `auth_time` again. Such a token may
-only attach a receipt to an already COMPLETE canonical deletion for that exact UID. It cannot
-create a fence, initiate or attach to pending deletion, or mutate any current unrelated UID.
-Unavailable/disabled/invalid/expired credentials do not enter this recovery path.
+Status and cancellation use one serializable snapshot of receipt, UID fence and canonical
+job. A cancelled receipt stays terminal even if another device later deletes the UID; it never
+grants cleanup authority. A pre-reserved device can observe another device's PENDING or COMPLETE
+after Firebase Auth disappears, without a token. Unknown/mismatched receipts fail closed.
+Reusing an operation with a different secret or UID cannot rebind it.
 
-The transaction creates `accountDeletionTombstones/{uid}` and
-`accountDeletionJobs/{operationId}`. Both are admin-only. The job retains UID, timestamps,
-coarse state and bounded retry bookkeeping; it stores no email, token, or workout payload.
-Alias jobs additionally retain only the canonical operation ID. Workers resolve aliases but
-never perform data/Auth deletion for them.
-The tombstone and completion receipt are permanent: never enable TTL or cleanup for them.
+Activation creates `accountDeletionTombstones/{uid}` and a canonical
+`accountDeletionJobs/{operationId}` atomically. Clients cannot access these or
+`accountDeletionReceipts`/`accountDeletionReservationQuotas`. Every owner rule consults the
+permanent UID fence, including reads, upload claims, chunks, completion and deletes. Admin
+recursive deletion discovers the whole `users/{uid}` subtree, including malformed descendants,
+orphan chunks and missing parents. Independent root/subcollection enumeration proves absence
+before Firebase Auth deletion, then the canonical job durably becomes COMPLETE. Existing
+activated work continues independently of the client, and only matching COMPLETE authorizes
+scoped local cleanup. A foreign current session is preserved.
 
-All owner rules consult the permanent fence, including reads, upload claims, chunks,
-completion, and deletes. After the fence commits, old authenticated clients cannot recreate
-the subtree. Admin recursive deletion discovers all descendants under `users/{uid}`, including
-malformed manifests, arbitrary nested collections, unregistered chunks and missing parents.
-After purge, independent root and subcollection enumeration must prove emptiness before Auth
-deletion. Missing Auth on retry is successful. Only then is the receipt marked COMPLETE.
-The same Google identity signs in later with a new Firebase UID; the old UID remains fenced
-even if a privileged administrator manually recreates it.
+Local terminal CANCELLED/COMPLETE authority remains blocking until account, profile and
+installation verification succeeds. An exact Room journal acknowledgment then retires only
+that journal before normal admission opens. Interrupted acknowledgment stays recoverable;
+provider/local observations cannot bypass it. Historical completed/cancelled work therefore
+cannot trap a later ordinary sign-out recovery. This local acknowledgment never deletes a
+server receipt, tombstone or job and changes no training/session/undo rows.
 
-The worker scans durable pending jobs at startup and every five seconds without a client
-request. Each sweep processes at most ten jobs, uses cursor pagination, and caps failure
-backoff at five minutes. Deletes use a BulkWriter capped at 100 operations/second. Failures
-retain PENDING; startup resumes partial purge and interruption after Auth removal. Concurrent
-workers are safe because the fence is permanent and purge/Auth deletion are idempotent.
-No worker exception text or private operation path is logged.
+The worker scans durable pending jobs at startup and every five seconds, processes at most
+ten per sweep with cursor pagination, and caps failure backoff at five minutes. A BulkWriter
+is capped at 100 operations/second. Partial purge and interruption after Auth removal remain
+retryable. Permanent fencing and idempotent purge/Auth deletion make concurrent workers safe.
+Logs contain no exception text or private operation paths.
 
-Run a temporary local service inside the emulator lifecycle, then stop it when testing ends:
+There is no TTL for acknowledged receipt mappings or UID tombstones. Synthetic default quotas
+allow at most 100 new reservations per UID and 20 within a one-hour window. Limits reject new
+creation before ACK and never block existing receipt recovery, cancellation, activation or
+active workers. Live retention, abuse limits and costs need separate approval. Sanitized errors
+include INVALID_REQUEST (400), REAUTHENTICATION_REQUIRED/RECEIPT_REQUIRED (401), NOT_FOUND (404),
+OPERATION_CONFLICT/BINDING_MISMATCH (409), RESERVATION_LIMIT (429) and UNAVAILABLE (503).
+
+New v1 capabilities/start are unavailable. The legacy resume route only continues already
+accepted legacy work; an unknown v1 operation cannot acquire v2 authority. Legacy service-bound
+Android journals without an acknowledged v2 receipt require explicit recovery help. There is
+no blind erase, new-account sign-in or cached-proof fallback.
+
+Run a temporary local service within the software emulator lifecycle, then stop it when done:
 
 ```bash
 cd firebase
-IRONPATH_DELETION_MODE=emulator npx firebase emulators:exec \
+IRONPATH_DELETION_MODE=emulator \
+IRONPATH_DELETION_SERVICE_INSTANCE_ID=ironpath-deletion-emulator-v2 \
+  npx firebase emulators:exec \
   --only auth,firestore --project demo-ironpath-deletion \
   --config firebase.deletion.json 'npm run start:deletion'
 ```
 
-The emulator CLI supplies the project and emulator-host environment variables. `test:deletion-transport`
-starts the service on an ephemeral port, passes `IRONPATH_DELETION_ENDPOINT` to the real Kotlin
-HTTP transport test, then stops the service and emulators. Run these emulator commands serially.
-The service
-binds `127.0.0.1:8787` (override `PORT` if needed). Dedicated test ports are Auth 9197,
-Firestore 8187, hub 4487 and logging 4587. The tests spawn and stop their own service process,
-use only synthetic identities, and verify fresh-process autonomous completion. Auth emulator
-tokens are deliberately unsigned; tests exercise Admin verification and provider/time/revocation
-policy but cannot replace production signature-verification or live Google reauthentication
-evidence. Firebase Admin performs production signature verification when used in an approved
-production runtime without emulator variables.
-
-The Admin SDK's emulator mode additionally forces an Auth user/revocation lookup even when
-`checkRevoked=false`. The completion-only signed-token fallback therefore uses a test-only
-verification result captured before Auth deletion; real token verification, Firestore and Auth
-deletion cover the other paths. No production signature-verifier bypass exists. This specific
-post-Auth alias case still requires approved production verification before activation.
-
-A second device can still be interrupted after saving a local operation ID but before the
-service accepts it, after another device has already removed Auth. If that device also loses
-its recent signed token, its unknown operation cannot be automatically authenticated or bound
-to the completed receipt. It must remain pending until a separately approved authoritative
-receipt-recovery path exists. This slice supplies no blind local erase or new-account sign-in
-fallback, and stores no provider subject to bypass that proof gap. Already accepted canonical
-or alias receipts remain recoverable without a token and canonical cleanup remains autonomous.
+The CLI supplies synthetic project/emulator hosts. The runner refuses non-emulator mode,
+non-demo projects and non-loopback hosts. Its default address is `127.0.0.1:8787` (override
+PORT). Dedicated ports are Auth 9197, Firestore 8187, hub 4487 and logging 4587. Run emulator
+commands serially. `test:deletion-transport` starts a service on an ephemeral port, passes
+IRONPATH_DELETION_ENDPOINT to six actual Kotlin application-wrapper flows, then stops service
+and emulators. The deletion suite covers actual process restart, Auth-independent reservation
+recovery/cancel, cancellation/activation ordering, delayed replies, quotas, purge and rules.
+Auth emulator tokens are unsigned; these tests exercise Admin emulator/provider/time/revocation
+behavior and do not establish production signature or live Google chooser acceptance.
 
 ### Deployment remains unavailable
 

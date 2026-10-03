@@ -30,6 +30,10 @@ internal const val ACCOUNT_DELETION_PENDING_MESSAGE =
 
 internal const val ACCOUNT_DELETION_RESERVED_MESSAGE =
     "The last verified status is waiting to start. Retry asks you to verify the same Google account before requesting deletion. You may ask to cancel if no device has started deletion."
+internal const val ACCOUNT_DELETION_CANCELLED_VERIFICATION_MESSAGE =
+    "The service cancelled this reservation. Training data stays locked until the local profile and account status are verified. Retry to finish verification."
+internal const val ACCOUNT_DELETION_COMPLETED_VERIFICATION_MESSAGE =
+    "The service completed deletion. Training data stays locked until local cleanup and account status are verified. Retry to finish verification."
 internal const val ACCOUNT_DELETION_CANCELLATION_SCOPE =
     "The service checks whether this or another device has started deletion. A confirmed cancellation preserves this device's data; it does not prevent another device starting deletion later."
 internal const val ACCOUNT_DELETION_INTEGRITY_MESSAGE =
@@ -54,6 +58,10 @@ internal fun accountDeletionRecoveryMessage(
     when {
         !demoStorage && progress != null && !progress.hasAcknowledgedReceipt() ->
             ACCOUNT_DELETION_INTEGRITY_MESSAGE
+        !demoStorage && progress?.remoteState == AccountDeletionRemoteState.CANCELLED_NO_DELETE ->
+            ACCOUNT_DELETION_CANCELLED_VERIFICATION_MESSAGE
+        !demoStorage && progress?.remoteState == AccountDeletionRemoteState.COMPLETE ->
+            ACCOUNT_DELETION_COMPLETED_VERIFICATION_MESSAGE
         !demoStorage && progress?.canCancelBeforeActivation() == true ->
             ACCOUNT_DELETION_RESERVED_MESSAGE
         else -> ACCOUNT_DELETION_PENDING_MESSAGE

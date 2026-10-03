@@ -191,7 +191,7 @@ class ServiceAccountDeletionManagerTest {
         assertEquals(AccountDeletionResult.Cancelled, manager().cancelUnactivated())
         assertFalse(store.erased)
         assertEquals(AccountDeletionStage.CANCELLED, store.saved?.stage)
-        assertNull(manager().pending())
+        assertEquals(AccountDeletionStage.CANCELLED, manager().pending()?.stage)
         assertEquals(AccountDeletionResult.Cancelled, manager().recoverAtStartup())
         assertFalse(events.contains("reauth"))
         assertFalse(events.contains("signout"))
@@ -367,6 +367,111 @@ class ServiceAccountDeletionManagerTest {
         assertFalse(store.erased)
     }
 
+    @Test
+    fun `cancelled terminal stays durable until exact observed acknowledgment`() = runTest {
+        prepared()
+        val subject = manager()
+        assertEquals(AccountDeletionResult.Cancelled, subject.cancelUnactivated())
+        val terminal = checkNotNull(subject.pending())
+        assertEquals(AccountDeletionStage.CANCELLED, terminal.stage)
+        assertFalse(subject.acknowledgeTerminalRecovery(null))
+        assertFalse(
+            subject.acknowledgeTerminalRecovery(
+                terminal.copy(stage = AccountDeletionStage.PREPARED)
+            )
+        )
+        assertFalse(subject.acknowledgeTerminalRecovery(terminal.copy(receiptVersion = 1)))
+        assertFalse(
+            subject.acknowledgeTerminalRecovery(terminal.copy(operationId = "other-operation"))
+        )
+        assertEquals(terminal, store.saved)
+        assertTrue(subject.acknowledgeTerminalRecovery(terminal))
+        assertNull(store.saved)
+        assertEquals(AccountDeletionResult.Idle, manager().recoverAtStartup())
+        assertFalse(store.erased)
+        assertFalse(gate.withManualOperation(false, false) { true })
+    }
+
+    @Test
+    fun `completed terminal is acknowledged after restart without another remote or local deletion`() =
+        runTest {
+            assertEquals(AccountDeletionResult.Completed, manager().delete(request))
+            val restarted = manager()
+            events.clear()
+            assertEquals(AccountDeletionResult.Completed, restarted.recoverAtStartup())
+            val terminal = checkNotNull(restarted.pending())
+            assertEquals(AccountDeletionStage.COMPLETE, terminal.stage)
+            assertTrue(events.isEmpty())
+            assertTrue(restarted.acknowledgeTerminalRecovery(terminal))
+            assertNull(restarted.pending())
+            assertEquals(AccountDeletionResult.Idle, manager().recoverAtStartup())
+            assertTrue(events.isEmpty())
+        }
+
+    @Test
+    fun `terminal cannot acknowledge before its outcome is observed by this manager`() = runTest {
+        manager().delete(request)
+        val terminal = checkNotNull(store.saved)
+        val fresh = manager()
+        assertFalse(fresh.acknowledgeTerminalRecovery(terminal))
+        assertEquals(terminal, store.saved)
+        assertEquals(AccountDeletionResult.Completed, fresh.recoverAtStartup())
+        assertTrue(fresh.acknowledgeTerminalRecovery(terminal))
+    }
+
+    @Test
+    fun `failed or throwing acknowledgment preserves terminal for explicit retry`() = runTest {
+        val subject = manager()
+        subject.delete(request)
+        val terminal = checkNotNull(store.saved)
+        store.acknowledgeSucceeds = false
+        assertFalse(subject.acknowledgeTerminalRecovery(terminal))
+        assertEquals(terminal, subject.pending())
+        store.throwAcknowledgment = true
+        assertFalse(subject.acknowledgeTerminalRecovery(terminal))
+        assertEquals(terminal, subject.pending())
+        assertFalse(gate.withManualOperation(false, false) { true })
+        events.clear()
+        assertEquals(AccountDeletionResult.Completed, subject.retry())
+        assertTrue(events.isEmpty())
+        store.throwAcknowledgment = false
+        store.acknowledgeSucceeds = true
+        assertTrue(subject.acknowledgeTerminalRecovery(terminal))
+    }
+
+    @Test
+    fun `newer or replaced journal cannot be erased by an old terminal acknowledgment`() = runTest {
+        val subject = manager()
+        subject.delete(request)
+        val terminal = checkNotNull(store.saved)
+        val replaced = terminal.copy(operationId = "replacement-operation", receiptVersion = 7)
+        store.saved = replaced
+        assertFalse(subject.acknowledgeTerminalRecovery(terminal))
+        assertFalse(subject.acknowledgeTerminalRecovery(replaced))
+        assertEquals(replaced, store.saved)
+    }
+
+    @Test
+    fun `missing journal is not acknowledgment of an observed terminal`() = runTest {
+        val subject = manager()
+        subject.delete(request)
+        val terminal = checkNotNull(store.saved)
+        store.saved = null
+        assertFalse(subject.acknowledgeTerminalRecovery(null))
+        assertFalse(subject.acknowledgeTerminalRecovery(terminal))
+    }
+
+    @Test
+    fun `chooser cancellation without a journal needs no terminal retirement`() = runTest {
+        val subject = manager()
+        identity.result = DeletionReauthentication.Cancelled
+        assertEquals(AccountDeletionResult.Cancelled, subject.delete(request))
+        assertTrue(subject.acknowledgeTerminalRecovery(null))
+        assertNull(store.saved)
+        assertNull(store.draft)
+        assertFalse(store.erased)
+    }
+
     private inner class FakeIdentity : AccountDeletionIdentity {
         var current: AccountId? = account
         var result: DeletionReauthentication =
@@ -449,6 +554,21 @@ class ServiceAccountDeletionManagerTest {
         var erased = false
         var markerSucceeds = true
         var clearSucceeds = true
+        var acknowledgeSucceeds = true
+        var throwAcknowledgment = false
+
+        override suspend fun acknowledgeTerminal(expected: AccountDeletionProgress): Boolean {
+            if (throwAcknowledgment) throw IllegalStateException("isolated acknowledgment failure")
+            if (
+                !acknowledgeSucceeds ||
+                    saved != expected ||
+                    expected.stage !in
+                        setOf(AccountDeletionStage.CANCELLED, AccountDeletionStage.COMPLETE)
+            )
+                return false
+            saved = null
+            return true
+        }
 
         override suspend fun journal() = saved
 

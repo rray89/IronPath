@@ -1671,6 +1671,247 @@ class PersistedAccountGatewayTest {
             assertTrue(gate.withManualOperation(false, false) { true })
         }
 
+    @Test
+    fun `provider observations cannot reopen failed terminal installation stabilization`() =
+        runTest {
+            val foreign =
+                AccountProfile(
+                    AccountId("foreign-terminal-observation"),
+                    "Foreign",
+                    "foreign@example.invalid"
+                )
+            for (observed in listOf(profile, null, foreign)) {
+                val source = Source().apply { session = profile }
+                val reader =
+                    Reader().apply { context = context.copy(ownerUid = profile.id.opaqueValue) }
+                val progress = reservedProgress()
+                val deletion =
+                    RecordingDeletionManager().apply {
+                        pendingProgress = progress
+                        cancelAction = {
+                            pendingProgress = null
+                            AccountDeletionResult.Cancelled
+                        }
+                    }
+                val gate = AccountSessionOperationGate()
+                val subject =
+                    gateway(
+                        source,
+                        reader,
+                        result = InstallationValidationResult.Failed,
+                        gate = gate,
+                        deletionManager = deletion,
+                        capabilities = realRecoveryCapabilities()
+                    )
+                subject.refreshLocal()
+                assertTrue(subject.cancelAccountDeletion() is AccountActionResult.Failed)
+                source.session = observed
+                subject.reconcileSessionChange()
+                assertEquals(AccountState.AccountDeletionPending(progress), subject.state.value)
+                assertFalse(gate.withManualOperation(false, false) { true })
+                assertEquals(observed, source.session)
+                assertEquals(0, source.clearCalls)
+            }
+        }
+
+    @Test
+    fun `local refresh cannot retire terminal barrier after verification becomes available`() =
+        runTest {
+            val source = Source().apply { session = profile }
+            val reader =
+                Reader().apply { context = context.copy(ownerUid = profile.id.opaqueValue) }
+            val progress = reservedProgress()
+            val deletion =
+                RecordingDeletionManager().apply {
+                    pendingProgress = progress
+                    cancelAction = {
+                        pendingProgress = null
+                        AccountDeletionResult.Cancelled
+                    }
+                }
+            val gate = AccountSessionOperationGate()
+            val subject =
+                gateway(
+                    source,
+                    reader,
+                    gate = gate,
+                    deletionManager = deletion,
+                    capabilities = realRecoveryCapabilities()
+                )
+            subject.refreshLocal()
+            reader.failure = IllegalStateException("terminal local read failed")
+            assertTrue(subject.cancelAccountDeletion() is AccountActionResult.Failed)
+            reader.failure = null
+            subject.refreshLocal()
+            assertEquals(AccountState.AccountDeletionPending(progress), subject.state.value)
+            assertFalse(gate.withManualOperation(false, false) { true })
+            assertEquals(AccountActionResult.Cancelled, subject.cancelAccountDeletion())
+            assertTrue(gate.withManualOperation(false, false) { true })
+        }
+
+    @Test
+    fun `terminal cancellation acknowledgment happens only after stable context and before reopening`() =
+        runTest {
+            val source = Source().apply { session = profile }
+            val reader =
+                Reader().apply { context = context.copy(ownerUid = profile.id.opaqueValue) }
+            val terminal =
+                reservedProgress()
+                    .copy(
+                        stage = AccountDeletionStage.CANCELLED,
+                        receiptVersion = 2,
+                        remoteState = AccountDeletionRemoteState.CANCELLED_NO_DELETE
+                    )
+            val deletion =
+                RecordingDeletionManager().apply {
+                    pendingProgress = terminal
+                    retryAction = { AccountDeletionResult.Cancelled }
+                }
+            val gate = AccountSessionOperationGate()
+            val subject =
+                gateway(
+                    source,
+                    reader,
+                    gate = gate,
+                    deletionManager = deletion,
+                    capabilities = realRecoveryCapabilities()
+                )
+            subject.refreshLocal()
+            assertEquals(AccountActionResult.Cancelled, subject.retryAccountDeletion())
+            assertEquals(terminal, deletion.lastAcknowledged)
+            assertEquals(1, deletion.acknowledgments)
+            assertNull(deletion.pendingProgress)
+            assertTrue(subject.state.value is AccountState.SignedIn)
+            assertTrue(gate.withManualOperation(false, false) { true })
+        }
+
+    @Test
+    fun `terminal acknowledgment failure preserves barrier through every observation`() = runTest {
+        val source = Source().apply { session = profile }
+        val reader = Reader().apply { context = context.copy(ownerUid = profile.id.opaqueValue) }
+        val terminal =
+            reservedProgress()
+                .copy(
+                    stage = AccountDeletionStage.CANCELLED,
+                    receiptVersion = 2,
+                    remoteState = AccountDeletionRemoteState.CANCELLED_NO_DELETE
+                )
+        val deletion =
+            RecordingDeletionManager().apply {
+                pendingProgress = terminal
+                retryAction = { AccountDeletionResult.Cancelled }
+                acknowledgeAction = { false }
+            }
+        val gate = AccountSessionOperationGate()
+        val subject =
+            gateway(
+                source,
+                reader,
+                gate = gate,
+                deletionManager = deletion,
+                capabilities = realRecoveryCapabilities()
+            )
+        subject.refreshLocal()
+        assertTrue(subject.retryAccountDeletion() is AccountActionResult.Failed)
+        assertEquals(AccountState.AccountDeletionPending(terminal), subject.state.value)
+        subject.reconcileSessionChange()
+        subject.refreshLocal()
+        assertEquals(AccountState.AccountDeletionPending(terminal), subject.state.value)
+        assertFalse(gate.withManualOperation(false, false) { true })
+        assertEquals(1, deletion.acknowledgments)
+        deletion.acknowledgeAction = {
+            deletion.pendingProgress = null
+            true
+        }
+        assertEquals(AccountActionResult.Cancelled, subject.retryAccountDeletion())
+        assertTrue(gate.withManualOperation(false, false) { true })
+    }
+
+    @Test
+    fun `cold terminal completion acknowledgment never resets training twice`() = runTest {
+        val source = Source()
+        val reader =
+            Reader().apply {
+                context =
+                    context.copy(ownerUid = null, profileGeneration = 1, localDataIsEmpty = true)
+            }
+        val terminal =
+            reservedProgress()
+                .copy(
+                    stage = AccountDeletionStage.COMPLETE,
+                    receiptVersion = 3,
+                    remoteState = AccountDeletionRemoteState.COMPLETE
+                )
+        val deletion = RecordingDeletionManager().apply { pendingProgress = terminal }
+        val gate = AccountSessionOperationGate()
+        val resetter = TestResetter(reader)
+        val subject =
+            gateway(
+                source,
+                reader,
+                resetter = resetter,
+                gate = gate,
+                deletionManager = deletion,
+                capabilities = realRecoveryCapabilities()
+            )
+        assertEquals(AccountActionResult.Completed, subject.reconcileAfterDeletionRecovery())
+        assertEquals(terminal, deletion.lastAcknowledged)
+        assertEquals(0, resetter.resetCalls)
+        assertEquals(1L, reader.context.profileGeneration)
+        assertEquals(AccountState.LocalOnly, subject.state.value)
+        assertTrue(gate.withManualOperation(false, false) { true })
+    }
+
+    @Test
+    fun `stable account is not published while terminal acknowledgment is still suspended`() =
+        runTest {
+            val source = Source().apply { session = profile }
+            val reader =
+                Reader().apply { context = context.copy(ownerUid = profile.id.opaqueValue) }
+            val terminal =
+                reservedProgress()
+                    .copy(
+                        stage = AccountDeletionStage.CANCELLED,
+                        receiptVersion = 2,
+                        remoteState = AccountDeletionRemoteState.CANCELLED_NO_DELETE
+                    )
+            val entered = CompletableDeferred<Unit>()
+            val finish = CompletableDeferred<Unit>()
+            val deletion =
+                RecordingDeletionManager().apply {
+                    pendingProgress = terminal
+                    retryAction = { AccountDeletionResult.Cancelled }
+                    acknowledgeAction = {
+                        entered.complete(Unit)
+                        finish.await()
+                        pendingProgress = null
+                        true
+                    }
+                }
+            val gate = AccountSessionOperationGate()
+            val subject =
+                gateway(
+                    source,
+                    reader,
+                    gate = gate,
+                    deletionManager = deletion,
+                    capabilities = realRecoveryCapabilities()
+                )
+            subject.refreshLocal()
+            val retry = async { subject.retryAccountDeletion() }
+            entered.await()
+            assertEquals(AccountState.DeletingAccount, subject.state.value)
+            assertFalse(gate.withManualOperation(false, false) { true })
+            val observation = async { subject.reconcileSessionChange() }
+            runCurrent()
+            assertFalse(observation.isCompleted)
+            finish.complete(Unit)
+            assertEquals(AccountActionResult.Cancelled, retry.await())
+            observation.await()
+            assertTrue(subject.state.value is AccountState.SignedIn)
+            assertTrue(gate.withManualOperation(false, false) { true })
+        }
+
     private fun reservedProgress() =
         AccountDeletionProgress(
             "reserved-operation",
@@ -1720,6 +1961,26 @@ class PersistedAccountGatewayTest {
         var cancelCalls = 0
         var cancelAction: suspend () -> AccountDeletionResult = {
             AccountDeletionResult.Unavailable
+        }
+
+        var acknowledgments = 0
+        var lastAcknowledged: AccountDeletionProgress? = null
+        var acknowledgeAction: suspend (AccountDeletionProgress?) -> Boolean = { expected ->
+            if (
+                pendingProgress == expected &&
+                    expected?.stage in
+                        setOf(AccountDeletionStage.COMPLETE, AccountDeletionStage.CANCELLED)
+            )
+                pendingProgress = null
+            true
+        }
+
+        override suspend fun acknowledgeTerminalRecovery(
+            expected: AccountDeletionProgress?
+        ): Boolean {
+            acknowledgments++
+            lastAcknowledged = expected
+            return acknowledgeAction(expected)
         }
 
         override suspend fun recoverAtStartup() = AccountDeletionResult.Idle

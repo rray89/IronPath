@@ -42,7 +42,12 @@ server decides which happened first.
 If status is RESERVED, the user may explicitly ask to cancel. Only the atomic server
 result CANCELLED_NO_DELETE retires the matching local journal and preserves every
 training, active, ownership, baseline and undo row. Local account/installation
-stabilization must finish before normal admission reopens. This result means this
+stabilization must finish before normal admission reopens. Terminal cancellation/completion
+remains recovery authority until the gateway acknowledges the exact terminal Room journal
+after that verification. Only the journal retires; profile, training, active, undo and session
+rows stay intact. Failed/stale acknowledgment stays locked through provider/local observations;
+successful acknowledgment prevents historical terminal results blocking a later ordinary
+sign-out recovery. This result means this
 reservation did not start deletion; another device may start deletion later. A cancelled
 receipt remains terminal even after that later deletion and can never authorize cleanup.
 If another device already activated, cancellation returns PENDING or COMPLETE instead.

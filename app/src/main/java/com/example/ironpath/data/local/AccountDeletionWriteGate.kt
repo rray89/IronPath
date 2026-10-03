@@ -9,12 +9,15 @@ class StaleProfileGenerationException : IllegalStateException("Profile generatio
 
 /** Call only inside a Room transaction so the deletion barrier and write are serialized. */
 suspend fun IronPathDatabase.requireWritesAllowed(expectedProfileGeneration: Long? = null) {
-    val stage = accountDeletionDao().getJournal()?.stage
+    val journal = accountDeletionDao().getJournal()
     if (
-        stage != null &&
-            stage != AccountDeletionStage.COMPLETE.name &&
-            stage != AccountDeletionStage.CANCELLED.name
+        journal != null &&
+            (journal.serviceBinding != null ||
+                journal.stage !in
+                    setOf(AccountDeletionStage.COMPLETE.name, AccountDeletionStage.CANCELLED.name))
     ) {
+        // A service terminal still awaits exact acknowledgment after stabilization. Only
+        // historical null-bound demo terminals retain their existing write policy.
         throw AccountDeletionInProgressException()
     }
     if (expectedProfileGeneration != null) {

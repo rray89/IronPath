@@ -18,6 +18,8 @@ interface AccountDeletionStore {
 
     suspend fun markComplete(expected: AccountDeletionProgress): Boolean
 
+    suspend fun acknowledgeTerminal(expected: AccountDeletionProgress): Boolean = false
+
     suspend fun createDraft(request: AccountDeletionRequest): AccountDeletionDraft? = null
 
     suspend fun discardDraft(draft: AccountDeletionDraft): Boolean = false

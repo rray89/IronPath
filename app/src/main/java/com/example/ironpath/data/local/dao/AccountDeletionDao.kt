@@ -18,6 +18,9 @@ interface AccountDeletionDao {
 
     @Update suspend fun update(journal: AccountDeletionJournal)
 
+    @Query("DELETE FROM account_deletion_journal WHERE id = 1 AND operationId = :operationId")
+    suspend fun deleteJournal(operationId: String): Int
+
     @Query("SELECT * FROM account_deletion_draft WHERE id = 1")
     suspend fun getDraft(): AccountDeletionDraftEntity?
 

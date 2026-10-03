@@ -329,6 +329,36 @@ constructor(
             true
         }
 
+    override suspend fun acknowledgeTerminal(expected: AccountDeletionProgress): Boolean =
+        database.withTransaction {
+            val dao = database.accountDeletionDao()
+            val current = dao.getJournal() ?: return@withTransaction false
+            val metadata = database.backupDao().getMetadata() ?: return@withTransaction false
+            if (
+                current.toProgress() != expected ||
+                    !current.isTerminal() ||
+                    !current.hasReservation() ||
+                    metadata.pendingSignOutUid != null ||
+                    sentinel.readInstallationId() != metadata.installationId
+            )
+                return@withTransaction false
+            val verifiedLocalScope =
+                when (expected.stage) {
+                    AccountDeletionStage.CANCELLED ->
+                        expected.remoteState == AccountDeletionRemoteState.CANCELLED_NO_DELETE &&
+                            metadata.matchesProfile(expected)
+                    AccountDeletionStage.COMPLETE ->
+                        expected.remoteState == AccountDeletionRemoteState.COMPLETE &&
+                            metadata.ownerUid == null &&
+                            metadata.profileGeneration == expected.profileGeneration + 1
+                    else -> false
+                }
+            if (!verifiedLocalScope) return@withTransaction false
+            // Only the recovery journal retires; all profile/training/undo/session rows stay
+            // intact.
+            dao.deleteJournal(expected.operationId) == 1
+        }
+
     private fun AccountDeletionJournal.matches(progress: AccountDeletionProgress) =
         operationId == progress.operationId &&
             accountId == progress.accountId.opaqueValue &&
