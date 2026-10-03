@@ -147,7 +147,7 @@ constructor(
 
     override suspend fun clearDeletedSession(accountId: AccountId): Boolean {
         val current = readSession() ?: return true
-        return current.id == accountId && clearSession()
+        return current.id != accountId || clearSession()
     }
 
     private fun com.google.firebase.auth.FirebaseUser.toAccountProfile(): AccountProfile {

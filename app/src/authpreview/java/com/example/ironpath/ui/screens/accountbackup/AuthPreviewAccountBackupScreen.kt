@@ -41,6 +41,10 @@ internal fun AuthPreviewAccountBackupScreen(
     onRetry: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    if (manual.accountDeletion.blocksAccountActions(state)) {
+        AccountDeletionRecoveryScreen(state, manual, manualActions.retryAccountDeletion, modifier)
+        return
+    }
     val profile =
         when (state) {
             is AccountState.SignedIn -> state.profile
@@ -144,10 +148,7 @@ internal fun AuthPreviewAccountBackupScreen(
                 manualActions.previewUndo,
             )
         }
-        Text(
-            "Account deletion is not available in this preview.",
-            style = MaterialTheme.typography.bodyMedium
-        )
+        AccountDeletionAction(state, manual, manualActions.openDeleteReview)
         if (state !is AccountState.SignedIn && state !is AccountState.AwaitingDataChoice) {
             if (manual.busy)
                 Text(
@@ -161,6 +162,8 @@ internal fun AuthPreviewAccountBackupScreen(
             manual.feedback?.let { Text(it, style = MaterialTheme.typography.bodyMedium) }
         }
     }
+
+    AccountDeletionReviewDialog(manual.accountDeletion, manualActions)
 
     manual.signOutReview?.let { review ->
         if (review.confirmingRemoval) {
@@ -310,6 +313,6 @@ private fun authPreviewAccountStateDetail(state: AccountState, signInAvailable: 
                 AccountFailureReason.Unknown ->
                     "Google sign-in is temporarily unavailable. Try again."
             }
-        is AccountState.AccountDeletionPending -> "Account deletion is unavailable in this preview."
-        AccountState.DeletingAccount -> "Account deletion is unavailable in this preview."
+        is AccountState.AccountDeletionPending -> ACCOUNT_DELETION_PENDING_MESSAGE
+        AccountState.DeletingAccount -> "Deleting your IronPath account and data."
     }

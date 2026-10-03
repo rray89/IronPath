@@ -61,6 +61,7 @@ data class AccountDeletionTarget(
 data class AccountDeletionUiState(
     val target: AccountDeletionTarget? = null,
     val busy: Boolean = false,
+    val cancelling: Boolean = false,
     val progress: AccountDeletionProgress? = null,
     val retryAvailable: Boolean = false,
     val completionTargetGeneration: Long? = null,
@@ -91,6 +92,7 @@ data class ManualBackupActions(
     val continueAccountDeletion: () -> Unit = {},
     val confirmAccountDeletion: () -> Unit = {},
     val retryAccountDeletion: () -> Unit = {},
+    val cancelAccountDeletion: () -> Unit = {},
     val acknowledgeDeletionNavigation: (Long) -> Unit = {},
 )
 

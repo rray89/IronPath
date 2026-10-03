@@ -13,8 +13,12 @@ import javax.inject.Singleton
 @Singleton
 class InMemoryInstallationSentinel @Inject constructor() : InstallationSentinel {
     private var installationId: String? = null
+    @Volatile var failReads = false
 
-    override suspend fun readInstallationId() = installationId
+    override suspend fun readInstallationId(): String? {
+        check(!failReads) { "Isolated installation marker read failure" }
+        return installationId
+    }
 
     override suspend fun writeInstallationId(installationId: String): Boolean {
         this.installationId = installationId

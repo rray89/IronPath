@@ -1039,6 +1039,61 @@ Firebase Authentication deletion, authoritative server-side backup cleanup and
 verification, an external deletion-request path, and a published privacy policy. The
 demo slice is not evidence that production account deletion is available.
 
+### Feat11.4.7 isolated real-deletion service integration
+
+BOSS authorized the next bounded real-deletion implementation on October 2, 2026,
+with human validation moved to the combined backup/sync/restore/deletion candidate.
+The approved account/all-backups/all-local-data scope and two-step confirmation remain
+unchanged. Authpreview adds recent Google reauthentication and a durable authoritative
+service contract; isolated Firebase emulators exercise actual server cleanup and Auth
+deletion. A permanent per-UID rules fence prevents another client recreating backups.
+Local deletion waits for a verified service completion receipt and survives interruption.
+
+This is an implementation/testing exception for service source, not authorization to
+operate a custom live server, enable billing, provision IAM or deploy rules. Release
+remains unavailable, and authpreview deletion remains unavailable without explicit
+service configuration and verified capabilities. The emulator-only executable cannot
+be used as a production deployment. Exact activation prerequisites and combined QA are
+in [feat11.4.7-authoritative-account-deletion.md](feat11.4.7-authoritative-account-deletion.md).
+No live or manual acceptance is claimed by this candidate.
+
+### Feat11.4.7 v2 recovery and authpreview transfer exception
+
+On October 3, 2026, BOSS explicitly approved v2 source and isolated tests for durable
+recovery receipts, cancellation before actual deletion starts, and excluding the
+complete authpreview database from Android system backup and device transfer.
+Training transfer remains available through the app's explicit cloud backup/restore.
+This supersedes the earlier no-cancellation and transfer-allowlist behavior only for
+service-backed authpreview deletion. Debug/demo deletion and debug/release platform
+backup policies retain their existing contracts. No deployment, billing or real data
+operation is authorized.
+
+A non-destructive reservation ACK precedes the blocking Room journal. Its random
+receipt secret grants status and atomic cancellation of an unactivated operation,
+never activation. Explicit activation still requires fresh same-UID proof at request
+admission. Cold startup reads status without a Google chooser; tokens are never stored
+or automatically replayed. Only CANCELLED_NO_DELETE can unlock the matching journal
+without changing local training, active, ownership, baseline or undo data. Another
+device may start deletion later; a cancelled receipt remains terminal and cannot then
+authorize cleanup. A pending/completed canonical job wins a later cancellation attempt.
+A service terminal remains a local recovery/write barrier until account, profile and
+installation stabilization succeeds and the exact terminal Room journal is acknowledged.
+Acknowledgment removes only the journal, preserves other local rows, and prevents old
+terminal results trapping a later ordinary sign-out recovery. Failed acknowledgment stays
+closed through provider/local observations; null-bound demo terminal behavior is unchanged.
+
+Acknowledged receipts survive Auth disappearance and service/client restart, and status
+uses a consistent receipt/fence/job snapshot. Exact service/subject/operation/version,
+owner/profile/installation scope and terminal states protect cleanup and delayed
+responses. Foreign sessions are preserved; legacy v1 journals cannot gain v2 authority
+or silently reopen writes. Whole-DB exclusion includes WAL/SHM and device-protected
+storage so the receipt and barrier cannot be split by supported Android transfer.
+
+Synthetic mappings have no TTL. New-reservation limits reject before acknowledgment
+and cannot strand existing receipt recovery or activated jobs. Live retention/privacy,
+cost, hosting, trusted service identity and IAM remain independent activation decisions.
+Technical review and automated evidence do not claim manual or production acceptance.
+
 ### Android platform backup
 
 V5 replaces the template Android backup files with an explicit policy:

@@ -14,6 +14,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.example.ironpath.ui.screens.accountbackup.ANDROID_TRAINING_BACKUP_POLICY
 
 @Composable
 fun AiPrivacyScreen(
@@ -67,11 +68,7 @@ internal fun AiPrivacyContent(
         )
         PrivacySection(
             title = "Backup and transfer",
-            body =
-                "IronPath cloud backup and restore are not available in this version, and " +
-                    "Android cloud backup is turned off. On Android 12 and higher, Android " +
-                    "device-to-device transfer can copy your workout database when you set up a " +
-                    "new phone.",
+            body = ANDROID_TRAINING_BACKUP_POLICY,
         )
     }
 }

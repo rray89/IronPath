@@ -173,14 +173,58 @@ class AccountBackupScreenTest {
         accountEmails[0].assertIsDisplayed()
         composeRule
             .onNodeWithText("This permanently deletes this demo IronPath account", substring = true)
+            .performScrollTo()
             .assertIsDisplayed()
         composeRule
             .onNodeWithText("Your Google account is not affected.", substring = true)
+            .performScrollTo()
             .assertIsDisplayed()
         composeRule.onNodeWithText("Keep local data").assertDoesNotExist()
         composeRule.onNodeWithText("DELETE ACCOUNT AND ALL DATA").performClick()
         assertEquals(1, started)
         assertEquals(0, dismissed)
+    }
+
+    @Test
+    fun demoPendingDeletionKeepsDemoCopyAndDoesNotOfferReservationCancellation() {
+        val progress =
+            AccountDeletionProgress(
+                operationId = "demo-pending-operation",
+                accountId = AccountId("demo"),
+                sessionEpoch = 4,
+                profileGeneration = 9,
+                stage = AccountDeletionStage.PREPARED,
+            )
+        var deletionRetries = 0
+        var deletionCancellations = 0
+        setScreen(
+            AccountState.AccountDeletionPending(progress),
+            size = DpSize(640.dp, 320.dp),
+            actions =
+                ManualBackupActions(
+                    retryAccountDeletion = { deletionRetries++ },
+                    cancelAccountDeletion = { deletionCancellations++ },
+                ),
+        )
+        composeRule
+            .onNodeWithText("Demo account. No Google or cloud connection.")
+            .performScrollTo()
+            .assertIsDisplayed()
+        composeRule
+            .onNodeWithText(ACCOUNT_DELETION_PENDING_MESSAGE)
+            .performScrollTo()
+            .assertIsDisplayed()
+        composeRule
+            .onNodeWithText("RETRY DELETION")
+            .performScrollTo()
+            .assertIsEnabled()
+            .performClick()
+        composeRule.onNodeWithText("CANCEL IF NOT STARTED").assertDoesNotExist()
+        composeRule.onNodeWithText(ACCOUNT_DELETION_INTEGRITY_MESSAGE).assertDoesNotExist()
+        composeRule.onNodeWithText("SIGN OUT").assertDoesNotExist()
+        composeRule.onNodeWithText("BACK UP NOW").assertDoesNotExist()
+        assertEquals(1, deletionRetries)
+        assertEquals(0, deletionCancellations)
     }
 
     @Test
