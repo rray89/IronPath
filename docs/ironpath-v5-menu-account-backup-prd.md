@@ -296,6 +296,28 @@ priority. This acceptance does not waive technical review, CI or the merge gate.
 Whole-backup restore and undo remain the following feat11.3.3 flow. This slice adds no
 background work, sign-out/deletion controls, live credentials or billing configuration.
 
+### Feat11.4.5 real manual-sync implementation contract
+
+BOSS authorized real manual sync on October 2, 2026 and moved the human checkpoint
+to a combined usable backup + sync candidate. The reviewed PR65 backup remains an
+unmerged dependency; neither feature is accepted merely by starting this slice.
+
+- Authpreview reuses the accepted manual-sync comparison and explicit conflict
+  choices against real Firestore. Opening review explicitly downloads a validated
+  complete snapshot; confirming permits publication and conditional local application.
+- The existing persisted baseline supports recovery when cloud completion succeeds
+  but local application fails or its receipt is lost. The local graph and baseline
+  remain unchanged until one Room transaction applies the result. Retry requires a
+  fresh preview, retaining any intervening local work.
+- An unacknowledged newer generation requires sync review even when it came from
+  this installation. Ordinary backup may recover its own exact-content receipt for
+  an already owned profile, but may not overwrite an unknown merge after local edits.
+- Real whole-backup restore, undo and account deletion remain later slices; release
+  remains inert and debug remains deterministic. No automatic sync is introduced.
+
+Implementation decisions, verification and the combined acceptance walkthrough are
+in [feat11.4.5-firestore-manual-sync.md](feat11.4.5-firestore-manual-sync.md).
+
 ### Free-tier enforcement
 
 - V5 implementation and documentation target Firebase Spark only.

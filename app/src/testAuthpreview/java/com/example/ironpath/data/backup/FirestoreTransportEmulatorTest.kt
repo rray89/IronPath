@@ -17,6 +17,75 @@ import org.junit.Test
 /** Run only through firestoreTransportTest inside demo-ironpath's Firestore emulator. */
 class FirestoreTransportEmulatorTest {
     @Test
+    fun actualPayloadDownloadThreeWayMergeAndPublicationRemainGenerationAndOwnerScoped() =
+        runBlocking {
+            val owner = "sync-${UUID.randomUUID()}"
+            val account = AccountId(owner)
+            val first = store(owner)
+            val codec = BackupSnapshotCodec()
+            val base = codec.decode(snapshot())
+            val original = base.personalRecords.single()
+            first.publish(account, 0, "installation-a", codec.encode(base))
+                as RemoteBackupPublish.Completed
+            val local =
+                base.copy(
+                    localChangeRevision = 2,
+                    personalRecords =
+                        listOf(
+                            original.copy(weightKg = 60.0),
+                            original.copy(
+                                id = "local",
+                                exerciseName = "Press",
+                                normalizedExerciseName = "press"
+                            )
+                        )
+                )
+            val cloud =
+                base.copy(
+                    localChangeRevision = 3,
+                    personalRecords =
+                        listOf(
+                            original.copy(weightKg = 70.0),
+                            original.copy(
+                                id = "cloud",
+                                exerciseName = "Row",
+                                normalizedExerciseName = "row"
+                            )
+                        )
+                )
+            store(owner).publish(account, 1, "installation-b", codec.encode(cloud))
+                as RemoteBackupPublish.Completed
+            val downloaded = (first.latest(account) as RemoteBackupRead.Complete).backup
+            val analysis = ManualSyncMerger.analyze(base, local, downloaded.validatedBundle())
+            assertEquals(1, analysis.conflicts["PersonalRecord"])
+            for (candidate in listOf(analysis.localResult!!, analysis.cloudResult!!)) {
+                assertEquals(
+                    setOf("record", "local", "cloud"),
+                    candidate.personalRecords.map { it.id }.toSet()
+                )
+            }
+            val chosen = codec.encode(analysis.localResult!!)
+            val completed =
+                first.publish(account, downloaded.generation, "installation-a", chosen)
+                    as RemoteBackupPublish.Completed
+            assertEquals(3L, completed.backup.generation)
+            assertEquals(RemoteBackupRead.Complete(completed.backup), store(owner).latest(account))
+            assertEquals(
+                RemoteBackupRead.Failed(BackupFailureReason.PermissionDenied),
+                store("other").latest(account)
+            )
+            assertEquals(
+                RemoteBackupRead.Failed(BackupFailureReason.PermissionDenied),
+                store(null).latest(account)
+            )
+            assertEquals(
+                RemoteBackupPublish.Failed(BackupFailureReason.ConcurrentRemoteChange),
+                store(owner).publish(account, 2, "installation-b", codec.encode(cloud))
+            )
+            assertEquals(RemoteBackupRead.Complete(completed.backup), first.latest(account))
+        }
+
+    @Test
     fun actualKotlinRestPublicationIsOwnerScopedAndMetadataReadSurvivesNewClient() = runBlocking {
         val owner = "owner-${UUID.randomUUID()}"
         val account = AccountId(owner)
@@ -114,6 +183,7 @@ class FirestoreTransportEmulatorTest {
             previous.backup.summary,
             (store(owner).inspect(account) as RemoteBackupInspection.Complete).backup.summary
         )
+        assertEquals(RemoteBackupRead.Complete(previous.backup), store(owner).latest(account))
         val resumed =
             store(owner).publish(account, 1, "installation-a", changed)
                 as RemoteBackupPublish.Completed
@@ -172,6 +242,8 @@ class FirestoreTransportEmulatorTest {
         val fresh = store(owner)
         val found = fresh.inspect(account) as RemoteBackupInspection.Complete
         assertEquals(1L, found.backup.generation)
+        val recovered = (fresh.latest(account) as RemoteBackupRead.Complete).backup
+        assertEquals(snapshot(), recovered.snapshot)
         assertEquals(
             RemoteBackupPublish.Failed(BackupFailureReason.ConcurrentRemoteChange),
             fresh.publish(account, 0, "installation-a", snapshot())

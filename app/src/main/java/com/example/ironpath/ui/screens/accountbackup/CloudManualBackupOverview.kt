@@ -23,12 +23,13 @@ internal fun CloudManualBackupOverview(
     backupAvailable: Boolean,
     onBackup: () -> Unit,
     onRefresh: () -> Unit,
+    onSync: () -> Unit,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
         AccountSection(
             backupStatusLabel(manual.status),
             if (manual.status == BackupStatus.ReviewRequired)
-                "Review is required before replacing a cloud backup. Open a fresh manual preview. A backup from another device cannot be replaced here."
+                "Review manual sync to compare local and cloud changes before choosing what to keep."
             else
                 "Refresh checks the latest complete backup. Signing in and app startup never upload training data.",
             modifier = Modifier.semantics { stateDescription = backupStatusLabel(manual.status) },
@@ -39,6 +40,17 @@ internal fun CloudManualBackupOverview(
                 "${completionTime(latest.completedAtEpochMillis)}\n${countSummary(latest.entityCounts)}"
             )
         }
+        Button(
+            onClick = onSync,
+            enabled = backupAvailable && !manual.busy && !manual.signOutBusy,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text("REVIEW MANUAL SYNC")
+        }
+        Text(
+            "Review manual sync downloads the latest complete backup to compare changes. Only confirming the preview can merge, upload, or change training data on this device.",
+            style = MaterialTheme.typography.bodyMedium
+        )
         Button(
             onClick = onBackup,
             enabled = backupAvailable && !manual.busy && !manual.signOutBusy,

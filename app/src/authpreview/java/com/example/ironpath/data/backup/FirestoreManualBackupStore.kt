@@ -23,7 +23,74 @@ constructor(
     private val codec = BackupSnapshotCodec()
 
     override suspend fun latest(accountId: AccountId): RemoteBackupRead =
-        RemoteBackupRead.Failed(BackupFailureReason.ServiceUnavailable)
+        safely({ RemoteBackupRead.Failed(it) }) {
+            val client = clients.forAccount(accountId)
+            val user = user(accountId)
+            var result: RemoteBackupRead = RemoteBackupRead.Absent()
+            // The pointer, immutable manifest and bounded payload belong to one server snapshot.
+            // A retry replaces the entire candidate; no partially read artifact escapes.
+            client.transaction {
+                val inspected = readInspection(user)
+                result =
+                    when (val observed = inspected.first) {
+                        is RemoteBackupInspection.Absent ->
+                            RemoteBackupRead.Absent(observed.generation)
+                        is RemoteBackupInspection.Failed -> fail(observed.reason)
+                        is RemoteBackupInspection.Complete -> {
+                            val manifest = requireNotNull(inspected.second)
+                            val backup = observed.backup
+                            val chunks =
+                                (0 until manifest.number("chunkCount").toInt()).map { index ->
+                                    val fields =
+                                        requireNotNull(
+                                            get(
+                                                chunkPath(
+                                                    "$user/backups/${backup.summary.backupId}",
+                                                    index
+                                                )
+                                            )
+                                        )
+                                    require(
+                                        fields.keys ==
+                                            setOf(
+                                                "formatVersion",
+                                                "chunkIndex",
+                                                "encodedByteCount",
+                                                "chunkDigest",
+                                                "payload"
+                                            )
+                                    )
+                                    require(fields.number("formatVersion") == 1L)
+                                    require(fields.number("chunkIndex") == index.toLong())
+                                    val bytes = fields.number("encodedByteCount")
+                                    require(
+                                        bytes in 0..BackupSnapshotCodec.MAX_CHUNK_BYTES.toLong()
+                                    )
+                                    BackupChunk(
+                                        index,
+                                        fields.text("payload"),
+                                        bytes.toInt(),
+                                        fields.text("chunkDigest")
+                                    )
+                                }
+                            val snapshot =
+                                EncodedBackupSnapshot(
+                                    1,
+                                    backup.capturedLocalRevision,
+                                    chunks,
+                                    backup.summary.entityCounts,
+                                    manifest.number("encodedByteCount").toInt(),
+                                    backup.contentDigest,
+                                )
+                            codec.decode(snapshot)
+                            RemoteBackupRead.Complete(
+                                RemoteBackupArtifact(backup.summary, backup.generation, snapshot)
+                            )
+                        }
+                    }
+            }
+            result
+        }
 
     override suspend fun inspect(accountId: AccountId): RemoteBackupInspection =
         safely({ RemoteBackupInspection.Failed(it) }) {
@@ -173,46 +240,47 @@ constructor(
         user: String
     ): RemoteBackupInspection {
         var inspected: RemoteBackupInspection = RemoteBackupInspection.Absent()
-        client.transaction {
-            val current = get(user)?.let(::metadata)
-            if (current == null) {
-                inspected = RemoteBackupInspection.Absent()
-                return@transaction
-            }
-            val generation = current.number("generation")
-            val id = current.textOrNull("latestCompleteBackupId")
-            if (id == null) {
-                inspected = RemoteBackupInspection.Absent(generation)
-                return@transaction
-            }
-            if (id !in registry(current)) fail(BackupFailureReason.InvalidSnapshot)
-            val complete = requireNotNull(get("$user/backups/$id"))
-            validateManifest(complete)
-            if (
-                complete.text("state") != "COMPLETE" ||
-                    complete.text("backupId") != id ||
-                    complete.number("observedRemoteGeneration") != generation - 1 ||
-                    complete.text("sourceInstallationId") !=
-                        current.text("latestSourceInstallationId") ||
-                    timestamp(complete, "completedAt") != timestamp(current, "latestCompletedAt")
-            )
-                fail(BackupFailureReason.InvalidSnapshot)
-            inspected =
-                RemoteBackupInspection.Complete(
-                    RemoteBackupMetadata(
-                        RemoteBackupSummary(
-                            id,
-                            timestamp(complete, "completedAt"),
-                            complete.text("sourceInstallationId"),
-                            counts(complete)
-                        ),
-                        generation,
-                        complete.text("contentDigest"),
-                        complete.number("capturedLocalRevision")
-                    )
-                )
-        }
+        client.transaction { inspected = readInspection(user).first }
         return inspected
+    }
+
+    private suspend fun FirestoreBackupTransaction.readInspection(
+        user: String
+    ): Pair<RemoteBackupInspection, JsonObject?> {
+        val current = get(user)?.let(::metadata)
+        if (current == null) {
+            return RemoteBackupInspection.Absent() to null
+        }
+        val generation = current.number("generation")
+        val id = current.textOrNull("latestCompleteBackupId")
+        if (id == null) {
+            return RemoteBackupInspection.Absent(generation) to null
+        }
+        if (id !in registry(current)) fail(BackupFailureReason.InvalidSnapshot)
+        val complete = requireNotNull(get("$user/backups/$id"))
+        validateManifest(complete)
+        if (
+            complete.text("state") != "COMPLETE" ||
+                complete.text("backupId") != id ||
+                complete.number("observedRemoteGeneration") != generation - 1 ||
+                complete.text("sourceInstallationId") !=
+                    current.text("latestSourceInstallationId") ||
+                timestamp(complete, "completedAt") != timestamp(current, "latestCompletedAt")
+        )
+            fail(BackupFailureReason.InvalidSnapshot)
+        return RemoteBackupInspection.Complete(
+            RemoteBackupMetadata(
+                RemoteBackupSummary(
+                    id,
+                    timestamp(complete, "completedAt"),
+                    complete.text("sourceInstallationId"),
+                    counts(complete)
+                ),
+                generation,
+                complete.text("contentDigest"),
+                complete.number("capturedLocalRevision")
+            )
+        ) to complete
     }
 
     private suspend fun verifyChunks(
