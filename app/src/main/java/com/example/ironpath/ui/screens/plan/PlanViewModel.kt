@@ -63,7 +63,7 @@ constructor(
     private val _aiReviewState = MutableStateFlow<AiPlanReviewUiState?>(null)
     val aiReviewState: StateFlow<AiPlanReviewUiState?> = _aiReviewState.asStateFlow()
     private var mappedAiPlan: MappedAiPlan? = null
-    private var pendingAiReview: ValidatedPlanDraft? = null
+    private var pendingAiReview: PendingAiReview? = null
 
     init {
         remotePlanningExperiment?.let { experiment ->
@@ -148,9 +148,13 @@ constructor(
         if (!matchesRemoteConfiguration(validatedPlan)) return false
         val current = _aiReviewState.value
         if (current?.sourceToken === validatedPlan) return true
-        if (pendingAiReview === validatedPlan) return true
+        if (pendingAiReview?.validatedPlan === validatedPlan) return true
         if (acceptInProgress) {
-            pendingAiReview = validatedPlan
+            pendingAiReview =
+                PendingAiReview(
+                    validatedPlan,
+                    configurationRevision ?: remotePlanningExperiment?.state?.value?.revision,
+                )
             return true
         }
 
@@ -337,8 +341,15 @@ constructor(
     private fun showPendingAiReview() {
         val pending = pendingAiReview ?: return
         pendingAiReview = null
-        showAiReview(pending)
+        if (pending.configurationRevision != remotePlanningExperiment?.state?.value?.revision)
+            return
+        showAiReview(pending.validatedPlan)
     }
+
+    private data class PendingAiReview(
+        val validatedPlan: ValidatedPlanDraft,
+        val configurationRevision: Long?,
+    )
 
     private data class MappedAiPlan(
         val validatedPlan: ValidatedPlanDraft,

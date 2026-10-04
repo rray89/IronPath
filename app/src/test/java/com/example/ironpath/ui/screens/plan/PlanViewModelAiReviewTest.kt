@@ -175,6 +175,49 @@ class PlanViewModelAiReviewTest {
     }
 
     @Test
+    fun `queued fallback cannot survive configuration change during failed save`() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        val remoteState = configuredRemoteState()
+        viewModel = createViewModel(remoteState = remoteState)
+        viewModel.enterAiReview(validatedToken(remoteRevision = 1))
+        runCurrent()
+        val fallback = validatedToken()
+        coEvery { planRepository.createPlan(any(), any(), any(), any()) } coAnswers
+            {
+                assertTrue(viewModel.enterAiReview(fallback, configurationRevision = 1))
+                remoteState.value = remoteState.value.copy(revision = 2)
+                error("Synthetic write failure")
+            }
+
+        viewModel.acceptPlan {}
+        runCurrent()
+
+        assertNull(viewModel.aiReviewState.value)
+    }
+
+    @Test
+    fun `queued current fallback survives delayed configuration collector after failed save`() =
+        runTest {
+            Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+            val remoteState = configuredRemoteState()
+            viewModel = createViewModel(remoteState = remoteState)
+            viewModel.enterAiReview(validatedToken(remoteRevision = 1))
+            runCurrent()
+            val fallback = validatedToken()
+            coEvery { planRepository.createPlan(any(), any(), any(), any()) } coAnswers
+                {
+                    remoteState.value = remoteState.value.copy(revision = 2)
+                    assertTrue(viewModel.enterAiReview(fallback, configurationRevision = 2))
+                    error("Synthetic write failure")
+                }
+
+            viewModel.acceptPlan {}
+            runCurrent()
+
+            assertSame(fallback, viewModel.aiReviewState.value!!.sourceToken)
+        }
+
+    @Test
     fun `remote metadata cannot enter review without a matching experiment`() = runTest {
         assertFalse(viewModel.enterAiReview(validatedToken(remoteRevision = 1)))
 
