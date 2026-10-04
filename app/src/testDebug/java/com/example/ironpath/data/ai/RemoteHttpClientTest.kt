@@ -5,6 +5,7 @@ import java.io.IOException
 import java.net.InetAddress
 import java.net.ServerSocket
 import java.net.Socket
+import java.net.SocketException
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
@@ -13,6 +14,8 @@ import java.util.concurrent.atomic.AtomicReference
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import okhttp3.Call
+import okhttp3.EventListener
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -86,21 +89,33 @@ class RemoteHttpClientTest {
     fun `cancellation while reading response closes active socket promptly`() {
         val readingBody = CountDownLatch(1)
         val peerClosed = CountDownLatch(1)
+        val peerClose = AtomicReference<PeerCloseObservation?>()
         val finished = CountDownLatch(1)
+        val client =
+            remoteOkHttpClient()
+                .newBuilder()
+                .eventListener(
+                    object : EventListener() {
+                        override fun responseBodyStart(call: Call) {
+                            readingBody.countDown()
+                        }
+                    }
+                )
+                .build()
         LocalHttpFixture { socket ->
                 socket.getOutputStream().apply {
                     write("HTTP/1.1 200 OK\r\nContent-Length: 1000\r\n\r\nx".toByteArray())
                     flush()
                 }
-                readingBody.countDown()
-                if (socket.getInputStream().read() == -1) peerClosed.countDown()
+                peerClose.set(socket.observePeerClose())
+                peerClosed.countDown()
             }
             .use { fixture ->
                 runBlocking {
                     val request =
                         launch(Dispatchers.IO) {
                             try {
-                                OkHttpRemoteHttpClient().post(fixture.url, emptyMap(), "{}")
+                                OkHttpRemoteHttpClient(client).post(fixture.url, emptyMap(), "{}")
                             } finally {
                                 finished.countDown()
                             }
@@ -113,8 +128,13 @@ class RemoteHttpClientTest {
                             finished.await(2, TimeUnit.SECONDS)
                         )
                         assertTrue(
-                            "body IO stops after cancellation",
+                            "server observes a terminal read after cancellation",
                             peerClosed.await(2, TimeUnit.SECONDS)
+                        )
+                        val observation = checkNotNull(peerClose.get())
+                        assertTrue(
+                            "body IO stops after cancellation: ${observation.detail}",
+                            observation.remoteClosed,
                         )
                     } finally {
                         request.cancel()
@@ -209,3 +229,18 @@ private fun Socket.respond(status: Int, body: String, extraHeaders: String = "")
         flush()
     }
 }
+
+private data class PeerCloseObservation(val remoteClosed: Boolean, val detail: String)
+
+private fun Socket.observePeerClose(): PeerCloseObservation =
+    try {
+        val nextByte = getInputStream().read()
+        PeerCloseObservation(nextByte == -1, "read=$nextByte")
+    } catch (failure: SocketException) {
+        // A cancelled connection can signal EOF or reset when response bytes are unread.
+        // Fixture cleanup runs only after the assertion and must not manufacture success.
+        PeerCloseObservation(!isClosed, "${failure.javaClass.simpleName}: ${failure.message}")
+    } catch (failure: IOException) {
+        // A timeout or any other I/O error is not evidence that cancellation closed the peer.
+        PeerCloseObservation(false, "${failure.javaClass.simpleName}: ${failure.message}")
+    }
