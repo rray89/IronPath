@@ -55,6 +55,7 @@ import com.example.ironpath.domain.planner.PlanningEngineType
 import com.example.ironpath.domain.planner.PlanningGoal
 import com.example.ironpath.domain.planner.PlanningProviderMetadata
 import com.example.ironpath.domain.planner.RemotePlanningExperimentState
+import com.example.ironpath.domain.planner.RemotePlanningRoute
 import com.example.ironpath.domain.planner.TrainingExperience
 import com.example.ironpath.domain.planner.ValidatedPlanDraft
 import com.example.ironpath.domain.planner.WorkoutDraft
@@ -173,6 +174,8 @@ class AdaptiveLayoutTest {
                     RemotePlanningExperimentState(
                         available = true,
                         enabled = true,
+                        optionId = RemotePlanningRoute.GEMINI.name,
+                        options = RemotePlanningRoute.entries.map { it.option },
                     ),
             )
         }
@@ -252,6 +255,15 @@ class AdaptiveLayoutTest {
                     .assertMinimumTouchTarget(tag)
             }
 
+        RemotePlanningRoute.entries.forEach { route ->
+            composeRule
+                .onNodeWithTag("plan_remote_option_" + route.name)
+                .performScrollTo()
+                .assertIsDisplayed()
+                .assertIsSelectable()
+                .assertMinimumTouchTarget(route.option.label)
+        }
+
         composeRule
             .onNodeWithTag(TestTags.PLAN_REMOTE_AI_TOGGLE)
             .performScrollTo()
@@ -261,7 +273,9 @@ class AdaptiveLayoutTest {
             .assertMinimumTouchTarget("Remote AI experiment")
 
         composeRule
-            .onNodeWithText("Key stays in memory and clears when the app process ends.")
+            .onNodeWithText(
+                "Key stays in memory. Disable, switch route or end the process to clear it."
+            )
             .performScrollTo()
             .assertIsDisplayed()
 

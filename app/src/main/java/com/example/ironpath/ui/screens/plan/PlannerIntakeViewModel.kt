@@ -71,7 +71,8 @@ sealed interface AiGenerationUiState {
 
     data class Generating(val requestId: Long) : AiGenerationUiState
 
-    data class Validated(val draft: ValidatedPlanDraft) : AiGenerationUiState
+    data class Validated(val draft: ValidatedPlanDraft, val configurationRevision: Long? = null) :
+        AiGenerationUiState
 
     data class Invalid(val violations: List<PlanViolation>) : AiGenerationUiState
 
@@ -107,12 +108,32 @@ constructor(
 
     val aiAvailable: Boolean = aiPlanningCoordinator.aiAvailable
 
+    private var observedConfiguration = remotePlanningExperiment.state.value
+
+    init {
+        viewModelScope.launch { remotePlanningExperiment.state.collect { configurationChanged() } }
+    }
+
+    private fun configurationChanged() {
+        val current = remotePlanningExperiment.state.value
+        if (current == observedConfiguration) return
+        observedConfiguration = current
+        invalidateGenerationForIntakeChange()
+    }
+
     fun setRemotePlanningEnabled(enabled: Boolean) {
         remotePlanningExperiment.setEnabled(enabled)
+        configurationChanged()
+    }
+
+    fun setRemotePlanningOption(optionId: String) {
+        remotePlanningExperiment.setOption(optionId)
+        configurationChanged()
     }
 
     fun setRemotePlanningApiKey(apiKey: String) {
         remotePlanningExperiment.setApiKey(apiKey)
+        configurationChanged()
     }
 
     fun setGoal(goal: PlanningGoal) = updateIntake { copy(goal = goal) }
@@ -194,6 +215,7 @@ constructor(
         generator: suspend (PlanningRequest) -> AiPlanningOutcome,
     ) {
         val intakeSnapshot = _intakeState.value
+        val configurationSnapshot = remotePlanningExperiment.state.value
         val canGenerate =
             if (requireEquipment) intakeSnapshot.canGenerateWithAi
             else intakeSnapshot.canGenerateRuleBased
@@ -230,9 +252,19 @@ constructor(
                                     .toPlanningIntake()
                                     .copy(recentTraining = recentTraining),
                         )
+                    if (configurationSnapshot != remotePlanningExperiment.state.value) return@launch
                     val outcome = generator(request)
-                    if (requestId != currentRequestId) return@launch
-                    _aiGenerationState.value = outcome.toUiState()
+                    if (
+                        requestId != currentRequestId ||
+                            configurationSnapshot != remotePlanningExperiment.state.value
+                    )
+                        return@launch
+                    _aiGenerationState.value =
+                        outcome.toUiState(
+                            configurationSnapshot.revision.takeIf {
+                                configurationSnapshot.available
+                            }
+                        )
                 } catch (cancellation: CancellationException) {
                     throw cancellation
                 } catch (_: Exception) {
@@ -247,6 +279,8 @@ constructor(
                 }
             }
     }
+
+    fun discardGeneration() = resetGenerationState()
 
     fun cancelGeneration() {
         if (_aiGenerationState.value is AiGenerationUiState.Generating) {
@@ -272,9 +306,10 @@ constructor(
         persist(_intakeState.value)
     }
 
-    private fun AiPlanningOutcome.toUiState(): AiGenerationUiState =
+    private fun AiPlanningOutcome.toUiState(configurationRevision: Long?): AiGenerationUiState =
         when (this) {
-            is AiPlanningOutcome.Validated -> AiGenerationUiState.Validated(draft)
+            is AiPlanningOutcome.Validated ->
+                AiGenerationUiState.Validated(draft, configurationRevision)
             is AiPlanningOutcome.Invalid -> AiGenerationUiState.Invalid(violations)
             is AiPlanningOutcome.Failure -> AiGenerationUiState.Failed(reason)
         }

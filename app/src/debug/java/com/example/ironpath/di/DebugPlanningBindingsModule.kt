@@ -1,8 +1,8 @@
 package com.example.ironpath.di
 
-import com.example.ironpath.data.ai.GeminiRemotePlanningTransport
+import com.example.ironpath.data.ai.OkHttpRemoteHttpClient
 import com.example.ironpath.data.ai.RemoteHttpClient
-import com.example.ironpath.data.ai.UrlConnectionRemoteHttpClient
+import com.example.ironpath.data.ai.RoutingRemotePlanningTransport
 import com.example.ironpath.domain.planner.AiPlanningCandidate
 import com.example.ironpath.domain.planner.DebugRemotePlanningEngine
 import com.example.ironpath.domain.planner.FakeAiPlanningEngine
@@ -32,14 +32,12 @@ abstract class DebugPlanningBindingsModule {
 
     @Binds
     @Singleton
-    abstract fun bindRemoteHttpClient(
-        implementation: UrlConnectionRemoteHttpClient
-    ): RemoteHttpClient
+    abstract fun bindRemoteHttpClient(implementation: OkHttpRemoteHttpClient): RemoteHttpClient
 
     @Binds
     @Singleton
     abstract fun bindRemotePlanningTransport(
-        implementation: GeminiRemotePlanningTransport
+        implementation: RoutingRemotePlanningTransport
     ): RemotePlanningTransport
 
     @Binds

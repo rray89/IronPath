@@ -107,6 +107,20 @@ internal fun AiPlanReviewScreen(
             style = MaterialTheme.typography.labelLarge,
             color = MaterialTheme.colorScheme.primary,
         )
+        draft.providerMetadata.sourceLabel?.let { source ->
+            Text(
+                source,
+                style = MaterialTheme.typography.bodyMedium,
+                modifier = Modifier.testTag("plan_ai_source")
+            )
+            val usage = draft.providerMetadata.tokenUsage
+            Text(
+                "Generation: ${draft.providerMetadata.generationDurationMillis} ms · " +
+                    "Tokens in/out: ${usage?.inputTokens ?: "unreported"}/${usage?.outputTokens ?: "unreported"}",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
         Text(
             text = "REVIEW YOUR WEEK",
             style = MaterialTheme.typography.headlineMedium,
