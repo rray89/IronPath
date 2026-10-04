@@ -9,17 +9,39 @@ import kotlinx.coroutines.flow.update
 
 @Singleton
 class InMemoryRemotePlanningExperiment @Inject constructor() : RemotePlanningExperiment {
-    private val mutableState = MutableStateFlow(RemotePlanningExperimentState(available = true))
+    private val mutableState =
+        MutableStateFlow(
+            RemotePlanningExperimentState(
+                available = true,
+                optionId = RemotePlanningRoute.GEMINI.name,
+                options = RemotePlanningRoute.entries.map { it.option },
+            )
+        )
     override val state: StateFlow<RemotePlanningExperimentState> = mutableState.asStateFlow()
 
-    override fun setEnabled(enabled: Boolean) {
-        mutableState.update {
-            if (enabled) it.copy(enabled = true) else it.copy(enabled = false, apiKey = "")
+    override fun setEnabled(enabled: Boolean) = change {
+        if (enabled) copy(enabled = true) else copy(enabled = false, apiKey = "")
+    }
+
+    override fun setApiKey(apiKey: String) = change {
+        copy(apiKey = apiKey.trim().take(MAX_API_KEY_LENGTH))
+    }
+
+    override fun setOption(optionId: String) {
+        if (RemotePlanningRoute.entries.none { it.name == optionId }) return
+        change {
+            if (this.optionId == optionId) this
+            else copy(optionId = optionId, apiKey = "", enabled = false)
         }
     }
 
-    override fun setApiKey(apiKey: String) {
-        mutableState.update { it.copy(apiKey = apiKey.trim().take(MAX_API_KEY_LENGTH)) }
+    private fun change(
+        transform: RemotePlanningExperimentState.() -> RemotePlanningExperimentState
+    ) {
+        mutableState.update { previous ->
+            val next = previous.transform()
+            if (next == previous) previous else next.copy(revision = previous.revision + 1)
+        }
     }
 
     private companion object {

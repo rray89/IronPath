@@ -1,6 +1,7 @@
 package com.example.ironpath.data.ai
 
 import com.example.ironpath.domain.planner.OnDeviceModelPrompt
+import com.example.ironpath.domain.planner.PlanningTokenUsage
 import com.example.ironpath.domain.planner.RemotePlanningTransportResult
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.Json
@@ -140,6 +141,29 @@ class GeminiRemotePlanningTransportTest {
         result as RemotePlanningTransportResult.Success
         assertEquals("Steady week", result.proposal.rationale)
         assertEquals("push-ups", result.proposal.workouts.single().exercises.single().catalogId)
+    }
+
+    @Test
+    fun `Gemini usage keeps provider reported totals including thought tokens`() = runTest {
+        val output =
+            """{"rationale":null,"warnings":[],"workouts":[{"dayOfWeek":1,"title":"Full Body","exercises":[{"catalogId":"push-ups","sets":3,"reps":8,"targetWeightKg":0.0}]}]}"""
+        val envelope = Json.parseToJsonElement(completedResponse(output)).jsonObject
+        val usage =
+            Json.parseToJsonElement(
+                """{"total_input_tokens":62,"total_output_tokens":171,"total_tokens":530}"""
+            )
+        val response =
+            kotlinx.serialization.json.JsonObject(envelope + ("usage" to usage)).toString()
+        val result =
+            GeminiRemotePlanningTransport(
+                    RecordingRemoteHttpClient(RemoteHttpResponse(200, response))
+                )
+                .generate("key", OnDeviceModelPrompt("system", "summary"))
+        assertTrue(result is RemotePlanningTransportResult.Success)
+        assertEquals(
+            PlanningTokenUsage(62, 171, 530),
+            (result as RemotePlanningTransportResult.Success).usage
+        )
     }
 
     @Test

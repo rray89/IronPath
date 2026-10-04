@@ -46,6 +46,7 @@ import com.example.ironpath.domain.planner.PlanningFailure
 import com.example.ironpath.domain.planner.PlanningGoal
 import com.example.ironpath.domain.planner.PlanningProviderMetadata
 import com.example.ironpath.domain.planner.RemotePlanningExperimentState
+import com.example.ironpath.domain.planner.RemotePlanningRoute
 import com.example.ironpath.domain.planner.TrainingExperience
 import com.example.ironpath.domain.planner.ValidatedPlanDraft
 import com.example.ironpath.domain.planner.WorkoutDraft
@@ -125,6 +126,7 @@ class PlanScreenTest {
             RemotePlanningExperimentState(),
         onRemotePlanningEnabledChanged: (Boolean) -> Unit = {},
         onRemotePlanningApiKeyChanged: (String) -> Unit = {},
+        onRemotePlanningOptionChanged: (String) -> Unit = {},
     ) {
         composeRule.setContent {
             var intakeState by remember {
@@ -207,6 +209,11 @@ class PlanScreenTest {
                             remoteState = remoteState.copy(enabled = it)
                             onRemotePlanningEnabledChanged(it)
                         },
+                        onRemotePlanningOptionChanged = {
+                            remoteState =
+                                remoteState.copy(optionId = it, enabled = false, apiKey = "")
+                            onRemotePlanningOptionChanged(it)
+                        },
                         onRemotePlanningApiKeyChanged = {
                             remoteState = remoteState.copy(apiKey = it)
                             onRemotePlanningApiKeyChanged(it)
@@ -252,6 +259,40 @@ class PlanScreenTest {
     }
 
     @Test
+    fun setup_remoteRouteSelectionClearsKeyAndRequiresFreshOptIn() {
+        var selected = ""
+        setPlanContent(
+            uiState = PlanUiState.Setup,
+            remotePlanningExperimentState =
+                RemotePlanningExperimentState(
+                    available = true,
+                    enabled = true,
+                    apiKey = "fixture-key",
+                    optionId = RemotePlanningRoute.GEMINI.name,
+                    options = RemotePlanningRoute.entries.map { it.option },
+                ),
+            onRemotePlanningOptionChanged = { selected = it },
+        )
+        composeRule.onNodeWithTag("plan_remote_option_GEMINI").performScrollTo().assertIsSelected()
+        composeRule
+            .onNodeWithTag("plan_remote_option_DEEPSEEK")
+            .performScrollTo()
+            .performClick()
+            .assertIsSelected()
+        composeRule.onNodeWithTag(TestTags.PLAN_REMOTE_AI_KEY).assertDoesNotExist()
+        composeRule
+            .onNodeWithTag(TestTags.PLAN_REMOTE_AI_TOGGLE)
+            .performScrollTo()
+            .assertIsOff()
+            .performClick()
+        composeRule
+            .onNodeWithTag(TestTags.PLAN_REMOTE_AI_KEY)
+            .performScrollTo()
+            .assertTextContains("")
+        assertEquals(RemotePlanningRoute.DEEPSEEK.name, selected)
+    }
+
+    @Test
     fun setup_remoteAiLabRequiresOptInAndAcceptsAnInMemoryKey() {
         var enabled: Boolean? = null
         var key = ""
@@ -265,7 +306,7 @@ class PlanScreenTest {
         composeRule.onNodeWithTag(TestTags.PLAN_REMOTE_AI_LAB).performScrollTo().assertIsDisplayed()
         composeRule
             .onNodeWithText(
-                "Planning inputs, injury notes, and summarized 28-day history are sent to Google Gemini."
+                "Only goal, days, experience, equipment, movement limits and eligible exercises are sent to the selected provider. Notes and training history stay on device."
             )
             .performScrollTo()
             .assertIsDisplayed()

@@ -22,6 +22,7 @@ import com.example.ironpath.domain.planner.PlanningResult
 import com.example.ironpath.domain.planner.RecentTrainingSummary
 import com.example.ironpath.domain.planner.RemotePlanningExperiment
 import com.example.ironpath.domain.planner.RemotePlanningExperimentState
+import com.example.ironpath.domain.planner.RemotePlanningOption
 import com.example.ironpath.domain.planner.TrainingExperience
 import com.example.ironpath.domain.planner.WorkoutDraft
 import com.example.ironpath.testutil.FakeTimeProvider
@@ -40,6 +41,7 @@ import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withContext
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -88,6 +90,221 @@ class PlannerIntakeViewModelTest {
         assertEquals("", recreated.remotePlanningExperimentState.value.apiKey)
         assertFalse(recreated.remotePlanningExperimentState.value.configured)
     }
+
+    @Test
+    fun `changing remote key invalidates completed generation`() = runTest {
+        val viewModel = createViewModel(engine = StaticEngine(validResult(setOf(1))))
+        viewModel.toggleDay(1)
+        viewModel.generateWithAi()
+        runCurrent()
+        assertTrue(viewModel.aiGenerationState.value is AiGenerationUiState.Validated)
+
+        viewModel.setRemotePlanningApiKey("replacement-key")
+        runCurrent()
+
+        assertTrue(viewModel.aiGenerationState.value is AiGenerationUiState.Stale)
+    }
+
+    @Test
+    fun `disabling remote ignores a late uncancellable result`() = runTest {
+        val engine = ReorderingEngine()
+        val viewModel = createViewModel(engine = engine)
+        viewModel.setRemotePlanningEnabled(true)
+        viewModel.toggleDay(1)
+        viewModel.generateWithAi()
+        runCurrent()
+        viewModel.setRemotePlanningEnabled(false)
+        engine.first.complete(validResult(setOf(1)))
+        runCurrent()
+        assertTrue(viewModel.aiGenerationState.value is AiGenerationUiState.Stale)
+    }
+
+    @Test
+    fun `switching remote option invalidates a completed draft synchronously`() = runTest {
+        val experiment = configuredExperiment()
+        val viewModel =
+            createViewModel(
+                engine = StaticEngine(validResult(setOf(1))),
+                remotePlanningExperiment = experiment,
+            )
+        viewModel.toggleDay(1)
+        viewModel.generateWithAi()
+        runCurrent()
+        val draft = viewModel.validatedDraft!!
+
+        viewModel.setRemotePlanningOption("DEEPSEEK")
+
+        assertTrue(viewModel.aiGenerationState.value is AiGenerationUiState.Stale)
+        assertNull(viewModel.validatedDraft)
+        assertFalse(viewModel.onDraftConsumed(draft))
+        assertEquals("DEEPSEEK", experiment.state.value.optionId)
+        assertEquals("", experiment.state.value.apiKey)
+        assertFalse(experiment.state.value.enabled)
+    }
+
+    @Test
+    fun `route key and disable changes cannot replace a newer draft with a late response`() =
+        runTest {
+            val changes: List<(PlannerIntakeViewModel) -> Unit> =
+                listOf(
+                    { it.setRemotePlanningOption("DEEPSEEK") },
+                    { it.setRemotePlanningApiKey("replacement-synthetic-key") },
+                    { it.setRemotePlanningEnabled(false) },
+                )
+            changes.forEach { change ->
+                val engine = ReorderingEngine()
+                val experiment = configuredExperiment()
+                val viewModel =
+                    createViewModel(engine = engine, remotePlanningExperiment = experiment)
+                viewModel.toggleDay(1)
+                viewModel.generateWithAi()
+                engine.started.receive()
+
+                change(viewModel)
+                assertTrue(viewModel.aiGenerationState.value is AiGenerationUiState.Stale)
+                viewModel.generateWithAi()
+                engine.started.receive()
+                engine.second.complete(validResult(setOf(1)))
+                runCurrent()
+                val latest = viewModel.validatedDraft!!
+                assertEquals(2, engine.calls)
+
+                engine.first.complete(validResult(setOf(1)))
+                runCurrent()
+
+                assertSame(latest, viewModel.validatedDraft)
+                assertEquals(2, engine.calls)
+            }
+        }
+
+    @Test
+    fun `external experiment changes invalidate a completed draft through observation`() = runTest {
+        val experiment = configuredExperiment()
+        val viewModel =
+            createViewModel(
+                engine = StaticEngine(validResult(setOf(1))),
+                remotePlanningExperiment = experiment,
+            )
+        viewModel.toggleDay(1)
+        viewModel.generateWithAi()
+        runCurrent()
+        val draft = viewModel.validatedDraft!!
+
+        experiment.setOption("DEEPSEEK")
+        runCurrent()
+
+        assertTrue(viewModel.aiGenerationState.value is AiGenerationUiState.Stale)
+        assertNull(viewModel.validatedDraft)
+        assertFalse(viewModel.onDraftConsumed(draft))
+    }
+
+    @Test
+    fun `external key mutation cancels an in flight generation and suppresses its late result`() =
+        runTest {
+            val experiment = configuredExperiment()
+            val engine = ReorderingEngine()
+            val viewModel = createViewModel(engine = engine, remotePlanningExperiment = experiment)
+            viewModel.toggleDay(1)
+            viewModel.generateWithAi()
+            engine.started.receive()
+
+            experiment.setApiKey("changed-outside-the-view-model")
+            runCurrent()
+            assertTrue(viewModel.aiGenerationState.value is AiGenerationUiState.Stale)
+            engine.first.complete(validResult(setOf(1)))
+            runCurrent()
+
+            assertTrue(viewModel.aiGenerationState.value is AiGenerationUiState.Stale)
+            assertNull(viewModel.validatedDraft)
+            assertEquals(1, engine.calls)
+        }
+
+    @Test
+    fun `unchanged remote settings and invalid selections retain the validated draft`() = runTest {
+        val experiment = configuredExperiment()
+        val viewModel =
+            createViewModel(
+                engine = StaticEngine(validResult(setOf(1))),
+                remotePlanningExperiment = experiment,
+            )
+        viewModel.toggleDay(1)
+        viewModel.generateWithAi()
+        runCurrent()
+        val draft = viewModel.validatedDraft!!
+        val revision = experiment.state.value.revision
+
+        viewModel.setRemotePlanningOption("GEMINI")
+        viewModel.setRemotePlanningOption("UNKNOWN")
+        viewModel.setRemotePlanningApiKey("  synthetic-key  ")
+        viewModel.setRemotePlanningEnabled(true)
+        runCurrent()
+
+        assertSame(draft, viewModel.validatedDraft)
+        assertEquals(revision, experiment.state.value.revision)
+    }
+
+    @Test
+    fun `retry invokes the engine once per action without changing the configuration revision`() =
+        runTest {
+            val experiment = configuredExperiment()
+            val engine =
+                StaticEngine(PlanningResult.Failure(PlanningFailure.ProviderError("offline")))
+            val viewModel = createViewModel(engine = engine, remotePlanningExperiment = experiment)
+            viewModel.toggleDay(1)
+            val configuration = experiment.state.value
+
+            viewModel.generateWithAi()
+            runCurrent()
+            assertTrue(viewModel.aiGenerationState.value is AiGenerationUiState.Failed)
+            assertEquals(1, engine.calls)
+            assertSame(configuration, experiment.state.value)
+
+            viewModel.generateWithAi()
+            runCurrent()
+
+            assertTrue(viewModel.aiGenerationState.value is AiGenerationUiState.Failed)
+            assertEquals(2, engine.calls)
+            assertSame(configuration, experiment.state.value)
+        }
+
+    @Test
+    fun `configuration change during noncooperative history loading prevents the remote call`() =
+        runTest {
+            val experiment = configuredExperiment()
+            val historyStarted = CompletableDeferred<Unit>()
+            val history = CompletableDeferred<RecentTrainingSummary>()
+            val delayedHistory =
+                object : PlanningHistoryProvider {
+                    override suspend fun loadRecent(
+                        today: java.time.LocalDate
+                    ): RecentTrainingSummary {
+                        historyStarted.complete(Unit)
+                        return try {
+                            history.await()
+                        } catch (_: CancellationException) {
+                            withContext(NonCancellable) { history.await() }
+                        }
+                    }
+                }
+            val engine = StaticEngine(validResult(setOf(1)))
+            val viewModel =
+                createViewModel(
+                    engine = engine,
+                    remotePlanningExperiment = experiment,
+                    planningHistoryProvider = delayedHistory,
+                )
+            viewModel.toggleDay(1)
+            viewModel.generateWithAi()
+            historyStarted.await()
+
+            viewModel.setRemotePlanningOption("DEEPSEEK")
+            history.complete(RecentTrainingSummary.EMPTY)
+            runCurrent()
+
+            assertEquals(0, engine.calls)
+            assertTrue(viewModel.aiGenerationState.value is AiGenerationUiState.Stale)
+            assertNull(viewModel.validatedDraft)
+        }
 
     @Test
     fun `day selection caps at six and reports why the seventh was ignored`() {
@@ -353,17 +570,20 @@ class PlannerIntakeViewModelTest {
         handle: SavedStateHandle = SavedStateHandle(),
         engine: PlanningEngine,
         remotePlanningExperiment: RemotePlanningExperiment = FakeRemotePlanningExperiment(),
+        planningHistoryProvider: PlanningHistoryProvider = historyProvider,
     ) =
         createViewModelWithEngines(
             handle,
             mapOf(engine.type to engine),
             remotePlanningExperiment,
+            planningHistoryProvider,
         )
 
     private fun createViewModelWithEngines(
         handle: SavedStateHandle = SavedStateHandle(),
         engines: Map<PlanningEngineType, PlanningEngine>,
         remotePlanningExperiment: RemotePlanningExperiment = FakeRemotePlanningExperiment(),
+        planningHistoryProvider: PlanningHistoryProvider = historyProvider,
     ): PlannerIntakeViewModel {
         val registry = PlanningEngineRegistry(engines)
         val priorities =
@@ -385,7 +605,7 @@ class PlannerIntakeViewModelTest {
         return PlannerIntakeViewModel(
             savedStateHandle = handle,
             aiPlanningCoordinator = coordinator,
-            planningHistoryProvider = historyProvider,
+            planningHistoryProvider = planningHistoryProvider,
             timeProvider = timeProvider,
             remotePlanningExperiment = remotePlanningExperiment,
         )
@@ -424,7 +644,13 @@ class PlannerIntakeViewModelTest {
     private class StaticEngine(private val result: PlanningResult) : PlanningEngine {
         override val type = PlanningEngineType.DEBUG_FAKE_AI
 
-        override suspend fun generate(request: PlanningRequest): PlanningResult = result
+        var calls = 0
+            private set
+
+        override suspend fun generate(request: PlanningRequest): PlanningResult {
+            calls += 1
+            return result
+        }
     }
 
     private class TypedStaticEngine(
@@ -446,7 +672,8 @@ class PlannerIntakeViewModelTest {
         val started = Channel<PlanningRequest>(Channel.UNLIMITED)
         val first = CompletableDeferred<PlanningResult>()
         val second = CompletableDeferred<PlanningResult>()
-        private var calls = 0
+        var calls = 0
+            private set
 
         override suspend fun generate(request: PlanningRequest): PlanningResult {
             started.send(request)
@@ -459,16 +686,49 @@ class PlannerIntakeViewModelTest {
         }
     }
 
+    private fun configuredExperiment() =
+        FakeRemotePlanningExperiment().apply {
+            setApiKey("synthetic-key")
+            setEnabled(true)
+        }
+
     private class FakeRemotePlanningExperiment : RemotePlanningExperiment {
-        private val mutableState = MutableStateFlow(RemotePlanningExperimentState(available = true))
+        private val mutableState =
+            MutableStateFlow(
+                RemotePlanningExperimentState(
+                    available = true,
+                    optionId = "GEMINI",
+                    options =
+                        listOf(
+                            RemotePlanningOption("GEMINI", "Gemini"),
+                            RemotePlanningOption("DEEPSEEK", "DeepSeek"),
+                        ),
+                )
+            )
         override val state: StateFlow<RemotePlanningExperimentState> = mutableState
 
         override fun setEnabled(enabled: Boolean) {
-            mutableState.value = mutableState.value.copy(enabled = enabled)
+            update(
+                mutableState.value.copy(
+                    enabled = enabled,
+                    apiKey = if (enabled) mutableState.value.apiKey else "",
+                )
+            )
         }
 
         override fun setApiKey(apiKey: String) {
-            mutableState.value = mutableState.value.copy(apiKey = apiKey)
+            update(mutableState.value.copy(apiKey = apiKey.trim()))
+        }
+
+        override fun setOption(optionId: String) {
+            val current = mutableState.value
+            if (current.optionId == optionId || current.options.none { it.id == optionId }) return
+            update(current.copy(optionId = optionId, enabled = false, apiKey = ""))
+        }
+
+        private fun update(next: RemotePlanningExperimentState) {
+            val previous = mutableState.value
+            if (next != previous) mutableState.value = next.copy(revision = previous.revision + 1)
         }
     }
 }

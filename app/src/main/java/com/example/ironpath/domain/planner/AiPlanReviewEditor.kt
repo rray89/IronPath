@@ -39,6 +39,9 @@ constructor(
     fun start(validatedPlan: ValidatedPlanDraft): AiPlanDraftReviewState =
         AiPlanDraftReviewState.Valid(validatedPlan)
 
+    fun revalidate(state: AiPlanDraftReviewState): AiPlanDraftReviewState =
+        revalidate(state, state.draft)
+
     fun eligibleEntries(state: AiPlanDraftReviewState): List<ExerciseCatalogEntry> =
         exerciseEligibilityPolicy.eligibleEntries(state.context)
 

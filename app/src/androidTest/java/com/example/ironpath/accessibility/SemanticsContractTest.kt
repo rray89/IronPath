@@ -57,6 +57,7 @@ import com.example.ironpath.domain.planner.PlanningEngineType
 import com.example.ironpath.domain.planner.PlanningGoal
 import com.example.ironpath.domain.planner.PlanningProviderMetadata
 import com.example.ironpath.domain.planner.RemotePlanningExperimentState
+import com.example.ironpath.domain.planner.RemotePlanningRoute
 import com.example.ironpath.domain.planner.TrainingExperience
 import com.example.ironpath.domain.planner.ValidatedPlanDraft
 import com.example.ironpath.domain.planner.WorkoutDraft
@@ -149,6 +150,8 @@ class SemanticsContractTest {
                     RemotePlanningExperimentState(
                         available = true,
                         enabled = true,
+                        optionId = RemotePlanningRoute.GEMINI.name,
+                        options = RemotePlanningRoute.entries.map { it.option },
                     ),
             )
         }
@@ -194,15 +197,27 @@ class SemanticsContractTest {
         composeRule
             .onNodeWithTag(TestTags.PLAN_INJURY_NOTES)
             .performScrollTo()
-            .assert(hasAccessibleLabel("Injury notes"))
+            .assertContentDescriptionEquals("Injury notes")
+            .assert(hasSetTextAction())
         composeRule
             .onNodeWithTag(TestTags.PLAN_PREFERENCES)
             .performScrollTo()
-            .assert(hasAccessibleLabel("Exercise preferences"))
+            .assertContentDescriptionEquals("Exercise preferences")
+            .assert(hasSetTextAction())
         composeRule
             .onNodeWithTag(TestTags.PLAN_DISLIKES)
             .performScrollTo()
-            .assert(hasAccessibleLabel("Exercise dislikes"))
+            .assertContentDescriptionEquals("Exercise dislikes")
+            .assert(hasSetTextAction())
+        RemotePlanningRoute.entries.forEach { route ->
+            composeRule
+                .onNodeWithTag("plan_remote_option_" + route.name)
+                .performScrollTo()
+                .assertIsDisplayed()
+                .assertIsSelectable()
+                .assert(SemanticsMatcher.expectValue(SemanticsProperties.Role, Role.RadioButton))
+        }
+
         composeRule
             .onNodeWithTag(TestTags.PLAN_REMOTE_AI_TOGGLE)
             .performScrollTo()
@@ -212,7 +227,7 @@ class SemanticsContractTest {
         composeRule
             .onNodeWithTag(TestTags.PLAN_REMOTE_AI_KEY)
             .performScrollTo()
-            .assert(hasAccessibleLabel("Gemini API key"))
+            .assert(hasAccessibleLabel("Provider API key"))
             .assert(SemanticsMatcher.keyIsDefined(SemanticsProperties.Password))
         composeRule
             .onNodeWithTag(TestTags.PLAN_GENERATE_AI)

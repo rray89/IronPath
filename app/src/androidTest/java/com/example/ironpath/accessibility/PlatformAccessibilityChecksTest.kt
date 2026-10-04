@@ -16,6 +16,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.filters.SdkSuppress
 import com.example.ironpath.MainActivity
 import com.example.ironpath.data.local.IronPathDatabase
+import com.example.ironpath.domain.planner.RemotePlanningRoute
 import com.example.ironpath.testutil.HiltTestDatabaseRule
 import com.example.ironpath.testutil.MutableTimeProvider
 import com.example.ironpath.testutil.TestData
@@ -92,6 +93,26 @@ class PlatformAccessibilityChecksTest {
         waitForText("ADD RECORD")
         composeRule.onNodeWithText("SAVE").performScrollTo().assertIsDisplayed()
         checkCurrentSurface()
+    }
+
+    @Test
+    fun remoteProviderSelectionAndOptIn_passPlatformChecksWithoutNetwork() {
+        composeRule.onNodeWithText("CONTINUE ON THIS DEVICE").performClick()
+        waitForTagToDisappear(TestTags.HOME_LOADING)
+        navigateTo(Route.PLAN)
+        waitForTagToDisappear(TestTags.PLAN_LOADING)
+        RemotePlanningRoute.entries.forEach { route ->
+            composeRule
+                .onNodeWithTag("plan_remote_option_" + route.name)
+                .performScrollTo()
+                .performClick()
+            checkCurrentSurface()
+        }
+        composeRule.onNodeWithTag(TestTags.PLAN_REMOTE_AI_TOGGLE).performScrollTo().performClick()
+        composeRule.onNodeWithTag(TestTags.PLAN_REMOTE_AI_KEY).performScrollTo().assertIsDisplayed()
+        checkCurrentSurface()
+        // No key is entered and generation is never invoked.
+        composeRule.onNodeWithTag(TestTags.PLAN_REMOTE_AI_TOGGLE).performScrollTo().performClick()
     }
 
     @Test
