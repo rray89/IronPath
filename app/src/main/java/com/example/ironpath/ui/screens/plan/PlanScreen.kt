@@ -555,7 +555,7 @@ private fun PlanningTextField(
         onValueChange = onValueChange,
         label = { Text(label) },
         supportingText = { Text(supportingText) },
-        modifier = modifier.fillMaxWidth(),
+        modifier = modifier.fillMaxWidth().semantics { contentDescription = label },
         minLines = 2,
         maxLines = 4,
     )

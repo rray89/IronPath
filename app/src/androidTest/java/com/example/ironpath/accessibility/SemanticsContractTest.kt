@@ -197,15 +197,18 @@ class SemanticsContractTest {
         composeRule
             .onNodeWithTag(TestTags.PLAN_INJURY_NOTES)
             .performScrollTo()
-            .assert(hasAccessibleLabel("Injury notes"))
+            .assertContentDescriptionEquals("Injury notes")
+            .assert(hasSetTextAction())
         composeRule
             .onNodeWithTag(TestTags.PLAN_PREFERENCES)
             .performScrollTo()
-            .assert(hasAccessibleLabel("Exercise preferences"))
+            .assertContentDescriptionEquals("Exercise preferences")
+            .assert(hasSetTextAction())
         composeRule
             .onNodeWithTag(TestTags.PLAN_DISLIKES)
             .performScrollTo()
-            .assert(hasAccessibleLabel("Exercise dislikes"))
+            .assertContentDescriptionEquals("Exercise dislikes")
+            .assert(hasSetTextAction())
         RemotePlanningRoute.entries.forEach { route ->
             composeRule
                 .onNodeWithTag("plan_remote_option_" + route.name)
