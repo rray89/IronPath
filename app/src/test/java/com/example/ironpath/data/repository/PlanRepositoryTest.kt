@@ -67,6 +67,10 @@ class PlanRepositoryTest {
         coEvery { planDao.updateWorkout(any()) } returns Unit
         coEvery { planDao.deleteWorkout(any()) } returns Unit
         coEvery { planDao.getAllExerciseNames() } returns emptyList()
+        coEvery { planDao.getActivePlan() } returns null
+        val sessions = mockk<com.example.ironpath.data.local.dao.SessionDao>()
+        every { database.sessionDao() } returns sessions
+        coEvery { sessions.getActiveSession() } returns null
         every { database.accountDeletionDao() } returns accountDeletionDao
         coEvery { accountDeletionDao.getJournal() } returns null
         coEvery { backupChangeTracker.markIncludedDataChanged() } returns Unit
@@ -111,6 +115,18 @@ class PlanRepositoryTest {
         repository.createPlan(plan, workouts, exercises)
 
         coVerify(exactly = 1) { planDao.createPlanWithWorkouts(plan, workouts, exercises) }
+    }
+
+    @Test
+    fun `active session blocks replacement before archive or revision writes`() = runTest {
+        val sessions = mockk<com.example.ironpath.data.local.dao.SessionDao>()
+        every { database.sessionDao() } returns sessions
+        coEvery { sessions.getActiveSession() } returns
+            com.example.ironpath.data.local.entity.ActiveSession("session", "w1", "Current", 1, 1)
+        val result = runCatching { repository.createPlan(plan, listOf(workout), listOf(exercise)) }
+        org.junit.Assert.assertTrue(result.isFailure)
+        coVerify(exactly = 0) { planDao.createPlanWithWorkouts(any(), any(), any()) }
+        coVerify(exactly = 0) { backupChangeTracker.markIncludedDataChanged() }
     }
 
     @Test

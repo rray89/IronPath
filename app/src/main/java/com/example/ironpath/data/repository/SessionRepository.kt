@@ -11,8 +11,12 @@ import com.example.ironpath.data.local.entity.LoggedSet
 import com.example.ironpath.data.local.entity.SessionExercise
 import com.example.ironpath.data.local.entity.SessionSet
 import com.example.ironpath.data.local.entity.WorkoutLog
+import com.example.ironpath.data.local.entity.WorkoutStatus
 import com.example.ironpath.data.local.withProfileWrite
 import com.example.ironpath.data.performance.PerformanceTracer
+import com.example.ironpath.domain.identity.IdProvider
+import com.example.ironpath.domain.session.StartWorkoutResult
+import com.example.ironpath.domain.time.TimeProvider
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.flow.Flow
@@ -27,6 +31,8 @@ constructor(
     private val database: IronPathDatabase,
     private val performanceTracer: PerformanceTracer,
     private val backupChangeTracker: BackupChangeTracker,
+    private val timeProvider: TimeProvider,
+    private val idProvider: IdProvider,
 ) {
 
     fun observeActiveSession(): Flow<ActiveSession?> = sessionDao.observeActiveSession()
@@ -45,17 +51,63 @@ constructor(
     fun observeSetsForExercises(exerciseIds: List<String>): Flow<List<SessionSet>> =
         sessionDao.observeSetsForExercises(exerciseIds)
 
-    /**
-     * Clears any existing active session, then starts a new one with its exercises in a single
-     * transaction (handled by DAO @Transaction).
-     */
-    suspend fun startSession(
-        session: ActiveSession,
-        exercises: List<SessionExercise>,
+    /** Rechecks the source and commits the entire recoverable graph under one profile gate. */
+    suspend fun startPlannedWorkout(
+        workoutId: String,
         expectedProfileGeneration: Long? = null,
-    ) =
+    ): StartWorkoutResult =
         database.withProfileWrite(expectedProfileGeneration) {
-            sessionDao.startPlannedSession(session, exercises)
+            sessionDao.getActiveSession()?.let {
+                return@withProfileWrite StartWorkoutResult.ExistingSession(it.id)
+            }
+            val workout =
+                planDao.getWorkoutById(workoutId)
+                    ?: return@withProfileWrite StartWorkoutResult.NotStartable
+            val now = timeProvider.now()
+            val today = now.atZone(timeProvider.zoneId).toLocalDate().toString()
+            if (
+                workout.status != WorkoutStatus.Upcoming ||
+                    workout.scheduledDate != today ||
+                    planDao.getActivePlan()?.id != workout.weeklyPlanId
+            ) {
+                return@withProfileWrite StartWorkoutResult.NotStartable
+            }
+            val plannedExercises = planDao.getExercisesForWorkout(workoutId)
+            val session =
+                ActiveSession(
+                    id = idProvider.newId(),
+                    sourcePlannedWorkoutId = workout.id,
+                    workoutTitle = workout.title,
+                    startedAt = now.toEpochMilli(),
+                    lastUpdatedAt = now.toEpochMilli(),
+                )
+            val exercises =
+                plannedExercises.map { exercise ->
+                    SessionExercise(
+                        id = idProvider.newId(),
+                        activeSessionId = session.id,
+                        name = exercise.name,
+                        plannedSets = exercise.sets,
+                        plannedReps = exercise.reps,
+                        plannedWeightKg = exercise.weightKg,
+                        orderIndex = exercise.orderIndex,
+                    )
+                }
+            val sets =
+                exercises.flatMap { exercise ->
+                    List(exercise.plannedSets) { index ->
+                        SessionSet(
+                            id = idProvider.newId(),
+                            sessionExerciseId = exercise.id,
+                            setNumber = index + 1,
+                            weightKg = exercise.plannedWeightKg,
+                        )
+                    }
+                }
+            sessionDao.insertSession(session)
+            sessionDao.insertSessionExercises(exercises)
+            sessionDao.insertSets(sets)
+            StartWorkoutResult.Started(session.id)
         }
 
     suspend fun updateSession(session: ActiveSession, expectedProfileGeneration: Long? = null) =

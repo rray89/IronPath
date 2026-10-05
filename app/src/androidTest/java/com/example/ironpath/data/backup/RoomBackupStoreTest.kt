@@ -477,6 +477,11 @@ class RoomBackupStoreTest {
                 database,
                 PerformanceTracer(),
                 store,
+                com.example.ironpath.testutil.MutableTimeProvider(
+                    java.time.Instant.parse("2026-07-13T19:00:00Z"),
+                    java.time.ZoneId.of("UTC")
+                ),
+                SequenceIdProvider("start"),
             )
         val plan = TestData.plan()
         val workout = TestData.workout()
@@ -488,10 +493,12 @@ class RoomBackupStoreTest {
         recordRepository.insertRecord(TestData.record())
         assertEquals(2L, checkNotNull(database.backupDao().getMetadata()).localChangeRevision)
 
-        val session = TestData.session()
-        val sessionExercise = TestData.sessionExercise()
-        sessionRepository.startSession(session, listOf(sessionExercise))
-        sessionRepository.completeSession(session.id, TestData.log())
+        sessionRepository.startPlannedWorkout(workout.id)
+        assertEquals(2L, checkNotNull(database.backupDao().getMetadata()).localChangeRevision)
+        sessionRepository.completeSession(
+            checkNotNull(database.sessionDao().getActiveSession()).id,
+            TestData.log()
+        )
 
         assertEquals(3L, checkNotNull(database.backupDao().getMetadata()).localChangeRevision)
     }

@@ -58,6 +58,7 @@ import com.example.ironpath.domain.planner.RemotePlanningExperimentState
 import com.example.ironpath.domain.planner.TrainingExperience
 import com.example.ironpath.domain.planner.ValidatedPlanDraft
 import com.example.ironpath.domain.planner.WorkoutDraft
+import com.example.ironpath.ui.screens.WorkoutStartUiState
 import com.example.ironpath.ui.screens.active.ActiveContent
 import com.example.ironpath.ui.screens.active.ActiveUiState
 import com.example.ironpath.ui.screens.entry.EntryScreen
@@ -517,6 +518,72 @@ class AdaptiveLayoutTest {
             .assertIsDisplayed()
             .assertHasClickAction()
         composeRule.onNodeWithText("Strength A").performScrollTo().assertIsDisplayed()
+    }
+
+    @Test
+    fun existingWorkoutAndError_at200Percent_keepContinuationReachable() {
+        setAdaptiveContent(COMPACT_PORTRAIT) {
+            WorkoutPreviewContent(
+                uiState =
+                    WorkoutPreviewUiState.Ready(workout, listOf(plannedExercise), false, true),
+                startState =
+                    WorkoutStartUiState(
+                        error = "Could not start this workout. Reopen the preview and try again."
+                    ),
+                onBack = {},
+                onStart = {},
+            )
+        }
+        composeRule
+            .onNodeWithText("CONTINUE ACTIVE WORKOUT")
+            .performScrollTo()
+            .assertIsDisplayed()
+            .assertIsEnabled()
+            .assertMinimumTouchTarget("Continue active workout")
+        composeRule
+            .onNodeWithText(
+                "Your active workout was kept. Continue it before starting another workout."
+            )
+            .performScrollTo()
+            .assertIsDisplayed()
+    }
+
+    @Test
+    fun completedPlan_at200Percent_keepsNextWeekActionReachable() {
+        setAdaptiveContent(COMPACT_PORTRAIT) {
+            PlanContent(
+                uiState =
+                    PlanUiState.Accepted(
+                        1,
+                        1,
+                        listOf(
+                            workout.copy(
+                                status =
+                                    com.example.ironpath.data.local.entity.WorkoutStatus.Completed
+                            )
+                        ),
+                        null,
+                        null,
+                        false
+                    ),
+                selectedGoal = PlanningGoal.STRENGTH,
+                selectedDays = setOf(1),
+                onGoalSelected = {},
+                onDayToggled = {},
+                onGenerate = {},
+                onDeleteWorkout = {},
+                onBackToSetup = {},
+                onAccept = {},
+                onStartWorkout = {},
+                onOpenWorkoutPreview = {},
+            )
+        }
+        composeRule
+            .onNodeWithText("PLAN NEXT WEEK")
+            .performScrollTo()
+            .assertIsDisplayed()
+            .assertIsEnabled()
+            .assertMinimumTouchTarget("Plan next week")
     }
 
     @Test

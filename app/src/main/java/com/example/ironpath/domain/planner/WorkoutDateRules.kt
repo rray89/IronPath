@@ -26,3 +26,13 @@ private data class ScheduledWorkout(
     val workout: PlannedWorkout,
     val date: LocalDate,
 )
+
+/** A new full week is strictly later than today and the accepted week it replaces. */
+fun nextPlanningWeekStart(today: LocalDate, acceptedWeekEnd: LocalDate? = null): LocalDate {
+    val nextMonday =
+        today.with(java.time.temporal.TemporalAdjusters.next(java.time.DayOfWeek.MONDAY))
+    val afterAccepted =
+        acceptedWeekEnd?.with(java.time.temporal.TemporalAdjusters.next(java.time.DayOfWeek.MONDAY))
+    return if (afterAccepted != null && afterAccepted.isAfter(nextMonday)) afterAccepted
+    else nextMonday
+}

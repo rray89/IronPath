@@ -13,6 +13,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.example.ironpath.data.local.entity.PlannedExercise
 import com.example.ironpath.data.local.entity.PlannedWorkout
 import com.example.ironpath.data.local.entity.WorkoutStatus
+import com.example.ironpath.ui.screens.WorkoutStartUiState
 import com.example.ironpath.ui.testing.TestTags
 import com.example.ironpath.ui.theme.IronPathTheme
 import org.junit.Assert.assertEquals
@@ -107,7 +108,7 @@ class WorkoutPreviewScreenTest {
     }
 
     @Test
-    fun activeSession_disablesStart_andExplainsWhy() {
+    fun activeSession_offersContinuation_andExplainsPreservedProgress() {
         setContent(
             WorkoutPreviewUiState.Ready(
                 workout = workout,
@@ -117,9 +118,12 @@ class WorkoutPreviewScreenTest {
             )
         )
 
-        composeRule.onNodeWithText("START WORKOUT").assertIsNotEnabled()
+        composeRule.onNodeWithText("CONTINUE ACTIVE WORKOUT").assertIsEnabled()
+        composeRule.onNodeWithText("START WORKOUT").assertDoesNotExist()
         composeRule
-            .onNodeWithText("Finish the active session before starting this workout.")
+            .onNodeWithText(
+                "Your active workout was kept. Continue it before starting another workout."
+            )
             .assertIsDisplayed()
     }
 
@@ -138,8 +142,32 @@ class WorkoutPreviewScreenTest {
         composeRule.onNodeWithText("No exercises are attached to this workout.").assertIsDisplayed()
     }
 
+    @Test
+    fun busyStateDisablesStart_andFailureShowsRetryAction() {
+        val state = androidx.compose.runtime.mutableStateOf(WorkoutStartUiState(isStarting = true))
+        composeRule.setContent {
+            IronPathTheme {
+                Surface {
+                    WorkoutPreviewContent(
+                        uiState = WorkoutPreviewUiState.Ready(workout, listOf(squat), true, false),
+                        startState = state.value,
+                        onBack = {},
+                        onStart = {},
+                    )
+                }
+            }
+        }
+        composeRule.onNodeWithText("STARTING WORKOUT…").assertIsNotEnabled()
+        composeRule.runOnIdle {
+            state.value = WorkoutStartUiState(error = "Could not start. Try again.")
+        }
+        composeRule.onNodeWithText("Could not start. Try again.").assertIsDisplayed()
+        composeRule.onNodeWithText("START WORKOUT").assertIsEnabled()
+    }
+
     private fun setContent(
         state: WorkoutPreviewUiState,
+        startState: WorkoutStartUiState = WorkoutStartUiState(),
         onBack: () -> Unit = {},
         onStart: () -> Unit = {},
     ) {
@@ -148,6 +176,7 @@ class WorkoutPreviewScreenTest {
                 Surface {
                     WorkoutPreviewContent(
                         uiState = state,
+                        startState = startState,
                         onBack = onBack,
                         onStart = onStart,
                     )

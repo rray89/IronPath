@@ -14,7 +14,9 @@ import com.example.ironpath.domain.identity.IdProvider
 import com.example.ironpath.domain.planner.findNextUpcomingWorkout
 import com.example.ironpath.domain.planner.findWorkoutScheduledToday
 import com.example.ironpath.domain.session.StartPlannedWorkoutUseCase
+import com.example.ironpath.domain.session.StartWorkoutResult
 import com.example.ironpath.domain.time.TimeProvider
+import com.example.ironpath.ui.screens.WorkoutStartUiState
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
@@ -47,6 +49,8 @@ constructor(
 
     private val activeSession = sessionRepository.observeActiveSession()
     private var finishInProgress = false
+    private val _startState = MutableStateFlow(WorkoutStartUiState())
+    val startState = _startState.asStateFlow()
 
     private val exercises =
         activeSession.flatMapLatest { session ->
@@ -132,15 +136,35 @@ constructor(
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ActiveUiState.Loading)
 
     fun startSession(workout: PlannedWorkout) {
+        if (_startState.value.isStarting) return
         val expectedProfileGeneration = profileGenerationToken?.current()
-        if (profileGenerationToken != null && expectedProfileGeneration == null) return
+        if (profileGenerationToken != null && expectedProfileGeneration == null) {
+            _startState.value =
+                WorkoutStartUiState(error = "Your profile is still loading. Try again.")
+            return
+        }
+        _startState.value = WorkoutStartUiState(isStarting = true)
         viewModelScope.launch {
             try {
-                startPlannedWorkout(workout, expectedProfileGeneration)
+                _startState.value =
+                    when (startPlannedWorkout(workout.id, expectedProfileGeneration)) {
+                        is StartWorkoutResult.Started -> WorkoutStartUiState()
+                        is StartWorkoutResult.ExistingSession ->
+                            WorkoutStartUiState(hasExistingSession = true)
+                        StartWorkoutResult.NotStartable ->
+                            WorkoutStartUiState(
+                                error = "This workout is no longer available to start today."
+                            )
+                    }
             } catch (cancellation: CancellationException) {
                 throw cancellation
             } catch (_: Exception) {
-                // A reset profile invalidates an action already queued by this screen.
+                _startState.value =
+                    WorkoutStartUiState(
+                        error = "Could not start this workout. Reopen Active and try again."
+                    )
+            } finally {
+                _startState.value = _startState.value.copy(isStarting = false)
             }
         }
     }
