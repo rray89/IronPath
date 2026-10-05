@@ -37,7 +37,6 @@ class PlanReplacementIntegrationTest {
             )
             db.historyDao().insertLog(TestData.log())
             db.recordDao().insertRecord(TestData.record())
-            val before = store.capture()
             db.sessionDao().startNewSession(TestData.session(), listOf(TestData.sessionExercise()))
             db.sessionDao().insertSet(TestData.sessionSet(reps = 5, weightKg = 100.0))
             val before = store.capture()
