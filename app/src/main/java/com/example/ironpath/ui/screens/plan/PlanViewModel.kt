@@ -1,8 +1,11 @@
 package com.example.ironpath.ui.screens.plan
 
+import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.ironpath.data.local.entity.PlannedWorkout
+import com.example.ironpath.data.local.entity.WeeklyPlan
+import com.example.ironpath.data.repository.ActiveSessionBlocksPlanException
 import com.example.ironpath.data.repository.PlanRepository
 import com.example.ironpath.data.repository.SessionRepository
 import com.example.ironpath.domain.account.ProfileGenerationToken
@@ -18,6 +21,7 @@ import com.example.ironpath.domain.planner.ValidatedPlanDraft
 import com.example.ironpath.domain.planner.ValidatedPlanDraftMapper
 import com.example.ironpath.domain.planner.findNextUpcomingWorkout
 import com.example.ironpath.domain.planner.findWorkoutScheduledToday
+import com.example.ironpath.domain.planner.nextPlanningWeekStart
 import com.example.ironpath.domain.time.TimeProvider
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
@@ -45,9 +49,14 @@ constructor(
     private val aiPlanReviewEditor: AiPlanReviewEditor,
     private val validatedPlanDraftMapper: ValidatedPlanDraftMapper,
     private val profileGenerationToken: ProfileGenerationToken? = null,
+    private val savedStateHandle: SavedStateHandle = SavedStateHandle(),
 ) : ViewModel() {
 
     private var acceptInProgress = false
+    private val setupSourceId =
+        savedStateHandle.getStateFlow<String?>("next_week_setup_source", null)
+    private val _saveState = MutableStateFlow(PlanSaveUiState())
+    val saveState = _saveState.asStateFlow()
 
     // -- Review state (in-memory, not yet saved) --
     private val _generatedPlan = MutableStateFlow<GeneratedPlan?>(null)
@@ -68,46 +77,86 @@ constructor(
     private val activePlan = planRepository.observeActivePlan()
     private val activeSession = sessionRepository.observeActiveSession()
 
-    private val activeWorkouts =
-        activePlan.flatMapLatest { plan ->
-            if (plan != null) {
-                planRepository.observeWorkoutsForPlan(plan.id)
-            } else {
-                flowOf(emptyList())
+    private val persisted =
+        activePlan
+            .flatMapLatest { plan ->
+                val workouts =
+                    if (plan != null) planRepository.observeWorkoutsForPlan(plan.id)
+                    else flowOf(emptyList())
+                combine(workouts, activeSession) { items, session ->
+                    AcceptedPlanSnapshot(plan, items, session != null)
+                }
             }
-        }
+            .stateIn(viewModelScope, SharingStarted.Eagerly, null)
 
     val planUiState =
-        combine(activePlan, activeWorkouts, _generatedPlan, activeSession, _aiReviewState) {
-                plan,
-                workouts,
+        combine(persisted, _generatedPlan, _aiReviewState, setupSourceId) {
+                snapshot,
                 generated,
-                session,
-                aiReview ->
+                aiReview,
+                setupSource ->
                 when {
+                    snapshot == null -> PlanUiState.Loading
                     aiReview != null -> PlanUiState.AiReview(aiReview)
                     generated != null -> PlanUiState.Review(generated)
-                    plan != null -> {
+                    snapshot.plan == null || setupSource == snapshot.plan.id -> PlanUiState.Setup
+                    else -> {
                         val today = timeProvider.today()
-                        val todayWorkout = workouts.findWorkoutScheduledToday(today)
-                        val nextWorkout = todayWorkout ?: workouts.findNextUpcomingWorkout(today)
+                        val todayWorkout = snapshot.workouts.findWorkoutScheduledToday(today)
                         PlanUiState.Accepted(
-                            planned = workouts.size,
-                            completed = workouts.count { it.status.name == "Completed" },
-                            workouts = workouts,
+                            planned = snapshot.workouts.size,
+                            completed = snapshot.workouts.count { it.status.name == "Completed" },
+                            workouts = snapshot.workouts,
                             todayWorkout = todayWorkout,
-                            nextWorkout = nextWorkout,
-                            hasActiveSession = session != null,
+                            nextWorkout =
+                                todayWorkout ?: snapshot.workouts.findNextUpcomingWorkout(today),
+                            hasActiveSession = snapshot.hasActiveSession,
                         )
                     }
-                    else -> PlanUiState.Setup
                 }
             }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), PlanUiState.Loading)
 
+    /** Returns false only while the accepted week is still loading. */
+    fun beginNextWeekPlanning(): Boolean {
+        val snapshot = persisted.value ?: return false
+        if (acceptInProgress) return false
+        if (snapshot.hasActiveSession) {
+            _saveState.value =
+                PlanSaveUiState(error = "Finish the active workout before planning the next week.")
+            return true
+        }
+        if (
+            snapshot.plan != null &&
+                (snapshot.workouts.isEmpty() ||
+                    snapshot.workouts.any { it.status.name != "Completed" })
+        )
+            return true
+        backToSetup()
+        return true
+    }
+
+    fun targetWeekStart(): java.time.LocalDate =
+        nextPlanningWeekStart(
+            timeProvider.today(),
+            persisted.value?.plan?.endDate?.let {
+                runCatching { java.time.LocalDate.parse(it) }.getOrNull()
+            },
+        )
+
+    fun cancelPlanning(): Boolean {
+        if (acceptInProgress) return false
+        _generatedPlan.value = null
+        clearAiReview()
+        savedStateHandle["next_week_setup_source"] = null
+        _saveState.value = PlanSaveUiState()
+        return true
+    }
+
     fun generatePlan(goal: PlanningGoal, selectedDays: Set<Int>) {
-        if (selectedDays.isEmpty()) return
-        val generated = planGenerator.generate(goal, selectedDays)
+        if (selectedDays.isEmpty() || acceptInProgress) return
+        val generated = planGenerator.generate(goal, selectedDays, targetWeekStart())
+        _saveState.value = PlanSaveUiState()
         clearAiReview()
         _generatedPlan.value = generated
     }
@@ -149,6 +198,7 @@ constructor(
     ) = editAiReview { aiPlanReviewEditor.replaceExercise(it, workoutDay, originalId, replacement) }
 
     fun deleteWorkoutFromReview(workoutId: String) {
+        if (acceptInProgress) return
         val current = _generatedPlan.value ?: return
         val updatedWorkouts = current.workouts.filter { it.id != workoutId }
         val updatedExercises = current.exercises.filter { it.plannedWorkoutId != workoutId }
@@ -157,6 +207,9 @@ constructor(
     }
 
     fun backToSetup() {
+        if (acceptInProgress) return
+        savedStateHandle["next_week_setup_source"] = persisted.value?.plan?.id
+        _saveState.value = PlanSaveUiState()
         _generatedPlan.value = null
         clearAiReview()
     }
@@ -172,6 +225,7 @@ constructor(
         }
         val generated = _generatedPlan.value ?: return
         acceptInProgress = true
+        _saveState.value = PlanSaveUiState(isSaving = true)
         viewModelScope.launch {
             var saved = false
             try {
@@ -184,13 +238,20 @@ constructor(
                 saved = true
                 pendingAiReview = null
                 _generatedPlan.value = null
+                savedStateHandle["next_week_setup_source"] = null
                 onAccepted()
             } catch (cancellation: CancellationException) {
                 throw cancellation
-            } catch (_: Exception) {
-                // Keep the review available so the user can retry accepting the plan.
+            } catch (failure: Exception) {
+                _saveState.value =
+                    PlanSaveUiState(
+                        error =
+                            if (failure is ActiveSessionBlocksPlanException) failure.message
+                            else AI_SAVE_ERROR
+                    )
             } finally {
                 acceptInProgress = false
+                _saveState.value = _saveState.value.copy(isSaving = false)
                 if (!saved) showPendingAiReview()
             }
         }
@@ -219,14 +280,17 @@ constructor(
                 )
                 pendingAiReview = null
                 clearAiReview()
+                savedStateHandle["next_week_setup_source"] = null
                 onAccepted()
             } catch (cancellation: CancellationException) {
                 throw cancellation
-            } catch (_: Exception) {
+            } catch (failure: Exception) {
                 _aiReviewState.value =
                     _aiReviewState.value?.copy(
                         isAccepting = false,
-                        saveError = AI_SAVE_ERROR,
+                        saveError =
+                            if (failure is ActiveSessionBlocksPlanException) failure.message
+                            else AI_SAVE_ERROR,
                     )
             } finally {
                 acceptInProgress = false
@@ -297,3 +361,11 @@ sealed interface PlanUiState {
         val hasActiveSession: Boolean,
     ) : PlanUiState
 }
+
+private data class AcceptedPlanSnapshot(
+    val plan: WeeklyPlan?,
+    val workouts: List<PlannedWorkout>,
+    val hasActiveSession: Boolean
+)
+
+data class PlanSaveUiState(val isSaving: Boolean = false, val error: String? = null)

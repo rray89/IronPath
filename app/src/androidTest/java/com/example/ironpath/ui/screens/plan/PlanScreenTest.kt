@@ -96,10 +96,57 @@ class PlanScreenTest {
             exercises = listOf(mondayExercise),
         )
 
+    @Test
+    fun completedWeekOffersExplicitSetupAction() {
+        var calls = 0
+        setPlanContent(
+            PlanUiState.Accepted(
+                1,
+                1,
+                listOf(mondayWorkout.copy(status = WorkoutStatus.Completed)),
+                null,
+                null,
+                false
+            ),
+            onPlanNextWeek = { calls++ }
+        )
+        composeRule.onNodeWithText("PLAN NEXT WEEK").performScrollTo().performClick()
+        assertEquals(1, calls)
+    }
+
+    @Test
+    fun cancelPlanningIsExplicit_andSavingDisablesAcceptAndCancel() {
+        setPlanContent(PlanUiState.Review(generated), saveState = PlanSaveUiState(isSaving = true))
+        composeRule.onNodeWithText("Saving plan…").assertIsDisplayed()
+        composeRule.onNodeWithText("Cancel Planning").assertIsNotEnabled()
+        composeRule.onNodeWithText("ACCEPT PLAN").performScrollTo().assertIsNotEnabled()
+        composeRule.onNodeWithText("REGENERATE").performScrollTo().assertIsNotEnabled()
+    }
+
+    @Test
+    fun replacementFailureKeepsReviewAndExposesRetryAndCancel() {
+        var cancelled = 0
+        setPlanContent(
+            PlanUiState.Review(generated),
+            saveState =
+                PlanSaveUiState(error = "Finish the active workout before accepting a new plan."),
+            onCancelPlanning = { cancelled++ }
+        )
+        composeRule
+            .onNodeWithText("Finish the active workout before accepting a new plan.")
+            .assertIsDisplayed()
+        composeRule.onNodeWithText("ACCEPT PLAN").performScrollTo().assertIsEnabled()
+        composeRule.onNodeWithText("Cancel Planning").performClick()
+        assertEquals(1, cancelled)
+    }
+
     private fun setPlanContent(
         uiState: PlanUiState,
         selectedGoal: PlanningGoal = PlanningGoal.STRENGTH,
         selectedDays: Set<Int> = emptySet(),
+        saveState: PlanSaveUiState = PlanSaveUiState(),
+        onPlanNextWeek: () -> Unit = {},
+        onCancelPlanning: () -> Unit = {},
         onGoalSelected: (PlanningGoal) -> Unit = {},
         onDayToggled: (Int) -> Unit = {},
         aiAvailable: Boolean = false,
@@ -141,6 +188,9 @@ class PlanScreenTest {
                 Surface {
                     PlanContent(
                         uiState = uiState,
+                        saveState = saveState,
+                        onPlanNextWeek = onPlanNextWeek,
+                        onCancelPlanning = onCancelPlanning,
                         intakeState = intakeState,
                         aiAvailable = aiAvailable,
                         aiGenerationState = aiGenerationState,
