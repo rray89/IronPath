@@ -119,14 +119,32 @@ class RecordMutationRoomTest {
         assertEquals("log", record.sourceWorkoutLogId)
         assertEquals(62.5, record.weightKg, 0.0)
         assertEquals(listOf(record), dao.getLoggedRecordsForWorkoutLog("log"))
-        assertTrue(
-            runCatching { save("same", id = "duplicate") }.exceptionOrNull()
-                is SQLiteConstraintException
+        assertEquals(record, save("same", id = "duplicate"))
+        assertEquals(
+            record,
+            repository.saveLoggedSetAsRecord(
+                "log",
+                "set",
+                "new-zone-id",
+                2000L,
+                ZoneId.of("UTC"),
+                4L
+            )
         )
         assertTrue(runCatching { save("blank", id = "blank") }.isFailure)
         assertTrue(runCatching { save("not-a-set", id = "unknown") }.isFailure)
         assertEquals(1L, revision())
         assertEquals(2, dao.observeAllRecords().first().size)
+    }
+
+    @Test
+    fun manualDuplicateBlocksDerivedInsertWithoutChangingProvenance() = runBlocking {
+        repository.updateManualRecord(original.id, draft, 4L)
+        val manual = dao.getRecordById(original.id)
+        assertTrue(runCatching { save() }.exceptionOrNull() is SQLiteConstraintException)
+        assertEquals(manual, dao.getRecordById(original.id))
+        assertTrue(dao.getLoggedRecordsForWorkoutLog("log").isEmpty())
+        assertEquals(1L, revision())
     }
 
     @Test

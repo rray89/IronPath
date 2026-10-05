@@ -96,6 +96,14 @@ constructor(
                 requireNotNull(detail.recordCandidates(zoneId).find { it.setId == setId }) {
                     "Set cannot become a record"
                 }
+            // Same source performance stays one record even after the device changes time zone.
+            // Other sources/manual entries still use the global name/date/weight unique index.
+            val existing =
+                recordDao.getLoggedRecordsForWorkoutLog(logId).firstOrNull {
+                    it.normalizedExerciseName == candidate.normalizedExerciseName &&
+                        it.weightKg == candidate.weightKg
+                }
+            if (existing != null) return@withProfileWrite existing
             val record =
                 PersonalRecord(
                     id = recordId,

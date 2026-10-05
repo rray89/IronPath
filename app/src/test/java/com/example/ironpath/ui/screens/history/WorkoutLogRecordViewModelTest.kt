@@ -28,7 +28,7 @@ class WorkoutLogRecordViewModelTest {
                 "log",
                 title = "Push",
                 startedAt = 1L,
-                completedAt = time.epochMillis(),
+                completedAt = java.time.Instant.parse("2026-07-17T01:00:00Z").toEpochMilli(),
                 durationMinutes = 1,
                 exerciseCount = 1
             ),
@@ -102,7 +102,14 @@ class WorkoutLogRecordViewModelTest {
             )
         }
         coEvery { records.getLoggedRecordsForWorkoutLog("log") } returns listOf(record)
-        val restored = vm()
+        val restored =
+            WorkoutLogDetailViewModel(
+                SavedStateHandle(mapOf(Route.WORKOUT_LOG_ID_ARG to "log")),
+                history,
+                FakeTimeProvider(zoneId = java.time.ZoneId.of("UTC")),
+                records,
+                FakeIdProvider(),
+            )
         assertEquals(setOf("one", "two"), restored.ready().savedSetIds)
         restored.saveSetAsRecord("two")
         coVerify(exactly = 1) {

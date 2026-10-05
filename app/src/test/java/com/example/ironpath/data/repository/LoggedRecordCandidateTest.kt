@@ -64,6 +64,10 @@ class LoggedRecordCandidateTest {
                 createdAt = 99L
             )
         assertEquals(setOf("set", "second"), snapshot.savedRecordSetIds(listOf(record), zone))
+        assertEquals(
+            setOf("set", "second"),
+            snapshot.savedRecordSetIds(listOf(record), ZoneId.of("UTC"))
+        )
         assertTrue(
             snapshot
                 .savedRecordSetIds(

@@ -53,6 +53,7 @@ class RecordRepositoryTest {
         accountDeletionDao = mockk()
         backupChangeTracker = mockk()
         coEvery { recordDao.insertRecord(any()) } returns Unit
+        coEvery { recordDao.getLoggedRecordsForWorkoutLog(any()) } returns emptyList()
         coEvery { backupChangeTracker.markIncludedDataChanged() } returns Unit
         every { database.accountDeletionDao() } returns accountDeletionDao
         coEvery { accountDeletionDao.getJournal() } returns null
@@ -178,6 +179,16 @@ class RecordRepositoryTest {
         assertEquals("log", result.sourceWorkoutLogId)
         assertEquals(RecordSource.Logged, result.sourceType)
         assertEquals(62.5, result.weightKg, 0.0)
+        coEvery { recordDao.getLoggedRecordsForWorkoutLog("log") } returns listOf(result)
+        val repeated =
+            repository.saveLoggedSetAsRecord(
+                "log",
+                "set",
+                "unused-new-id",
+                456L,
+                ZoneOffset.ofHours(-12)
+            )
+        assertEquals(result, repeated)
         coVerify(exactly = 1) { recordDao.insertRecord(result) }
         coVerify(exactly = 1) { backupChangeTracker.markIncludedDataChanged() }
     }

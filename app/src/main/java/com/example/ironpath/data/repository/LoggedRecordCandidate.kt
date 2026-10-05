@@ -43,6 +43,7 @@ fun WorkoutLogDetail.recordCandidates(zoneId: ZoneId): List<LoggedRecordCandidat
     }
 }
 
+// A source workout is one event. Its first saved date must survive later viewer-zone changes.
 fun WorkoutLogDetail.savedRecordSetIds(records: List<PersonalRecord>, zoneId: ZoneId): Set<String> {
     val sourceRecords =
         records.filter { it.sourceType == RecordSource.Logged && it.sourceWorkoutLogId == log.id }
@@ -50,7 +51,6 @@ fun WorkoutLogDetail.savedRecordSetIds(records: List<PersonalRecord>, zoneId: Zo
         .filter { candidate ->
             sourceRecords.any {
                 it.normalizedExerciseName == candidate.normalizedExerciseName &&
-                    it.achievedOn == candidate.achievedOn &&
                     it.weightKg == candidate.weightKg
             }
         }
