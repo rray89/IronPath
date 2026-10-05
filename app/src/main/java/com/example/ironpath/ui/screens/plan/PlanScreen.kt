@@ -995,8 +995,8 @@ private fun PlanReviewActions(
 @Composable
 private fun RegenerateButton(
     onClick: () -> Unit,
-    enabled: Boolean = true,
     modifier: Modifier = Modifier,
+    enabled: Boolean = true,
 ) {
     Box(
         modifier =

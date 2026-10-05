@@ -70,10 +70,10 @@ fun WorkoutPreviewScreen(
 @Composable
 internal fun WorkoutPreviewContent(
     uiState: WorkoutPreviewUiState,
-    startState: WorkoutStartUiState = WorkoutStartUiState(),
     onBack: () -> Unit,
     onStart: () -> Unit,
     modifier: Modifier = Modifier,
+    startState: WorkoutStartUiState = WorkoutStartUiState(),
 ) {
     when (uiState) {
         WorkoutPreviewUiState.Loading -> {

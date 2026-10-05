@@ -49,7 +49,7 @@ constructor(
     private val aiPlanReviewEditor: AiPlanReviewEditor,
     private val validatedPlanDraftMapper: ValidatedPlanDraftMapper,
     private val profileGenerationToken: ProfileGenerationToken? = null,
-    private val savedStateHandle: SavedStateHandle = SavedStateHandle(),
+    private val savedStateHandle: SavedStateHandle,
 ) : ViewModel() {
 
     private var acceptInProgress = false
@@ -117,7 +117,7 @@ constructor(
             }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), PlanUiState.Loading)
 
-    /** Returns false only while the accepted week is still loading. */
+    /** Defers consuming the navigation request while loading or accepting a plan. */
     fun beginNextWeekPlanning(): Boolean {
         val snapshot = persisted.value ?: return false
         if (acceptInProgress) return false

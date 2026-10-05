@@ -79,6 +79,7 @@ class PlanViewModelAiReviewTest {
                     ValidatedPlanDraftMapper(
                         PlanEntityMapper(FakeIdProvider(), timeProvider, catalog)
                     ),
+                savedStateHandle = androidx.lifecycle.SavedStateHandle(),
             )
     }
 

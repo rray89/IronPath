@@ -103,6 +103,7 @@ class PlanViewModelTest {
                 timeProvider,
                 mockk(relaxed = true),
                 mockk(relaxed = true),
+                savedStateHandle = androidx.lifecycle.SavedStateHandle(),
             )
     }
 
@@ -131,7 +132,8 @@ class PlanViewModelTest {
                 sessionRepository,
                 timeProvider,
                 mockk(relaxed = true),
-                mockk(relaxed = true)
+                mockk(relaxed = true),
+                savedStateHandle = androidx.lifecycle.SavedStateHandle(),
             )
         vm.planUiState.test {
             awaitState(PlanUiState.Accepted::class.java)
@@ -203,6 +205,7 @@ class PlanViewModelTest {
                 timeProvider,
                 mockk(relaxed = true),
                 mockk(relaxed = true),
+                savedStateHandle = androidx.lifecycle.SavedStateHandle(),
             )
 
         viewModel.planUiState.test {
@@ -246,6 +249,7 @@ class PlanViewModelTest {
                 timeProvider,
                 mockk(relaxed = true),
                 mockk(relaxed = true),
+                savedStateHandle = androidx.lifecycle.SavedStateHandle(),
             )
 
         viewModel.planUiState.test {

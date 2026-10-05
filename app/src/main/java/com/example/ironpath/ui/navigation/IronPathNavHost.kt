@@ -107,6 +107,8 @@ fun IronPathNavHost(
                             launchSingleTop = true
                             restoreState = true
                         }
+                        // A saved Plan stack may include a workout preview above its tab root.
+                        navController.popBackStack(Route.PLAN, inclusive = false)
                         navController
                             .getBackStackEntry(Route.PLAN)
                             .savedStateHandle["request_next_week"] = true

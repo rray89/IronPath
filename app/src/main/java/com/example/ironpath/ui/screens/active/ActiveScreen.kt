@@ -96,7 +96,6 @@ fun ActiveScreen(
 @Composable
 internal fun ActiveContent(
     uiState: ActiveUiState,
-    startState: WorkoutStartUiState = WorkoutStartUiState(),
     elapsedSeconds: Long,
     nowMillis: () -> Long,
     onNavigateToPlan: () -> Unit,
@@ -105,6 +104,7 @@ internal fun ActiveContent(
     onAddSet: (String, Int) -> Unit,
     onFinishWorkout: () -> Unit,
     modifier: Modifier = Modifier,
+    startState: WorkoutStartUiState = WorkoutStartUiState(),
 ) {
     Column(modifier.fillMaxSize()) {
         startState.error?.let {

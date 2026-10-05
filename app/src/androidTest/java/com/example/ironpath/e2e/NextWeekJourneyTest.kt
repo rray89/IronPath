@@ -83,6 +83,9 @@ class NextWeekJourneyTest {
                 )
         }
         composeRule.onNodeWithTag(TestTags.ENTRY_GET_STARTED).performScrollTo().performClick()
+        // Preserve a nested Plan -> Preview stack when starting Active.
+        waitForTag(TestTags.bottomNav(Route.PLAN))
+        composeRule.onNodeWithTag(TestTags.bottomNav(Route.PLAN)).performClick()
         waitForTag(TestTags.workout("workout-a"))
         composeRule.onNodeWithTag(TestTags.workout("workout-a")).performScrollTo().performClick()
         waitForText("START WORKOUT")
@@ -138,15 +141,6 @@ class NextWeekJourneyTest {
             )
         }
 
-        // The Plan tab has its own explicit next-week entry.
-        composeRule.onNodeWithTag(TestTags.bottomNav(Route.PLAN)).performClick()
-        waitForText("PLAN NEXT WEEK")
-        composeRule.onNodeWithText("PLAN NEXT WEEK").performScrollTo().performClick()
-        waitForText("Primary Goal")
-        assertPreserved(database, true)
-        composeRule.onNodeWithText("Cancel Planning").performClick()
-        waitForText("PLAN NEXT WEEK")
-
         // Home's request must also enter Setup even when a saved Plan destination exists.
         composeRule.onNodeWithText("PLAN NEXT WEEK").performScrollTo().performClick()
         waitForText("Primary Goal")
@@ -159,6 +153,15 @@ class NextWeekJourneyTest {
         composeRule.onNodeWithText("Cancel Planning").performClick()
         waitForText("PLAN NEXT WEEK")
         assertPreserved(database, true)
+
+        // The Plan tab has its own explicit next-week entry.
+        composeRule.onNodeWithTag(TestTags.bottomNav(Route.PLAN)).performClick()
+        waitForText("PLAN NEXT WEEK")
+        composeRule.onNodeWithText("PLAN NEXT WEEK").performScrollTo().performClick()
+        waitForText("Primary Goal")
+        assertPreserved(database, true)
+        composeRule.onNodeWithText("Cancel Planning").performClick()
+        waitForText("PLAN NEXT WEEK")
 
         composeRule.onNodeWithText("PLAN NEXT WEEK").performScrollTo().performClick()
         waitForText("Primary Goal")
