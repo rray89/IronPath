@@ -85,6 +85,38 @@ class RulePlanReviewScreenTest {
     }
 
     @Test
+    fun saveChecksNewestFieldStateBeforeRecomposition() {
+        var saved: RuleExerciseForm? = null
+        composeRule.setContent {
+            IronPathTheme { RuleExerciseEditorContent(first, emptyList(), {}, { saved = it }) }
+        }
+        val replace =
+            composeRule
+                .onNodeWithTag("rule_sets")
+                .fetchSemanticsNode()
+                .config[SemanticsActions.SetText]
+                .action!!
+        val click =
+            composeRule
+                .onNodeWithTag("rule_save")
+                .performScrollTo()
+                .fetchSemanticsNode()
+                .config[SemanticsActions.OnClick]
+                .action!!
+        composeRule.runOnIdle {
+            assertTrue(replace(androidx.compose.ui.text.AnnotatedString("0")))
+            assertTrue(click())
+            assertNull(saved)
+        }
+        composeRule
+            .onNodeWithTag("rule_sets")
+            .performScrollTo()
+            .assert(
+                SemanticsMatcher.expectValue(SemanticsProperties.Error, "Enter 1–20 whole sets.")
+            )
+    }
+
+    @Test
     fun dayPickerDistinguishesEmptyAndOccupiedDaysAndMoveSwapPreserveIdentity() {
         render()
         composeRule.onNodeWithTag(TestTags.planReviewDay(monday.id)).performClick()
