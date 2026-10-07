@@ -104,7 +104,7 @@ fun PlanScreen(
         }
     }
 
-    LaunchedEffect(nextWeekRequested, uiState) {
+    LaunchedEffect(nextWeekRequested, uiState, saveState.isSaving) {
         if (nextWeekRequested && viewModel.beginNextWeekPlanning()) onNextWeekRequestConsumed()
     }
     val backToSetup: () -> Unit = {

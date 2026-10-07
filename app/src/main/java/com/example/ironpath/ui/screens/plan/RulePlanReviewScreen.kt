@@ -533,7 +533,7 @@ internal fun RuleExerciseEditorContent(
         Button(
             {
                 submitted = true
-                if (errors.values != null) onSave(form)
+                if (form.validate().values != null) onSave(form)
             },
             modifier = Modifier.fillMaxWidth().testTag("rule_save")
         ) {
