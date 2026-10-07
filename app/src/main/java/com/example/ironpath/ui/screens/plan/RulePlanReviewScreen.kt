@@ -87,7 +87,7 @@ internal fun RulePlanReviewScreen(
                 style = MaterialTheme.typography.labelLarge,
                 color = MaterialTheme.colorScheme.primary
             )
-            Text("THIS WEEK", style = MaterialTheme.typography.headlineMedium)
+            Text("REVIEW YOUR WEEK", style = MaterialTheme.typography.headlineMedium)
             Text(
                 "${generated.plan.startDate} – ${generated.plan.endDate}",
                 style = MaterialTheme.typography.bodySmall
@@ -535,7 +535,8 @@ internal fun RuleExerciseEditorContent(
                 submitted = true
                 if (form.validate().values != null) onSave(form)
             },
-            modifier = Modifier.fillMaxWidth().testTag("rule_save")
+            modifier = Modifier.fillMaxWidth().testTag("rule_save"),
+            shape = RoundedCornerShape(4.dp),
         ) {
             Text("Save exercise")
         }
