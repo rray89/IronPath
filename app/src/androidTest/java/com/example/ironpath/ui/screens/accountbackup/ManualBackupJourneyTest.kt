@@ -314,11 +314,7 @@ class ManualBackupJourneyTest {
         listOf(SHARED_RECORD_ID, LOCAL_RECORD_ID, CLOUD_RECORD_ID).forEach { id ->
             composeRule.onNodeWithTag(TestTags.record(id)).performScrollTo().assertIsDisplayed()
         }
-        composeRule
-            .onNode(
-                hasText("120 kg") and hasAnyAncestor(hasTestTag(TestTags.record(SHARED_RECORD_ID)))
-            )
-            .assertExists()
+        composeRule.onNodeWithTag(TestTags.record(SHARED_RECORD_ID)).assertTextContains("120 kg")
 
         applyPreRestoreLocalChange()
         val beforeRestore = runBlocking { local.capture() }

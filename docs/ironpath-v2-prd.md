@@ -223,3 +223,7 @@ v2 requires no schema changes to Room entities. The database version remains at 
 ## Build principle
 
 Same as v1: build the smallest version that looks intentional, works end-to-end, and tells a strong portfolio story. v2 features should feel like natural extensions, not bolted-on additions.
+
+## Records restoration candidate — 3.1 / feat8.1
+
+The restoration candidate restores the manual-record edit and confirmed-delete contract above using the current profile write fence and atomic included-data revision. Unchanged saves are accepted without changing revision. Logged records remain read-only, including when their source is unavailable. Technical verification and independent review do not represent product acceptance; BOSS reviews the final combined candidate. No schema change or completed-log mutation is introduced.

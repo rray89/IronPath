@@ -315,3 +315,7 @@ Before AI-assisted planning becomes an implementation feature, the product needs
 ## Build principle
 
 v3 should strengthen trust in the current app before widening scope. The next release should help users understand their workouts and history more clearly, not simply add more surface area.
+
+## Derived-record restoration candidate — feat8.1
+
+The restoration candidate restores explicit Save Record on completed, finite positive-weight sets with reps filled. Completion date uses the injected local time zone. The first save retains its completion date even if the device time zone later changes; saving that same source performance again returns the existing record without rewriting its date or revision. The existing normalized-name/date/weight duplicate identity across other records remains unchanged; equal performances within one source share Saved state after persistence and recreation. Records open their source in a read-only log view. Missing or detached provenance has an explicit unavailable-source fallback and never opens the manual editor. No automatic record creation, history edits, or schema migration is included. Final product acceptance is deferred to the combined candidate.
