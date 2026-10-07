@@ -50,6 +50,12 @@ class PlanNextWeekViewModelTest {
             clock,
             mockk(relaxed = true),
             mockk(relaxed = true),
+            rulePlanReviewEditor =
+                com.example.ironpath.domain.planner.RulePlanReviewEditor(
+                    com.example.ironpath.testutil.FakeIdProvider()
+                ),
+            recordRepository = mockk(relaxed = true),
+            exerciseCatalog = com.example.ironpath.domain.planner.DefaultExerciseCatalog(),
             savedStateHandle = handle
         )
     }

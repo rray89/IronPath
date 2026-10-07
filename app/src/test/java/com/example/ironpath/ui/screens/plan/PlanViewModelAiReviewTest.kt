@@ -100,6 +100,12 @@ class PlanViewModelAiReviewTest {
             validatedPlanDraftMapper =
                 ValidatedPlanDraftMapper(PlanEntityMapper(FakeIdProvider(), timeProvider, catalog)),
             profileGenerationToken = profileToken,
+            rulePlanReviewEditor =
+                com.example.ironpath.domain.planner.RulePlanReviewEditor(
+                    com.example.ironpath.testutil.FakeIdProvider()
+                ),
+            recordRepository = mockk(relaxed = true),
+            exerciseCatalog = com.example.ironpath.domain.planner.DefaultExerciseCatalog(),
             savedStateHandle = handle,
             remotePlanningExperiment = experiment,
         )

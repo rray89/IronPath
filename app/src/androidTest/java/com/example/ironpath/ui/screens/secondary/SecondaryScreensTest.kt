@@ -101,7 +101,7 @@ class SecondaryScreensTest {
                 "Planning a week" to
                     "Choose a goal, training days, experience, equipment, and any preferences.",
                 "Reviewing and accepting a plan" to
-                    "Review each workout before accepting it. Accepted plans are saved on this device.",
+                    "Review each workout before accepting it. Rule drafts allow day moves/swaps and exercise editing, removal with Undo, and drag ordering. AI drafts use catalog edits and final validation. Accepted plans are saved on this device and stay read-only.",
                 "Starting and completing a workout" to
                     "Start a planned workout, log sets, and complete it when finished.",
                 "History and personal records" to

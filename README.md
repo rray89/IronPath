@@ -14,9 +14,14 @@ and edit the draft, and persists it only after a valid acceptance.
 - Create a plan for the upcoming Monday-Sunday week.
 - Choose a goal, workout days, experience, equipment, and movement limits.
 - Generate with AI or use the deterministic rule-based planner.
-- Review and edit a catalog-backed draft before accepting it.
+- Review a rule draft with day moves/swaps, exercise edits/additions, removal/Undo and
+  drag ordering; AI-assisted drafts use catalog-backed edits and final validation.
+- Accept only after review; accepted plans and active-session exercises stay locked.
 - Preview an accepted workout and run today's active session.
-- Inspect completed workout logs and manage personal records.
+- Inspect completed workout logs, edit/delete manual records, and explicitly save a
+  completed lift as a record with a read-only route back to its source.
+- Continue an existing workout without replacing its logged sets, then plan the next
+  week after completing the current week.
 
 ## AI architecture
 
@@ -97,3 +102,18 @@ AI in release builds.
 The product history and future scope remain documented in the
 [MVP](docs/ironpath-mvp-prd.md), [V2](docs/ironpath-v2-prd.md),
 [V3](docs/ironpath-v3-prd.md), and [V4](docs/ironpath-v4-ai-planning-prd.md) PRDs.
+
+
+## Combined reliability candidate
+
+The integration branch combines the unmerged candidates [PR69](https://github.com/rray89/IronPath/pull/69),
+[PR70](https://github.com/rray89/IronPath/pull/70) and [PR71](https://github.com/rray89/IronPath/pull/71),
+plus restoration of V2 3.2/3.3 rule review. See the
+[combined review guide](docs/combined-review-candidate.md) for its sources, verification
+scope and concentrated product walkthrough. Technical tests do not establish BOSS
+product acceptance; the original PRs remain separate, open candidates.
+
+The Debug candidate retains main's account/backup demo behavior. It does not include
+the separate PR65–68 real cloud backup/sync/restore/deletion candidate chain. Existing
+authpreview identity behavior is preserved. Deletion-service implementation remains
+paused, and this candidate performs no real-provider inference or live cloud setup.

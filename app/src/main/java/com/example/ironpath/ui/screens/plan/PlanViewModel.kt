@@ -7,10 +7,12 @@ import com.example.ironpath.data.local.entity.PlannedWorkout
 import com.example.ironpath.data.local.entity.WeeklyPlan
 import com.example.ironpath.data.repository.ActiveSessionBlocksPlanException
 import com.example.ironpath.data.repository.PlanRepository
+import com.example.ironpath.data.repository.RecordRepository
 import com.example.ironpath.data.repository.SessionRepository
 import com.example.ironpath.domain.account.ProfileGenerationToken
 import com.example.ironpath.domain.planner.AiPlanDraftReviewState
 import com.example.ironpath.domain.planner.AiPlanReviewEditor
+import com.example.ironpath.domain.planner.ExerciseCatalog
 import com.example.ironpath.domain.planner.ExerciseCatalogEntry
 import com.example.ironpath.domain.planner.ExerciseCatalogId
 import com.example.ironpath.domain.planner.ExerciseDraft
@@ -18,6 +20,10 @@ import com.example.ironpath.domain.planner.GeneratedPlan
 import com.example.ironpath.domain.planner.PlanGenerator
 import com.example.ironpath.domain.planner.PlanningGoal
 import com.example.ironpath.domain.planner.RemotePlanningExperiment
+import com.example.ironpath.domain.planner.RuleBasedWorkoutTemplates
+import com.example.ironpath.domain.planner.RuleExerciseForm
+import com.example.ironpath.domain.planner.RuleExerciseRemoval
+import com.example.ironpath.domain.planner.RulePlanReviewEditor
 import com.example.ironpath.domain.planner.ValidatedPlanDraft
 import com.example.ironpath.domain.planner.ValidatedPlanDraftMapper
 import com.example.ironpath.domain.planner.findNextUpcomingWorkout
@@ -38,6 +44,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
@@ -54,8 +61,25 @@ constructor(
     private val validatedPlanDraftMapper: ValidatedPlanDraftMapper,
     private val profileGenerationToken: ProfileGenerationToken? = null,
     private val savedStateHandle: SavedStateHandle,
+    private val rulePlanReviewEditor: RulePlanReviewEditor,
+    recordRepository: RecordRepository,
+    exerciseCatalog: ExerciseCatalog,
     private val remotePlanningExperiment: RemotePlanningExperiment? = null,
 ) : ViewModel() {
+
+    private val templateExerciseNames =
+        RuleBasedWorkoutTemplates.allExerciseIds
+            .mapNotNull { exerciseCatalog.find(it)?.displayName }
+            .sorted()
+    val exerciseSuggestions =
+        recordRepository
+            .observeAllRecords()
+            .map { records ->
+                (templateExerciseNames + records.map { it.exerciseName }).distinct().sorted()
+            }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), templateExerciseNames)
+    private val _ruleUndo = MutableStateFlow<RuleExerciseRemoval?>(null)
+    val ruleUndo = _ruleUndo.asStateFlow()
 
     private var acceptInProgress = false
     private var aiAcceptJob: Job? = null
@@ -170,6 +194,7 @@ constructor(
 
     fun cancelPlanning(): Boolean {
         if (acceptInProgress) return false
+        _ruleUndo.value = null
         _generatedPlan.value = null
         clearAiReview()
         savedStateHandle["next_week_setup_source"] = null
@@ -182,6 +207,7 @@ constructor(
         val generated = planGenerator.generate(goal, selectedDays, targetWeekStart())
         _saveState.value = PlanSaveUiState()
         clearAiReview()
+        _ruleUndo.value = null
         _generatedPlan.value = generated
     }
 
@@ -221,6 +247,7 @@ constructor(
         if (!matchesRemoteConfiguration(validatedPlan)) return
         reviewConfigurationRevision = remotePlanningExperiment?.state?.value?.revision
         val review = aiPlanReviewEditor.start(validatedPlan)
+        _ruleUndo.value = null
         _generatedPlan.value = null
         mappedAiPlan = null
         _aiReviewState.value =
@@ -242,13 +269,57 @@ constructor(
         replacement: ExerciseDraft,
     ) = editAiReview { aiPlanReviewEditor.replaceExercise(it, workoutDay, originalId, replacement) }
 
-    fun deleteWorkoutFromReview(workoutId: String) {
+    fun moveRuleWorkout(workoutId: String, day: Int) = editRulePlan {
+        rulePlanReviewEditor.moveWorkout(it, workoutId, day)
+    }
+
+    fun editRuleExercise(exerciseId: String, form: RuleExerciseForm) = editRulePlan {
+        rulePlanReviewEditor.editExercise(it, exerciseId, form)
+    }
+
+    fun addRuleExercise(workoutId: String, form: RuleExerciseForm) = editRulePlan {
+        rulePlanReviewEditor.addExercise(it, workoutId, form)
+    }
+
+    fun moveRuleExercise(workoutId: String, exerciseId: String, index: Int) = editRulePlan {
+        rulePlanReviewEditor.moveExercise(it, workoutId, exerciseId, index)
+    }
+
+    fun removeRuleExercise(exerciseId: String) {
         if (acceptInProgress) return
         val current = _generatedPlan.value ?: return
-        val updatedWorkouts = current.workouts.filter { it.id != workoutId }
-        val updatedExercises = current.exercises.filter { it.plannedWorkoutId != workoutId }
-        _generatedPlan.value =
-            current.copy(workouts = updatedWorkouts, exercises = updatedExercises)
+        val removal = rulePlanReviewEditor.removeExercise(current, exerciseId) ?: return
+        _generatedPlan.value = removal.after
+        _ruleUndo.value = removal
+        _saveState.value = PlanSaveUiState()
+    }
+
+    fun undoRuleRemoval() {
+        if (acceptInProgress) return
+        val removal = _ruleUndo.value ?: return
+        if (_generatedPlan.value == removal.after) _generatedPlan.value = removal.before
+        _ruleUndo.value = null
+    }
+
+    fun expireRuleUndo(removal: RuleExerciseRemoval) {
+        if (_ruleUndo.value === removal) _ruleUndo.value = null
+    }
+
+    fun deleteWorkoutFromReview(workoutId: String) = editRulePlan { current ->
+        current.copy(
+            workouts = current.workouts.filterNot { it.id == workoutId },
+            exercises = current.exercises.filterNot { it.plannedWorkoutId == workoutId },
+        )
+    }
+
+    private fun editRulePlan(transform: (GeneratedPlan) -> GeneratedPlan) {
+        if (acceptInProgress) return
+        val current = _generatedPlan.value ?: return
+        val updated = transform(current)
+        if (updated == current) return
+        _ruleUndo.value = null
+        _saveState.value = PlanSaveUiState()
+        _generatedPlan.value = updated
     }
 
     fun backToSetup() {
@@ -256,6 +327,7 @@ constructor(
         aiAcceptJob?.cancel()
         savedStateHandle["next_week_setup_source"] = persisted.value?.plan?.id
         _saveState.value = PlanSaveUiState()
+        _ruleUndo.value = null
         _generatedPlan.value = null
         clearAiReview()
     }
@@ -270,6 +342,7 @@ constructor(
             return
         }
         val generated = _generatedPlan.value ?: return
+        if (generated.workouts.isEmpty()) return
         acceptInProgress = true
         _saveState.value = PlanSaveUiState(isSaving = true)
         viewModelScope.launch {
@@ -283,6 +356,7 @@ constructor(
                 )
                 saved = true
                 pendingAiReview = null
+                _ruleUndo.value = null
                 _generatedPlan.value = null
                 savedStateHandle["next_week_setup_source"] = null
                 onAccepted()

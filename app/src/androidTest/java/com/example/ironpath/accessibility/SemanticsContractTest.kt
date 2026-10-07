@@ -12,7 +12,6 @@ import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertContentDescriptionContains
 import androidx.compose.ui.test.assertContentDescriptionEquals
 import androidx.compose.ui.test.assertHasClickAction
-import androidx.compose.ui.test.assertHasNoClickAction
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
@@ -412,13 +411,11 @@ class SemanticsContractTest {
     }
 
     @Test
-    fun readOnlyPlanRows_haveNoActionWhileRemoveControlIsLabeled() {
+    fun ruleReviewRows_exposeEditingAndLabeledRemoval() {
         setPlanReviewContent()
 
-        composeRule.onNodeWithTag(TestTags.planReviewDay(WORKOUT_ID)).assertHasNoClickAction()
-        composeRule
-            .onNodeWithTag(TestTags.planExercise(PLANNED_EXERCISE_ID))
-            .assertHasNoClickAction()
+        composeRule.onNodeWithTag(TestTags.planReviewDay(WORKOUT_ID)).assertHasClickAction()
+        composeRule.onNodeWithTag(TestTags.planExercise(PLANNED_EXERCISE_ID)).assertHasClickAction()
         composeRule
             .onNodeWithContentDescription("Remove Strength A on Monday")
             .assertContentDescriptionContains("Remove Strength A on Monday")
