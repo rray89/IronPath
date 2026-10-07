@@ -125,6 +125,13 @@ class ManualBackupJourneyTest {
         assertEquals(original, runBlocking { local.capture() })
         assertEquals(remoteBefore, latest(accountId))
 
+        // Opening the recreated destination starts a background coordinator refresh.
+        // Wait through its real read-only gate before an explicit command that intentionally
+        // refuses contention; keep the UI click and every data-preservation assertion.
+        runBlocking { backup.refreshStatus() }
+        waitForEnabledText("KEEP THIS DEVICE EMPTY")
+        assertEquals(original, runBlocking { local.capture() })
+        assertEquals(remoteBefore, latest(accountId))
         composeRule.onNodeWithText("KEEP THIS DEVICE EMPTY").performScrollTo().performClick()
         waitForDialogText("This device will stay empty.")
         val associated = runBlocking { local.capture() }
