@@ -1,7 +1,7 @@
 # IronPath v4 AI Planning PRD
 
 Date: 2026-07-09
-Last updated: 2026-07-26
+Last updated: 2026-10-04
 Status: Implemented
 
 ## Purpose
@@ -462,6 +462,39 @@ persisted by IronPath, and the verified request opted out of provider-side Inter
 resource retention. After force-stopping and relaunching the app, Remote AI Lab was
 disabled and the API-key field was absent, confirming the process-only secret
 boundary. The key and raw provider payload are not part of the recorded evidence.
+
+### Remote comparison follow-up (feat9.6.1) and final acceptance (feat9.4.1)
+
+Status: implementation in progress; technical candidate and final product acceptance pending.
+BOSS approved implementation on October 4, 2026 and moved intermediate hand testing
+and product checkpoints to the final combined candidate. Automated verification and
+two sequential independent reviews remain required. No live inference is authorized.
+
+- Debug retains Gemini and adds a fixed DeepSeek model, then a small fixed OpenRouter
+  model/provider allowlist. Each protocol uses its own adapter behind one remote engine.
+- Requests are non-streaming, have a total deadline and cancel active HTTP work. There
+  are no automatic paid retries, repairs, alternate remote providers, or arbitrary URLs.
+  Local cancellation does not guarantee upstream cancellation or prevent charges.
+- Remote context is limited to goal, selected days, experience, equipment, structured
+  movement exclusions and the eligible catalog. Free-text notes/preferences and local
+  history are excluded; full local constraints still apply in the app validator.
+- Explicit opt-in and process-only user-supplied keys remain required. Disable clears
+  the key; selecting another route clears the old key and requires fresh opt-in.
+  Configuration changes invalidate old requests and unaccepted drafts.
+- Review identifies the configured provider/model/route and fallback. A provider schema
+  never replaces local validation. No inferred cost or live quality claim is displayed.
+- Every final AI accept revalidates against the current clock before mapping and
+  persistence. Only an unchanged newly validated draft can reuse stable retry IDs.
+  Invalid/expired drafts write nothing; profile generation, cancellation, prior-plan
+  retention, and duplicate-accept protections remain intact.
+- New transports/configuration UI stay in Debug. Release/authpreview retain inert
+  bindings. No Room schema migration and no training/Records feature expansion.
+
+Required proof includes configuration isolation and late results, HTTP cancellation,
+malformed/truncated responses, 401/429/5xx, strict schema/JSON adapter contracts,
+clock-advance zero-write acceptance, stable retry IDs, Room preservation, Compose
+semantics/200% font scale, JVM core coverage, all variant builds and applicable CI.
+Local devices/emulators remain paused; device evidence must come from authorized CI.
 
 ### Data model impact
 

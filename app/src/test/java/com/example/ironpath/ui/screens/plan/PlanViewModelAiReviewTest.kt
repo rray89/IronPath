@@ -1,11 +1,13 @@
 package com.example.ironpath.ui.screens.plan
 
 import app.cash.turbine.test
+import com.example.ironpath.data.local.StaleProfileGenerationException
 import com.example.ironpath.data.local.entity.PlannedExercise
 import com.example.ironpath.data.local.entity.PlannedWorkout
 import com.example.ironpath.data.local.entity.WeeklyPlan
 import com.example.ironpath.data.repository.PlanRepository
 import com.example.ironpath.data.repository.SessionRepository
+import com.example.ironpath.domain.account.ProfileGenerationToken
 import com.example.ironpath.domain.planner.AiPlanDraftReviewState
 import com.example.ironpath.domain.planner.AiPlanReviewEditor
 import com.example.ironpath.domain.planner.DefaultExerciseCatalog
@@ -19,8 +21,11 @@ import com.example.ironpath.domain.planner.PlanGenerator
 import com.example.ironpath.domain.planner.PlanValidationContext
 import com.example.ironpath.domain.planner.PlanValidationResult
 import com.example.ironpath.domain.planner.PlanValidator
+import com.example.ironpath.domain.planner.PlanViolationCode
 import com.example.ironpath.domain.planner.PlanningEngineType
 import com.example.ironpath.domain.planner.PlanningProviderMetadata
+import com.example.ironpath.domain.planner.RemotePlanningExperiment
+import com.example.ironpath.domain.planner.RemotePlanningExperimentState
 import com.example.ironpath.domain.planner.TrainingExperience
 import com.example.ironpath.domain.planner.ValidatedPlanDraft
 import com.example.ironpath.domain.planner.ValidatedPlanDraftMapper
@@ -34,12 +39,18 @@ import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
 import java.time.DayOfWeek
+import java.time.Duration
 import java.time.temporal.TemporalAdjusters
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.test.setMain
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -66,20 +77,292 @@ class PlanViewModelAiReviewTest {
         planRepository = mockk(relaxed = true)
         every { planRepository.observeActivePlan() } returns flowOf(null)
         every { planRepository.observeWorkoutsForPlan(any()) } returns flowOf(emptyList())
+        viewModel = createViewModel()
+    }
+
+    private fun createViewModel(
+        profileToken: ProfileGenerationToken? = null,
+        remoteState: MutableStateFlow<RemotePlanningExperimentState>? = null,
+    ): PlanViewModel {
         val sessionRepository = mockk<SessionRepository>(relaxed = true)
         every { sessionRepository.observeActiveSession() } returns flowOf(null)
-        viewModel =
-            PlanViewModel(
-                planRepository = planRepository,
-                planGenerator = mockk<PlanGenerator>(relaxed = true),
-                sessionRepository = sessionRepository,
-                timeProvider = timeProvider,
-                aiPlanReviewEditor = AiPlanReviewEditor(validator, eligibilityPolicy),
-                validatedPlanDraftMapper =
-                    ValidatedPlanDraftMapper(
-                        PlanEntityMapper(FakeIdProvider(), timeProvider, catalog)
-                    ),
+        val experiment =
+            remoteState?.let { state ->
+                mockk<RemotePlanningExperiment> { every { this@mockk.state } returns state }
+            }
+        return PlanViewModel(
+            planRepository = planRepository,
+            planGenerator = mockk<PlanGenerator>(relaxed = true),
+            sessionRepository = sessionRepository,
+            timeProvider = timeProvider,
+            aiPlanReviewEditor = AiPlanReviewEditor(validator, eligibilityPolicy),
+            validatedPlanDraftMapper =
+                ValidatedPlanDraftMapper(PlanEntityMapper(FakeIdProvider(), timeProvider, catalog)),
+            profileGenerationToken = profileToken,
+            remotePlanningExperiment = experiment,
+        )
+    }
+
+    @Test
+    fun `AI acceptance waits for captured profile generation and forwards it to the write gate`() =
+        runTest {
+            var generation: Long? = null
+            val initialization = CompletableDeferred<Unit>()
+            val profileToken = mockk<ProfileGenerationToken>()
+            every { profileToken.current() } answers { generation }
+            coEvery { profileToken.initialize() } coAnswers
+                {
+                    initialization.await()
+                    7L.also { generation = it }
+                }
+            viewModel = createViewModel(profileToken)
+            viewModel.enterAiReview(validatedToken())
+
+            viewModel.acceptPlan {}
+            coVerify(exactly = 0) { planRepository.createPlan(any(), any(), any(), any()) }
+            initialization.complete(Unit)
+            runCurrent()
+            viewModel.acceptPlan {}
+            runCurrent()
+
+            coVerify(exactly = 1) { planRepository.createPlan(any(), any(), any(), 7L) }
+        }
+
+    @Test
+    fun `profile generation rejection retains the reviewed draft and cannot report acceptance`() =
+        runTest {
+            val profileToken = mockk<ProfileGenerationToken>()
+            every { profileToken.current() } returns 7L
+            coEvery { profileToken.initialize() } returns 7L
+            coEvery { planRepository.createPlan(any(), any(), any(), 7L) } throws
+                StaleProfileGenerationException()
+            viewModel = createViewModel(profileToken)
+            val token = validatedToken()
+            viewModel.enterAiReview(token)
+            var accepted = false
+
+            viewModel.acceptPlan { accepted = true }
+            runCurrent()
+
+            assertFalse(accepted)
+            assertEquals(token.draft, viewModel.aiReviewState.value!!.review.draft)
+            assertNotNull(viewModel.aiReviewState.value!!.saveError)
+            assertFalse(viewModel.aiReviewState.value!!.isAccepting)
+            coVerify(exactly = 1) { planRepository.createPlan(any(), any(), any(), 7L) }
+        }
+
+    @Test
+    fun `stale remote metadata cannot enter review or replace a current draft`() = runTest {
+        val remoteState = configuredRemoteState()
+        viewModel = createViewModel(remoteState = remoteState)
+        val current = validatedToken(remoteRevision = remoteState.value.revision)
+        assertTrue(viewModel.enterAiReview(current))
+
+        assertFalse(viewModel.enterAiReview(validatedToken(remoteRevision = 0)))
+
+        assertSame(current, viewModel.aiReviewState.value!!.sourceToken)
+        coVerify(exactly = 0) { planRepository.createPlan(any(), any(), any(), any()) }
+    }
+
+    @Test
+    fun `fallback handoff from an older remote configuration is rejected`() = runTest {
+        val remoteState = configuredRemoteState()
+        viewModel = createViewModel(remoteState = remoteState)
+        val fallback = validatedToken()
+        assertFalse(viewModel.enterAiReview(fallback, configurationRevision = 0))
+        assertNull(viewModel.aiReviewState.value)
+        assertTrue(viewModel.enterAiReview(fallback, configurationRevision = 1))
+    }
+
+    @Test
+    fun `queued fallback cannot survive configuration change during failed save`() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        val remoteState = configuredRemoteState()
+        viewModel = createViewModel(remoteState = remoteState)
+        viewModel.enterAiReview(validatedToken(remoteRevision = 1))
+        runCurrent()
+        val fallback = validatedToken()
+        coEvery { planRepository.createPlan(any(), any(), any(), any()) } coAnswers
+            {
+                assertTrue(viewModel.enterAiReview(fallback, configurationRevision = 1))
+                remoteState.value = remoteState.value.copy(revision = 2)
+                error("Synthetic write failure")
+            }
+
+        viewModel.acceptPlan {}
+        runCurrent()
+
+        assertNull(viewModel.aiReviewState.value)
+    }
+
+    @Test
+    fun `queued current fallback survives delayed configuration collector after failed save`() =
+        runTest {
+            Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+            val remoteState = configuredRemoteState()
+            viewModel = createViewModel(remoteState = remoteState)
+            viewModel.enterAiReview(validatedToken(remoteRevision = 1))
+            runCurrent()
+            val fallback = validatedToken()
+            coEvery { planRepository.createPlan(any(), any(), any(), any()) } coAnswers
+                {
+                    remoteState.value = remoteState.value.copy(revision = 2)
+                    assertTrue(viewModel.enterAiReview(fallback, configurationRevision = 2))
+                    error("Synthetic write failure")
+                }
+
+            viewModel.acceptPlan {}
+            runCurrent()
+
+            assertSame(fallback, viewModel.aiReviewState.value!!.sourceToken)
+        }
+
+    @Test
+    fun `remote metadata cannot enter review without a matching experiment`() = runTest {
+        assertFalse(viewModel.enterAiReview(validatedToken(remoteRevision = 1)))
+
+        assertNull(viewModel.aiReviewState.value)
+        coVerify(exactly = 0) { planRepository.createPlan(any(), any(), any(), any()) }
+    }
+
+    @Test
+    fun `key provider and disable revisions each invalidate an unaccepted draft`() = runTest {
+        val initial = configuredRemoteState().value
+        val changes =
+            listOf(
+                initial.copy(apiKey = "replacement-synthetic-key", revision = 2),
+                initial.copy(optionId = "provider-b", revision = 2),
+                initial.copy(enabled = false, apiKey = "", revision = 2),
             )
+        for (changed in changes) {
+            val remoteState = MutableStateFlow(initial)
+            viewModel = createViewModel(remoteState = remoteState)
+            viewModel.enterAiReview(validatedToken(remoteRevision = initial.revision))
+            runCurrent()
+
+            remoteState.value = changed
+            runCurrent()
+
+            assertNull(viewModel.aiReviewState.value)
+        }
+        coVerify(exactly = 0) { planRepository.createPlan(any(), any(), any(), any()) }
+    }
+
+    @Test
+    fun `accept sees a changed revision before the config collector and performs zero writes`() =
+        runTest {
+            Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+            val remoteState = configuredRemoteState()
+            viewModel = createViewModel(remoteState = remoteState)
+            viewModel.enterAiReview(validatedToken(remoteRevision = 1))
+            runCurrent()
+            remoteState.value = remoteState.value.copy(revision = 2)
+            var callbackCount = 0
+
+            viewModel.acceptPlan { callbackCount += 1 }
+
+            assertNull(viewModel.aiReviewState.value)
+            runCurrent()
+            assertEquals(0, callbackCount)
+            coVerify(exactly = 0) { planRepository.createPlan(any(), any(), any(), any()) }
+        }
+
+    @Test
+    fun `revision change after the click but before the save coroutine performs zero writes`() =
+        runTest {
+            Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+            val remoteState = configuredRemoteState()
+            viewModel = createViewModel(remoteState = remoteState)
+            viewModel.enterAiReview(validatedToken(remoteRevision = 1))
+            runCurrent()
+            var callbackCount = 0
+            viewModel.acceptPlan { callbackCount += 1 }
+
+            remoteState.value = remoteState.value.copy(revision = 2)
+            runCurrent()
+
+            assertNull(viewModel.aiReviewState.value)
+            assertEquals(0, callbackCount)
+            coVerify(exactly = 0) { planRepository.createPlan(any(), any(), any(), any()) }
+        }
+
+    @Test
+    fun `configuration change cancels a suspended save without an accepted callback`() = runTest {
+        val remoteState = configuredRemoteState()
+        viewModel = createViewModel(remoteState = remoteState)
+        val gate = CompletableDeferred<Unit>()
+        var cancelled = false
+        coEvery { planRepository.createPlan(any(), any(), any(), any()) } coAnswers
+            {
+                try {
+                    gate.await()
+                } catch (cancellation: CancellationException) {
+                    cancelled = true
+                    throw cancellation
+                }
+            }
+        viewModel.enterAiReview(validatedToken(remoteRevision = 1))
+        var callbackCount = 0
+        viewModel.acceptPlan { callbackCount += 1 }
+        runCurrent()
+        assertTrue(viewModel.aiReviewState.value!!.isAccepting)
+
+        remoteState.value = remoteState.value.copy(revision = 2)
+        runCurrent()
+        gate.complete(Unit)
+        runCurrent()
+
+        assertTrue(cancelled)
+        assertNull(viewModel.aiReviewState.value)
+        assertEquals(0, callbackCount)
+        coVerify(exactly = 1) { planRepository.createPlan(any(), any(), any(), any()) }
+    }
+
+    @Test
+    fun `late return from a cancelled save cannot report acceptance`() = runTest {
+        val remoteState = configuredRemoteState()
+        viewModel = createViewModel(remoteState = remoteState)
+        val gate = CompletableDeferred<Unit>()
+        var cancelled = false
+        coEvery { planRepository.createPlan(any(), any(), any(), any()) } coAnswers
+            {
+                try {
+                    gate.await()
+                } catch (_: CancellationException) {
+                    cancelled = true
+                    // Deliberately emulate a dependency returning after cancellation.
+                }
+            }
+        viewModel.enterAiReview(validatedToken(remoteRevision = 1))
+        var callbackCount = 0
+        viewModel.acceptPlan { callbackCount += 1 }
+        runCurrent()
+
+        remoteState.value = remoteState.value.copy(revision = 2)
+        runCurrent()
+
+        assertTrue(cancelled)
+        assertNull(viewModel.aiReviewState.value)
+        assertEquals(0, callbackCount)
+        coVerify(exactly = 1) { planRepository.createPlan(any(), any(), any(), any()) }
+    }
+
+    @Test
+    fun `current revision draft survives delayed configuration collection`() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        val remoteState = configuredRemoteState()
+        viewModel = createViewModel(remoteState = remoteState)
+        viewModel.enterAiReview(validatedToken(remoteRevision = 1))
+        runCurrent()
+        remoteState.value = remoteState.value.copy(revision = 2)
+        val current = validatedToken(remoteRevision = 2)
+
+        assertTrue(viewModel.enterAiReview(current))
+        runCurrent()
+
+        assertSame(current, viewModel.aiReviewState.value!!.sourceToken)
+        assertTrue(viewModel.aiReviewState.value!!.canAccept)
+        coVerify(exactly = 0) { planRepository.createPlan(any(), any(), any(), any()) }
     }
 
     @Test
@@ -120,6 +403,92 @@ class PlanViewModelAiReviewTest {
         assertFalse(state.canAccept)
         coVerify(exactly = 0) { planRepository.createPlan(any(), any(), any()) }
     }
+
+    @Test
+    fun `accept revalidates a formerly valid draft against the current day before any write`() =
+        runTest {
+            val token = validatedToken()
+            viewModel.enterAiReview(token)
+            timeProvider.advanceBy(Duration.ofDays(5))
+            assertTrue(token.draft.workouts.single().scheduledDate.isBefore(timeProvider.today()))
+            var callbackCount = 0
+
+            viewModel.acceptPlan { callbackCount += 1 }
+            runCurrent()
+
+            val state = viewModel.aiReviewState.value!!
+            assertTrue(state.review is AiPlanDraftReviewState.Invalid)
+            assertFalse(state.canAccept)
+            assertFalse(state.isAccepting)
+            assertEquals(token.draft, state.review.draft)
+            assertEquals(token.context, state.review.context)
+            assertTrue(state.review.violations.any { it.code == PlanViolationCode.WORKOUT_IN_PAST })
+            assertEquals(0, callbackCount)
+            coVerify(exactly = 0) { planRepository.createPlan(any(), any(), any(), any()) }
+        }
+
+    @Test
+    fun `retry revalidates before reusing previously mapped ids`() = runTest {
+        coEvery { planRepository.createPlan(any(), any(), any(), any()) } throws
+            IllegalStateException("database unavailable")
+        viewModel.enterAiReview(validatedToken())
+        viewModel.acceptPlan {}
+        runCurrent()
+        assertNotNull(viewModel.aiReviewState.value!!.saveError)
+        timeProvider.advanceBy(Duration.ofDays(5))
+        var callbackCount = 0
+
+        viewModel.acceptPlan { callbackCount += 1 }
+        runCurrent()
+
+        val state = viewModel.aiReviewState.value!!
+        assertFalse(state.canAccept)
+        assertNull(state.saveError)
+        assertTrue(state.review.violations.any { it.code == PlanViolationCode.WORKOUT_IN_PAST })
+        assertEquals(0, callbackCount)
+        coVerify(exactly = 1) { planRepository.createPlan(any(), any(), any(), any()) }
+    }
+
+    @Test
+    fun `accept permits a workout scheduled today and issues a fresh validation token`() = runTest {
+        val gate = CompletableDeferred<Unit>()
+        coEvery { planRepository.createPlan(any(), any(), any(), any()) } coAnswers { gate.await() }
+        val token = validatedToken()
+        viewModel.enterAiReview(token)
+        timeProvider.advanceBy(Duration.ofDays(4))
+        assertEquals(token.draft.workouts.single().scheduledDate, timeProvider.today())
+
+        viewModel.acceptPlan {}
+        runCurrent()
+
+        val validated =
+            (viewModel.aiReviewState.value!!.review as AiPlanDraftReviewState.Valid).validatedPlan
+        assertEquals(token.draft, validated.draft)
+        assertEquals(token.context, validated.context)
+        assertEquals(timeProvider.now(), validated.validatedAt)
+        assertFalse(token === validated)
+        coVerify(exactly = 1) { planRepository.createPlan(any(), any(), any(), any()) }
+        gate.complete(Unit)
+        runCurrent()
+    }
+
+    @Test
+    fun `cancelled persistence retains review without treating cancellation as a save error`() =
+        runTest {
+            coEvery { planRepository.createPlan(any(), any(), any(), any()) } throws
+                CancellationException("cancelled")
+            viewModel.enterAiReview(validatedToken())
+            var callbackCount = 0
+
+            viewModel.acceptPlan { callbackCount += 1 }
+            runCurrent()
+
+            assertFalse(viewModel.aiReviewState.value!!.isAccepting)
+            assertNull(viewModel.aiReviewState.value!!.saveError)
+            assertTrue(viewModel.aiReviewState.value!!.canAccept)
+            assertEquals(0, callbackCount)
+            coVerify(exactly = 1) { planRepository.createPlan(any(), any(), any(), any()) }
+        }
 
     @Test
     fun `repository failure keeps review and retry uses the same mapped ids`() = runTest {
@@ -261,6 +630,7 @@ class PlanViewModelAiReviewTest {
         runCurrent()
         assertEquals(10, attempts[0].single().reps)
         assertEquals(12, attempts[1].single().reps)
+        assertFalse(attempts[0].single().id == attempts[1].single().id)
     }
 
     private fun validatedToken(
@@ -268,12 +638,16 @@ class PlanViewModelAiReviewTest {
             ExerciseCatalogIds.PUSH_UPS,
         reps: Int = 10,
         equipment: Set<Equipment> = setOf(Equipment.BODYWEIGHT),
+        remoteRevision: Long? = null,
     ): ValidatedPlanDraft {
+        val engineType =
+            if (remoteRevision == null) PlanningEngineType.DEBUG_FAKE_AI
+            else PlanningEngineType.DEBUG_REMOTE_AI
         val targetMonday = timeProvider.today().with(TemporalAdjusters.next(DayOfWeek.MONDAY))
         val context =
             PlanValidationContext(
                 expectedTargetWeekStart = targetMonday,
-                invokedEngineType = PlanningEngineType.DEBUG_FAKE_AI,
+                invokedEngineType = engineType,
                 selectedDays = setOf(1),
                 experience = TrainingExperience.BEGINNER,
                 availableEquipment = equipment,
@@ -294,12 +668,24 @@ class PlanViewModelAiReviewTest {
                 warnings = listOf("Adjust the load if the session feels too demanding."),
                 providerMetadata =
                     PlanningProviderMetadata(
-                        engineType = PlanningEngineType.DEBUG_FAKE_AI,
+                        engineType = engineType,
                         generationDurationMillis = 25,
+                        remoteConfigurationRevision = remoteRevision,
                     ),
             )
         return (validator.validate(draft, context) as PlanValidationResult.Valid).validatedPlan
     }
+
+    private fun configuredRemoteState() =
+        MutableStateFlow(
+            RemotePlanningExperimentState(
+                available = true,
+                enabled = true,
+                apiKey = "synthetic-key",
+                optionId = "provider-a",
+                revision = 1,
+            )
+        )
 
     private fun exercise(
         id: com.example.ironpath.domain.planner.ExerciseCatalogId,

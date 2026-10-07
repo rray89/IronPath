@@ -1,123 +1,152 @@
 # IronPath debug remote AI experiment
 
-## Decision
+## Candidate status and scope
 
-IronPath includes an optional remote planning provider in debug builds for comparing
-small on-device output with a current hosted model. As of July 26, 2026, the spike
-uses Google's Interactions API, `gemini-3.5-flash`, and structured JSON output:
+October 4, 2026: feat9.6.1 / feat9.4.1 implementation candidate. Product acceptance
+and live inference are pending. BOSS approved the combined DeepSeek → OpenRouter →
+final-accept work and moved intermediate product checks to the final candidate.
+No provider request, credit purchase, device installation or user-data operation is
+part of the technical verification. Existing Gemini live evidence below is historical.
 
-- `POST https://generativelanguage.googleapis.com/v1/interactions`
-- API key authentication through the `x-goog-api-key` header
-- `store: false` to opt out of provider-side Interaction resource retention
-- a top-level `response_format` JSON schema that owns the required response shape
-- the same bounded prompt, owned draft mapper, deterministic validator, and fallback
-  coordinator used by the on-device provider
+The experiment is Debug-only, off by default and uses developer-supplied process-only
+keys. One remote registry entry chooses a dedicated adapter from this allowlist:
 
-The provider schema deliberately limits itself to JSON types, required fields, and
-closed objects. It does not repeat numeric or collection bounds. A live contract
-check found that Gemini rejected IronPath's combined nested bounds with
-`invalid_request`, while the same schema shape without those provider-side bounds
-completed successfully. `PlanValidator` remains the authoritative safety boundary
-for workout counts, day values, sets, reps, loads, weekly volume, rest, equipment,
-movement limits, and progression.
+| Selection | Request model | Endpoint | Upstream route | Output format |
+| --- | --- | --- | --- | --- |
+| Gemini | `gemini-3.5-flash` | Google `/v1/interactions` | Google | Interactions structural schema |
+| DeepSeek | `deepseek-flash` | DeepSeek `/chat/completions` | DeepSeek direct | JSON object, thinking disabled |
+| OpenRouter baseline | `openai/gpt-4.1-mini` | OpenRouter `/api/v1/chat/completions` | `openai` only | Strict JSON schema |
+| OpenRouter comparison | `qwen/qwen3.8-flash` | OpenRouter `/api/v1/chat/completions` | `alibaba` only | Strict JSON schema, reasoning disabled |
 
-The prompt still states every value and collection limit to reduce avoidable invalid
-drafts. The transport also caps model output at 4,096 tokens and rejects warning,
-workout, or exercise collections outside app limits before mapping them into an owned
-proposal.
+Official DeepSeek and OpenRouter docs/unauthenticated catalog metadata were checked
+on October 4, 2026. DeepSeek currently maps Flash to DeepSeek-V4.1-Flash; OpenRouter
+catalog canonical identifiers were `openai/gpt-4.1-mini-2025-04-14` and
+`qwen/qwen3.8-flash-20260826`. Request IDs and fixed providers do not promise immutable
+model weights or guarantee account access, available capacity, credits, or live validity.
+No quality, latency, savings or cost improvement is claimed before measurements.
 
-Official references:
+## Protocol and trust boundaries
 
-- [Gemini Interactions API](https://ai.google.dev/api/interactions-api-v1)
-- [Gemini API versions](https://ai.google.dev/gemini-api/docs/api-versions)
-- [Migrating structured output to Interactions](https://ai.google.dev/gemini-api/docs/migrate-to-interactions)
-- [Using and securing Gemini API keys](https://ai.google.dev/gemini-api/docs/generate-content/api-key)
+DeepSeek Chat Completions supports `json_object`, not the Responses API schema
+contract. Its system prompt explicitly requests JSON and includes the expected shape.
+OpenRouter uses `provider.only` / `order`, `allow_fallbacks: false` and
+`require_parameters: true`; it never automatically selects another provider/model.
+Requests explicitly disable documented optional OpenRouter plugins. A key/account
+with enforced “Prevent overrides” plugins is unsuitable for this controlled experiment;
+those account settings cannot be overridden by the client. Confirm they are off before
+live testing. Gemini preserves `store: false`, its `x-goog-api-key` header and the structural schema
+without numeric/collection bounds established by feat9.8.
 
-Google's API-version guide identifies the Interactions API as generally available in
-stable `v1` as of June 2026, so the `/v1/interactions` endpoint is deliberate even
-though some reference examples continue to show beta paths.
+All routes use a single non-streaming request with 4,096 output tokens, a 60-second
+application deadline, cancellable HTTP, no redirects or automatic HTTP retries and
+a 256 KiB response limit. Invalid status, empty/refused/truncated output, malformed
+JSON or schema mismatches fail closed. Error bodies and provider exceptions never
+become user-visible strings. There is no automatic paid repair/retry. Failure proceeds
+to the deterministic debug fake and then rule-based fallback, never another remote
+request. Normal selection remains on-device → enabled remote → debug fake → rules.
 
-Google explicitly advises against exposing provider keys in production mobile apps.
-This direct client experiment is therefore portfolio and local-development code, not
-a production architecture. Shipping remote AI would require authenticated backend
-routing, server-side secret management, quotas, abuse controls, monitoring, and cost
-controls.
+The shared codec establishes JSON structure; app mapping and `PlanValidator` still
+check catalog IDs, selected dates, equipment, movement exclusions, exercise bounds,
+weekly volume, rest and progression. Remote requests omit free-text injury notes,
+preferences/dislikes and all workout/record/load history. They send only goal, days,
+experience, equipment, structured movement exclusions and eligible catalog entries.
+The validator retains the original local intake/history, so omitted history never
+weakens progression checks. Use synthetic intake for the final live smoke.
 
-## Debug setup
+Configuration is frozen per generation. Changing a key, disabling, or selecting
+another route invalidates old requests and unaccepted drafts. Switching routes clears
+the key and opt-in. Late responses cannot replace current state. Final acceptance
+revalidates the current draft using the current clock before mapping and persistence;
+only the same newly validated draft/context can reuse retry IDs. Expired/invalid
+drafts cause zero writes. Profile-generation guards, Room atomic replacement,
+previous-plan retention, cancellation and duplicate-accept protection remain intact.
+No Room migration is needed.
 
-1. Create a restricted Gemini API key for local testing in Google AI Studio.
-2. Install and launch an IronPath debug build.
-3. Open **Plan**, then scroll to **Remote AI Lab**.
-4. Read the off-device disclosure and enable **Use Google Gemini**.
-5. Enter the key. It is masked, retained only in process memory, and cleared when the
-   experiment is disabled or the app process ends.
-6. Complete the planning intake and tap **Generate with AI**.
+Successful remote reviews show the configured provider/model and pinned route,
+generation duration, and input/output token counts when reported. Missing usage is
+shown as unreported, not zero. These are ephemeral observations, not billing totals.
+The existing source badge and sanitized fallback explanation distinguish remote,
+fake and rules. No keys, request/response bodies or raw errors are logged or persisted.
 
-The normal debug provider order is:
+## Secret and variant boundary
 
-1. on-device AI
-2. configured remote AI experiment
-3. deterministic debug fake
-4. rule-based generator
+The key is masked in a Debug-only composable and never stored in Room,
+`SavedStateHandle`, preferences, backup, source, APK constants, URLs or request bodies.
+Disable, route switch and process death clear it. Keys are supplied explicitly by the
+user; credentials from other tools/agents are never reused. In-process strings are
+not a promise of secure memory erasure.
 
-On Seeker, on-device AI is unavailable. A configured remote experiment therefore gets
-the first live attempt. A successful review identifies `REMOTE AI EXPERIMENT`; a timeout,
-provider error, malformed response, or locally invalid draft continues through the
-normal fallback chain with sanitized fixed copy.
+Gemini `store: false` disables Interaction resource retention, not provider processing.
+DeepSeek/OpenRouter processing follows their applicable service terms; no equivalent
+retention flag or on-device privacy claim is made. OpenRouter documents that
+non-streaming requests continue processing and billing after disconnect. Cancellation
+stops local waiting/HTTP and drops stale results; it cannot promise remote execution
+or billing stops on any route.
 
-## Privacy and secret boundary
+Release and authpreview compile inert settings/UI seams with no allowlist, adapters,
+engine binding, HTTP implementation or remote selector. The OkHttp dependency is
+`debugImplementation` only, with its version in `gradle/libs.versions.toml`.
+INTERNET permission alone is not proof of remote AI inclusion or exclusion.
 
-Enabling the experiment sends the selected planning intake, injury notes, exercise
-preferences, and summarized 28-day training context to Google Gemini. It does not
-send raw Room entities or complete workout logs. The prompt remains bounded and
-contains only eligible catalog exercises.
+## Final combined manual check (not yet run)
 
-The API key is never committed, persisted in Room or `SavedStateHandle`, included in
-the request URL or body, echoed in an error, or logged by IronPath. Redirects are not
-followed, unsuccessful response bodies are ignored, and successful response bodies
-are size-bounded before parsing.
+1. On an authorized disposable environment, open Plan → Remote AI Lab. Confirm it
+   starts disabled and the allowlist identifies the intended provider/model/route.
+2. Select a route, read the off-device/cost disclosure, enable, and provide its own
+   test key. Switching routes must hide and clear the old key and disable the switch.
+3. Use one synthetic Monday workout, no actual notes/history. Generate, inspect the
+   provider label, duration/tokens, local validation and editable catalog-backed review.
+4. Cancel during generation or change configuration: no late draft may appear. Reopen
+   the process: the experiment is disabled and no key survives.
+5. Accept a valid synthetic draft only in the authorized isolated test environment;
+   confirm one plan. An expired/invalid draft must remain unaccepted with violations.
+6. Exercise unavailable/invalid-key fallback and verify fake/rule provenance is clear.
 
-Every request sets `store: false`, which opts out of provider-side Interaction
-resource retention and disables server-side conversation state for this single-turn
-experiment. The planning context still leaves the device and is processed by Google
-under the applicable Gemini API terms; this is not an on-device privacy boundary.
+Live verification requires BOSS to name the provider(s), supply their own restricted
+keys through the app, and set a small request-count/spend cap. Buying credits and
+running live requests remain separate authorization. Hand testing is a final product
+gate; automatic test passes do not count as that approval.
 
-Release builds contain no remote transport, provider engine, candidate binding, or
-configurable remote state. The release-disabled settings binding is a no-op, so the
-Remote AI Lab is absent and no code path can issue a Gemini request. The release APK
-already inherits Android's `INTERNET` permission from Google DataTransport; permission
-presence alone is therefore not used as evidence of remote-provider inclusion.
+## Automated verification
 
-## Verification
+Tests use synthetic fake transports and loopback HTTP fixtures. They cover route
+payloads, schema differences, token parsing, privacy, 401/429/5xx, response size,
+truncation, no redirect/retry, cancellation during headers/body, deadlines, config
+isolation, late results, clock advance, stable retry IDs and zero writes. Isolated
+in-memory Room tests cover replacement/rollback/expired retry. Compose and adaptive
+suites cover selector actions, labels, roles, selection and 200% font scale.
 
-Automated tests use a fake HTTP transport. CI never needs a key, spends provider
-quota, or depends on a live network response. Coverage includes request construction,
-the bounds-free provider schema contract, structured response mapping, malformed and
-non-success responses, secret redaction, opt-in state, process-only key behavior,
-local validation, provider timeout, external cancellation, debug Hilt bindings,
-Compose semantics, and 200% font scale.
-
-Useful commands:
+Use JDK 21; local device/emulator runs are paused for this task:
 
 ```bash
-./gradlew :app:testDebugUnitTest
-./gradlew :app:assembleRelease :app:assembleDebugAndroidTest
-ANDROID_SERIAL=<seeker-serial> ./gradlew connectedDebugAndroidTest
+./gradlew spotlessCheck :app:lintDebug :app:lintBenchmarkRelease assembleDebug assembleRelease :app:assembleAuthpreview :app:assembleDebugAndroidTest
+./gradlew testDebugUnitTest createDebugUnitTestCoverageReport verifyCoreCoverage -PenableCoverage
 ```
 
-A real Gemini request is optional for routine development and CI. A provider-contract
-change such as `feat9.8` additionally requires one authorized post-fix Seeker smoke
-that reaches `REMOTE AI EXPERIMENT`. Any live request should use the developer's own
-restricted key after reviewing possible quota or billing impact. The reproducible
-default demo and provider comparison paths are in `docs/v4-ai-planning-demo.md`.
+API 29 and API 36 evidence comes from authorized CI. A built instrumentation APK is
+compilation evidence only, not a passing device suite. Exact final-head results and
+remaining gates belong in the PR/execution receipt.
 
-### Live acceptance evidence
+## Official references
 
-On July 26, 2026, the post-fix debug build completed an authorized request from a
-physical Seeker to `gemini-3.5-flash` through stable `/v1/interactions`. The intake
-was fully synthetic, selected one Monday workout, and had empty recent history. Plan
-Review displayed `REMOTE AI EXPERIMENT · GENERATED PLAN`; the draft was not accepted
-or persisted by IronPath. The verified request opted out of provider-side Interaction
-resource retention. A process restart reset Remote AI Lab to disabled and removed the
-API-key field. No key or raw provider payload was added to the repository or test
-evidence.
+- [DeepSeek Chat Completions](https://api-docs.deepseek.com/api/create-chat-completion/)
+- [DeepSeek JSON mode](https://api-docs.deepseek.com/guides/json_mode/)
+- [DeepSeek thinking mode](https://api-docs.deepseek.com/guides/thinking_mode/)
+- [DeepSeek current models](https://api-docs.deepseek.com/quick_start/pricing/)
+- [OpenRouter OpenAI endpoint metadata](https://openrouter.ai/api/v1/models/openai/gpt-4.1-mini/endpoints)
+- [OpenRouter Qwen endpoint metadata](https://openrouter.ai/api/v1/models/qwen/qwen3.8-flash/endpoints)
+- [OpenRouter provider routing](https://openrouter.ai/docs/guides/routing/provider-selection)
+- [OpenRouter plugin overrides](https://openrouter.ai/docs/guides/features/plugins)
+- [OpenRouter structured outputs](https://openrouter.ai/docs/guides/features/structured-outputs)
+- [Alibaba structured output support](https://www.alibabacloud.com/help/en/model-studio/qwen-structured-output)
+- [OpenRouter cancellation/billing](https://openrouter.ai/docs/api_reference/streaming)
+- [Gemini Interactions API](https://ai.google.dev/api/interactions-api-v1)
+- [Gemini API keys](https://ai.google.dev/gemini-api/docs/generate-content/api-key)
+- [OkHttp 5.3.2 changelog](https://lysine.dev/okhttp/changelogs/changelog/#version-532)
+
+## Historical Gemini acceptance evidence
+
+On July 26, 2026, feat9.8 completed an authorized synthetic one-day Gemini request on
+Seeker and reached `REMOTE AI EXPERIMENT · GENERATED PLAN`. No draft was accepted or
+persisted. Process restart cleared the opt-in/key. This demonstrates that historical
+Gemini candidate, not the current multi-provider build or either new provider.

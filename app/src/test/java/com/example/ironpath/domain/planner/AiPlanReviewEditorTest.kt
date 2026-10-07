@@ -1,6 +1,7 @@
 package com.example.ironpath.domain.planner
 
 import com.example.ironpath.testutil.FakeTimeProvider
+import java.time.Duration
 import java.time.LocalDate
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -27,6 +28,34 @@ class AiPlanReviewEditorTest {
         assertFalse(
             editor.eligibleEntries(state).any { it.id == ExerciseCatalogIds.WEIGHTED_PULL_UPS }
         )
+    }
+
+    @Test
+    fun `final revalidation refreshes the token while retaining the reviewed draft and constraints`() {
+        val token = validatedToken()
+        val initial = editor.start(token)
+        timeProvider.advanceBy(Duration.ofMinutes(1))
+
+        val revalidated = editor.revalidate(initial) as AiPlanDraftReviewState.Valid
+
+        assertEquals(token.draft, revalidated.draft)
+        assertSame(initial.context, revalidated.context)
+        assertEquals(timeProvider.now(), revalidated.validatedPlan.validatedAt)
+        assertFalse(token === revalidated.validatedPlan)
+    }
+
+    @Test
+    fun `final revalidation removes an expired token without changing the target week`() {
+        val initial = editor.start(validatedToken())
+        timeProvider.advanceBy(Duration.ofDays(5))
+
+        val revalidated = editor.revalidate(initial)
+
+        assertTrue(revalidated is AiPlanDraftReviewState.Invalid)
+        assertFalse(revalidated.canAccept)
+        assertEquals(initial.draft, revalidated.draft)
+        assertSame(initial.context, revalidated.context)
+        assertTrue(revalidated.violations.any { it.code == PlanViolationCode.WORKOUT_IN_PAST })
     }
 
     @Test
