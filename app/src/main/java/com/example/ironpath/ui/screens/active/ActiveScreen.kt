@@ -58,6 +58,7 @@ import com.example.ironpath.data.local.entity.SessionExercise
 import com.example.ironpath.data.local.entity.SessionSet
 import com.example.ironpath.domain.session.SessionSetInput
 import com.example.ironpath.ui.components.GreenGradientButton
+import com.example.ironpath.ui.screens.WorkoutStartUiState
 import com.example.ironpath.ui.testing.TestTags
 import com.example.ironpath.ui.theme.IronPathTheme
 import com.example.ironpath.ui.theme.SurfaceContainerHigh
@@ -74,9 +75,11 @@ fun ActiveScreen(
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val elapsed by viewModel.elapsedSeconds.collectAsStateWithLifecycle()
+    val startState by viewModel.startState.collectAsStateWithLifecycle()
 
     ActiveContent(
         uiState = uiState,
+        startState = startState,
         elapsedSeconds = elapsed,
         nowMillis = viewModel::nowMillis,
         onNavigateToPlan = onNavigateToPlan,
@@ -101,31 +104,51 @@ internal fun ActiveContent(
     onAddSet: (String, Int) -> Unit,
     onFinishWorkout: () -> Unit,
     modifier: Modifier = Modifier,
+    startState: WorkoutStartUiState = WorkoutStartUiState(),
 ) {
-    when (uiState) {
-        ActiveUiState.Loading -> {
-            Box(
-                modifier.fillMaxSize().testTag(TestTags.ACTIVE_LOADING),
-                contentAlignment = Alignment.Center,
-            ) {
-                CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
+    Column(modifier.fillMaxSize()) {
+        startState.error?.let {
+            Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(24.dp))
+        }
+        if (startState.hasExistingSession) {
+            Text(
+                "Continue your existing workout. Your progress was kept.",
+                modifier = Modifier.padding(24.dp)
+            )
+        }
+        Box(Modifier.weight(1f)) {
+            when (uiState) {
+                ActiveUiState.Loading -> {
+                    Box(
+                        Modifier.fillMaxSize().testTag(TestTags.ACTIVE_LOADING),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
+                    }
+                }
+                ActiveUiState.NoPlan -> ActiveNoPlanState(onNavigateToPlan, Modifier)
+                is ActiveUiState.RestDay -> ActiveRestDayState(uiState.nextWorkoutDay, Modifier)
+                is ActiveUiState.ReadyToStart ->
+                    ActiveReadyState(
+                        uiState.workout,
+                        onStartSession,
+                        startState.isStarting,
+                        Modifier
+                    )
+                is ActiveUiState.InSession ->
+                    ActiveSessionState(
+                        session = uiState.session,
+                        exercises = uiState.exercises,
+                        sets = uiState.sets,
+                        elapsedSeconds = elapsedSeconds,
+                        nowMillis = nowMillis,
+                        onUpdateSet = onUpdateSet,
+                        onAddSet = onAddSet,
+                        onFinishWorkout = onFinishWorkout,
+                        modifier = Modifier,
+                    )
             }
         }
-        ActiveUiState.NoPlan -> ActiveNoPlanState(onNavigateToPlan, modifier)
-        is ActiveUiState.RestDay -> ActiveRestDayState(uiState.nextWorkoutDay, modifier)
-        is ActiveUiState.ReadyToStart -> ActiveReadyState(uiState.workout, onStartSession, modifier)
-        is ActiveUiState.InSession ->
-            ActiveSessionState(
-                session = uiState.session,
-                exercises = uiState.exercises,
-                sets = uiState.sets,
-                elapsedSeconds = elapsedSeconds,
-                nowMillis = nowMillis,
-                onUpdateSet = onUpdateSet,
-                onAddSet = onAddSet,
-                onFinishWorkout = onFinishWorkout,
-                modifier = modifier,
-            )
     }
 }
 
@@ -239,6 +262,7 @@ private fun ActiveRestDayState(
 private fun ActiveReadyState(
     workout: PlannedWorkout,
     onStart: (PlannedWorkout) -> Unit,
+    isStarting: Boolean,
     modifier: Modifier = Modifier,
 ) {
     Column(
@@ -268,7 +292,8 @@ private fun ActiveReadyState(
         Spacer(Modifier.height(24.dp))
 
         GreenGradientButton(
-            text = "Start Workout",
+            text = if (isStarting) "Starting Workout…" else "Start Workout",
+            enabled = !isStarting,
             onClick = { onStart(workout) },
         )
     }

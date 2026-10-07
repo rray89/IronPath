@@ -470,7 +470,7 @@ class SemanticsContractTest {
                         workout = workout,
                         exercises = listOf(plannedExercise),
                         canStart = false,
-                        hasActiveSession = true,
+                        hasActiveSession = false,
                     ),
                 onBack = {},
                 onStart = {},
@@ -479,6 +479,33 @@ class SemanticsContractTest {
 
         composeRule.onNodeWithText("START WORKOUT").assertIsNotEnabled()
         composeRule.onNodeWithContentDescription("Back").assertDoesNotExist()
+    }
+
+    @Test
+    fun workoutPreview_existingSessionExposesEnabledContinuationWithoutDuplicateBackAction() {
+        var continuationCalls = 0
+        setThemedContent {
+            WorkoutPreviewContent(
+                uiState =
+                    WorkoutPreviewUiState.Ready(
+                        workout = workout,
+                        exercises = listOf(plannedExercise),
+                        canStart = false,
+                        hasActiveSession = true,
+                    ),
+                onBack = {},
+                onStart = { continuationCalls++ },
+            )
+        }
+
+        composeRule
+            .onNodeWithText("CONTINUE ACTIVE WORKOUT")
+            .assertIsEnabled()
+            .assert(SemanticsMatcher.expectValue(SemanticsProperties.Role, Role.Button))
+            .performClick()
+        composeRule.onNodeWithText("START WORKOUT").assertDoesNotExist()
+        composeRule.onNodeWithContentDescription("Back").assertDoesNotExist()
+        composeRule.runOnIdle { assertEquals(1, continuationCalls) }
     }
 
     @Test

@@ -188,29 +188,32 @@ constructor(
         copy(exerciseDislikes = dislikes.take(MAX_PREFERENCE_LENGTH))
     }
 
-    fun generateWithAi() {
+    fun generateWithAi(targetWeekStart: java.time.LocalDate? = null) {
         if (!aiPlanningCoordinator.aiAvailable) {
             _aiGenerationState.value = AiGenerationUiState.Failed(PlanningFailure.Unavailable)
             return
         }
         startGeneration(
+            targetWeekStart = targetWeekStart,
             requireEquipment = true,
             generator = aiPlanningCoordinator::generateWithAi,
         )
     }
 
-    fun generateWithRuleBasedFallback() {
+    fun generateWithRuleBasedFallback(targetWeekStart: java.time.LocalDate? = null) {
         if (!aiPlanningCoordinator.ruleBasedAvailable) {
             _aiGenerationState.value = AiGenerationUiState.Failed(PlanningFailure.Unavailable)
             return
         }
         startGeneration(
+            targetWeekStart = targetWeekStart,
             requireEquipment = false,
             generator = aiPlanningCoordinator::generateRuleBased,
         )
     }
 
     private fun startGeneration(
+        targetWeekStart: java.time.LocalDate?,
         requireEquipment: Boolean,
         generator: suspend (PlanningRequest) -> AiPlanningOutcome,
     ) {
@@ -242,7 +245,9 @@ constructor(
             viewModelScope.launch {
                 try {
                     val today = timeProvider.today()
-                    val targetMonday = today.with(TemporalAdjusters.next(DayOfWeek.MONDAY))
+                    val upcomingMonday = today.with(TemporalAdjusters.next(DayOfWeek.MONDAY))
+                    val targetMonday =
+                        targetWeekStart?.coerceAtLeast(upcomingMonday) ?: upcomingMonday
                     val recentTraining = planningHistoryProvider.loadRecent(today)
                     val request =
                         PlanningRequest(
