@@ -70,6 +70,8 @@ class WorkoutLogDetailViewModelTest {
                 savedStateHandle = SavedStateHandle(),
                 historyRepository = historyRepository,
                 timeProvider = timeProvider,
+                recordRepository = mockk(relaxed = true),
+                idProvider = com.example.ironpath.testutil.FakeIdProvider(),
             )
 
         advanceUntilIdle()
@@ -85,6 +87,8 @@ class WorkoutLogDetailViewModelTest {
             savedStateHandle = SavedStateHandle(mapOf(Route.WORKOUT_LOG_ID_ARG to logId)),
             historyRepository = historyRepository,
             timeProvider = timeProvider,
+            recordRepository = mockk(relaxed = true),
+            idProvider = com.example.ironpath.testutil.FakeIdProvider(),
         )
 
     private val detail =

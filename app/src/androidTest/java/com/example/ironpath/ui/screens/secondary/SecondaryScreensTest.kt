@@ -101,11 +101,11 @@ class SecondaryScreensTest {
                 "Planning a week" to
                     "Choose a goal, training days, experience, equipment, and any preferences.",
                 "Reviewing and accepting a plan" to
-                    "Review each workout before accepting it. Accepted plans are saved on this device.",
+                    "Review each workout before accepting it. Rule drafts allow day moves/swaps and exercise editing, removal with Undo, and drag ordering. AI drafts use catalog edits and final validation. Accepted plans are saved on this device and stay read-only.",
                 "Starting and completing a workout" to
                     "Start a planned workout, log sets, and complete it when finished.",
                 "History and personal records" to
-                    "Completed workouts appear in History. Personal records are added separately.",
+                    "Completed workouts appear in History. Save a completed weighted set as a record, or add one manually. Tap a manual record to edit or delete it; tap a logged record to view its source workout.",
                 "AI planning and validation" to
                     "AI suggestions are validated before they can become a plan.",
                 "On-device availability and rule-based fallback" to

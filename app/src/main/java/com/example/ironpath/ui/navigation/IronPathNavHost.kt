@@ -10,6 +10,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavHostController
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
@@ -100,6 +101,18 @@ fun IronPathNavHost(
                             restoreState = true
                         }
                     },
+                    onPlanNextWeek = {
+                        navController.navigate(Route.PLAN) {
+                            popUpTo(Route.HOME) { saveState = true }
+                            launchSingleTop = true
+                            restoreState = true
+                        }
+                        // A saved Plan stack may include a workout preview above its tab root.
+                        navController.popBackStack(Route.PLAN, inclusive = false)
+                        navController
+                            .getBackStackEntry(Route.PLAN)
+                            .savedStateHandle["request_next_week"] = true
+                    },
                     onNavigateToActive = {
                         navController.navigate(Route.ACTIVE) {
                             popUpTo(Route.HOME) { saveState = true }
@@ -114,9 +127,17 @@ fun IronPathNavHost(
                 )
             }
         }
-        composable(Route.PLAN) {
+        composable(Route.PLAN) { entry ->
+            val nextWeekRequested by
+                entry.savedStateHandle
+                    .getStateFlow("request_next_week", false)
+                    .collectAsStateWithLifecycle()
             DrawerAwareDestination(drawerOpen, onCloseDrawer) {
                 PlanScreen(
+                    nextWeekRequested = nextWeekRequested,
+                    onNextWeekRequestConsumed = {
+                        entry.savedStateHandle["request_next_week"] = false
+                    },
                     onPlanAccepted = {
                         navController.navigate(Route.HOME) {
                             popUpTo(Route.HOME) { saveState = true }
@@ -166,6 +187,9 @@ fun IronPathNavHost(
             DrawerAwareDestination(drawerOpen, onCloseDrawer) {
                 HistoryScreen(
                     onOpenLog = { logId -> navController.navigate(Route.workoutLogDetail(logId)) },
+                    onOpenRecordSource = { logId ->
+                        navController.navigate(Route.workoutLogDetail(logId, recordSource = true))
+                    },
                     modifier = Modifier.padding(innerPadding),
                 )
             }
@@ -202,7 +226,14 @@ fun IronPathNavHost(
         }
         composable(
             route = Route.WORKOUT_LOG_DETAIL,
-            arguments = listOf(navArgument(Route.WORKOUT_LOG_ID_ARG) { type = NavType.StringType }),
+            arguments =
+                listOf(
+                    navArgument(Route.WORKOUT_LOG_ID_ARG) { type = NavType.StringType },
+                    navArgument(Route.RECORD_SOURCE_ARG) {
+                        type = NavType.BoolType
+                        defaultValue = false
+                    },
+                ),
         ) {
             WorkoutLogDetailScreen(
                 onBack = { navController.popBackStack() },

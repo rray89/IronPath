@@ -10,10 +10,17 @@ import com.example.ironpath.data.local.dao.SessionDao
 import com.example.ironpath.data.local.entity.ActiveSession
 import com.example.ironpath.data.local.entity.LoggedExercise
 import com.example.ironpath.data.local.entity.LoggedSet
+import com.example.ironpath.data.local.entity.PlannedExercise
+import com.example.ironpath.data.local.entity.PlannedWorkout
 import com.example.ironpath.data.local.entity.SessionExercise
 import com.example.ironpath.data.local.entity.SessionSet
+import com.example.ironpath.data.local.entity.WeeklyPlan
 import com.example.ironpath.data.local.entity.WorkoutLog
+import com.example.ironpath.data.local.entity.WorkoutStatus
 import com.example.ironpath.data.performance.PerformanceTracer
+import com.example.ironpath.domain.session.StartWorkoutResult
+import com.example.ironpath.testutil.FakeIdProvider
+import com.example.ironpath.testutil.FakeTimeProvider
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
@@ -93,7 +100,9 @@ class SessionRepositoryTest {
         backupChangeTracker = mockk()
         every { performanceTracer.beginAsyncSection(any()) } returns 1
 
-        coEvery { sessionDao.startPlannedSession(any(), any()) } returns Unit
+        coEvery { sessionDao.insertSession(any()) } returns Unit
+        coEvery { sessionDao.insertSessionExercises(any()) } returns Unit
+        coEvery { sessionDao.insertSets(any()) } returns Unit
         coEvery { sessionDao.updateSet(any()) } returns Unit
         coEvery { sessionDao.insertSet(any()) } returns Unit
         coEvery { sessionDao.getExercisesForSession(any()) } returns emptyList()
@@ -109,9 +118,9 @@ class SessionRepositoryTest {
         // withTransaction is compiled as a static extension:
         //   arg0 = receiver (IronPathDatabase), arg1 = suspend lambda block.
         // secondArg<>() retrieves arg1 so we can invoke it to exercise the lambda body.
-        coEvery { database.withTransaction(any<suspend () -> Unit>()) } coAnswers
+        coEvery { database.withTransaction(any<suspend () -> Any?>()) } coAnswers
             {
-                secondArg<suspend () -> Unit>().invoke()
+                secondArg<suspend () -> Any?>().invoke()
             }
 
         repository =
@@ -122,6 +131,8 @@ class SessionRepositoryTest {
                 database,
                 performanceTracer,
                 backupChangeTracker,
+                FakeTimeProvider(),
+                FakeIdProvider(),
             )
     }
 
@@ -136,9 +147,94 @@ class SessionRepositoryTest {
     }
 
     @Test
-    fun `startSession delegates to sessionDao startNewSession`() = runTest {
-        repository.startSession(session, listOf(sessionExercise))
-        coVerify(exactly = 1) { sessionDao.startPlannedSession(session, listOf(sessionExercise)) }
+    fun `starting while a session exists preserves that session`() = runTest {
+        assertEquals(
+            StartWorkoutResult.ExistingSession(session.id),
+            repository.startPlannedWorkout("other")
+        )
+        coVerify(exactly = 0) { sessionDao.insertSession(any()) }
+        coVerify(exactly = 0) { sessionDao.deleteSession(any()) }
+        coVerify(exactly = 0) { backupChangeTracker.markIncludedDataChanged() }
+    }
+
+    @Test
+    fun `start rechecks source and builds all default sets from stored prescription`() = runTest {
+        stubStartable()
+        assertEquals(
+            StartWorkoutResult.Started("test-id-1"),
+            repository.startPlannedWorkout("workout1")
+        )
+        coVerify {
+            sessionDao.insertSession(
+                match {
+                    it.workoutTitle == "Stored title" &&
+                        it.startedAt == it.lastUpdatedAt &&
+                        it.startedAt == FakeTimeProvider().epochMillis()
+                }
+            )
+        }
+        coVerify {
+            sessionDao.insertSessionExercises(
+                match {
+                    it.single().plannedSets == 2 &&
+                        it.single().orderIndex == 3 &&
+                        it.single().name == "Squat"
+                }
+            )
+        }
+        coVerify {
+            sessionDao.insertSets(
+                match {
+                    it.map { set -> set.setNumber } == listOf(1, 2) &&
+                        it.all { set ->
+                            set.sessionExerciseId == "test-id-2" &&
+                                set.weightKg == 42.5 &&
+                                set.reps == null &&
+                                !set.isExtra &&
+                                set.completedAt == null
+                        }
+                }
+            )
+        }
+        coVerify(exactly = 0) { backupChangeTracker.markIncludedDataChanged() }
+    }
+
+    @Test
+    fun `missing completed future malformed or archived sources cannot start`() = runTest {
+        stubStartable()
+        val source = planDao.getWorkoutById("workout1")!!
+        for (workout in
+            listOf(
+                null,
+                source.copy(status = WorkoutStatus.Completed),
+                source.copy(status = WorkoutStatus.Skipped),
+                source.copy(scheduledDate = "2026-07-17"),
+                source.copy(scheduledDate = "2026-07-15"),
+                source.copy(scheduledDate = "bad"),
+                source.copy(weeklyPlanId = "archived")
+            )) {
+            coEvery { planDao.getWorkoutById("workout1") } returns workout
+            assertEquals(
+                StartWorkoutResult.NotStartable,
+                repository.startPlannedWorkout("workout1")
+            )
+        }
+        coVerify(exactly = 0) { sessionDao.insertSession(any()) }
+    }
+
+    private fun stubStartable() {
+        coEvery { sessionDao.getActiveSession() } returns null
+        coEvery { planDao.getWorkoutById("workout1") } returns
+            PlannedWorkout("workout1", "plan1", 4, "2026-07-16", "Stored title")
+        coEvery { planDao.getActivePlan() } returns
+            WeeklyPlan(
+                id = "plan1",
+                startDate = "2026-07-13",
+                endDate = "2026-07-19",
+                createdAt = 1L
+            )
+        coEvery { planDao.getExercisesForWorkout("workout1") } returns
+            listOf(PlannedExercise("planned", "workout1", "Squat", 2, 5, 42.5, 3))
     }
 
     @Test

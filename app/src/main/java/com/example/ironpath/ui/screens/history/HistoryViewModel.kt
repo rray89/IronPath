@@ -4,12 +4,15 @@ import android.database.sqlite.SQLiteConstraintException
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.ironpath.data.local.entity.PersonalRecord
+import com.example.ironpath.data.local.entity.RecordSource
 import com.example.ironpath.data.repository.HistoryRepository
 import com.example.ironpath.data.repository.PlanRepository
 import com.example.ironpath.data.repository.RecordRepository
 import com.example.ironpath.domain.account.ProfileGenerationToken
 import com.example.ironpath.domain.identity.IdProvider
 import com.example.ironpath.domain.time.TimeProvider
+import com.example.ironpath.domain.validation.RecordDraftResult
+import com.example.ironpath.domain.validation.RecordDraftValidator
 import com.example.ironpath.domain.validation.ValidatedRecordDraft
 import dagger.hilt.android.lifecycle.HiltViewModel
 import java.time.LocalDate
@@ -55,7 +58,10 @@ constructor(
     private val _addRecordError = MutableStateFlow<String?>(null)
     val addRecordError: StateFlow<String?> = _addRecordError.asStateFlow()
 
-    private var isSavingRecord = false
+    private val _isSavingRecord = MutableStateFlow(false)
+    val isSavingRecord: StateFlow<Boolean> = _isSavingRecord.asStateFlow()
+    private val _editingRecord = MutableStateFlow<PersonalRecord?>(null)
+    val editingRecord: StateFlow<PersonalRecord?> = _editingRecord.asStateFlow()
 
     // Exercise name suggestions from both plans and existing records
     private val _exerciseSuggestions = MutableStateFlow<List<String>>(emptyList())
@@ -85,11 +91,24 @@ constructor(
     }
 
     fun showAddRecord() {
+        if (_isSavingRecord.value) return
+        _editingRecord.value = null
+        _addRecordError.value = null
+        loadSuggestions()
+        _addRecordShown.value = true
+    }
+
+    fun showEditRecord(record: PersonalRecord) {
+        if (_isSavingRecord.value || record.sourceType != RecordSource.Manual) return
+        _editingRecord.value = record
+        _addRecordError.value = null
         loadSuggestions()
         _addRecordShown.value = true
     }
 
     fun hideAddRecord() {
+        if (_isSavingRecord.value) return
+        _editingRecord.value = null
         _addRecordShown.value = false
         _addRecordError.value = null
     }
@@ -99,25 +118,51 @@ constructor(
     }
 
     fun saveRecord(draft: ValidatedRecordDraft, onSaved: () -> Unit) {
-        if (isSavingRecord) return
+        if (_isSavingRecord.value || !_addRecordShown.value) return
+        val validation =
+            RecordDraftValidator()
+                .validate(
+                    draft.exerciseName,
+                    draft.weightKg.toString(),
+                    draft.achievedOn,
+                    draft.note.orEmpty(),
+                    today()
+                )
+        if (validation is RecordDraftResult.Invalid) {
+            _addRecordError.value = validation.errors.values.first()
+            return
+        }
+        val validDraft = (validation as RecordDraftResult.Valid).draft
+        val editingId = _editingRecord.value?.id
         val expectedProfileGeneration = profileGenerationToken?.current()
-        if (profileGenerationToken != null && expectedProfileGeneration == null) return
-        isSavingRecord = true
+        if (profileGenerationToken != null && expectedProfileGeneration == null) {
+            _addRecordError.value = "Profile is not ready. Please try again."
+            return
+        }
+        _isSavingRecord.value = true
         _addRecordError.value = null
         viewModelScope.launch {
             try {
                 try {
-                    val record =
-                        PersonalRecord(
-                            id = idProvider.newId(),
-                            exerciseName = draft.exerciseName,
-                            normalizedExerciseName = draft.normalizedExerciseName,
-                            weightKg = draft.weightKg,
-                            achievedOn = draft.achievedOn,
-                            note = draft.note,
-                            createdAt = timeProvider.epochMillis(),
+                    if (editingId != null) {
+                        recordRepository.updateManualRecord(
+                            editingId,
+                            validDraft,
+                            expectedProfileGeneration
                         )
-                    recordRepository.insertRecord(record, expectedProfileGeneration)
+                    } else {
+                        val record =
+                            PersonalRecord(
+                                id = idProvider.newId(),
+                                exerciseName = validDraft.exerciseName,
+                                normalizedExerciseName = validDraft.normalizedExerciseName,
+                                weightKg = validDraft.weightKg,
+                                achievedOn = validDraft.achievedOn,
+                                note = validDraft.note,
+                                createdAt = timeProvider.epochMillis(),
+                            )
+                        recordRepository.insertRecord(record, expectedProfileGeneration)
+                    }
                 } catch (cancellation: CancellationException) {
                     throw cancellation
                 } catch (_: SQLiteConstraintException) {
@@ -129,9 +174,35 @@ constructor(
                     return@launch
                 }
                 _addRecordShown.value = false
+                _editingRecord.value = null
                 onSaved()
             } finally {
-                isSavingRecord = false
+                _isSavingRecord.value = false
+            }
+        }
+    }
+
+    fun deleteEditingRecord() {
+        val id = _editingRecord.value?.id ?: return
+        if (_isSavingRecord.value) return
+        val generation = profileGenerationToken?.current()
+        if (profileGenerationToken != null && generation == null) {
+            _addRecordError.value = "Profile is not ready. Please try again."
+            return
+        }
+        _isSavingRecord.value = true
+        _addRecordError.value = null
+        viewModelScope.launch {
+            try {
+                recordRepository.deleteManualRecord(id, generation)
+                _addRecordShown.value = false
+                _editingRecord.value = null
+            } catch (cancellation: CancellationException) {
+                throw cancellation
+            } catch (_: Exception) {
+                _addRecordError.value = "Unable to delete record. Please try again."
+            } finally {
+                _isSavingRecord.value = false
             }
         }
     }

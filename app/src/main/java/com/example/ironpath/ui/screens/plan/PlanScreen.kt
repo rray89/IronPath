@@ -1,10 +1,10 @@
 package com.example.ironpath.ui.screens.plan
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
@@ -13,7 +13,6 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.sizeIn
@@ -23,36 +22,29 @@ import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.ChevronRight
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
@@ -68,6 +60,8 @@ import com.example.ironpath.domain.planner.ExerciseDraft
 import com.example.ironpath.domain.planner.GeneratedPlan
 import com.example.ironpath.domain.planner.PlanningGoal
 import com.example.ironpath.domain.planner.RemotePlanningExperimentState
+import com.example.ironpath.domain.planner.RuleExerciseForm
+import com.example.ironpath.domain.planner.RuleExerciseRemoval
 import com.example.ironpath.domain.planner.TrainingExperience
 import com.example.ironpath.ui.components.GreenGradientButton
 import com.example.ironpath.ui.screens.home.dayOfWeekAbbrev
@@ -86,23 +80,58 @@ fun PlanScreen(
     modifier: Modifier = Modifier,
     viewModel: PlanViewModel = hiltViewModel(),
     intakeViewModel: PlannerIntakeViewModel = hiltViewModel(),
+    nextWeekRequested: Boolean = false,
+    onNextWeekRequestConsumed: () -> Unit = {},
 ) {
     val uiState by viewModel.planUiState.collectAsStateWithLifecycle()
+    val saveState by viewModel.saveState.collectAsStateWithLifecycle()
+    val ruleUndo by viewModel.ruleUndo.collectAsStateWithLifecycle()
+    val suggestions by viewModel.exerciseSuggestions.collectAsStateWithLifecycle()
     val intakeState by intakeViewModel.intakeState.collectAsStateWithLifecycle()
     val aiGenerationState by intakeViewModel.aiGenerationState.collectAsStateWithLifecycle()
     val remotePlanningExperimentState by
         intakeViewModel.remotePlanningExperimentState.collectAsStateWithLifecycle()
     val validatedDraft = (aiGenerationState as? AiGenerationUiState.Validated)?.draft
 
+    DisposableEffect(Unit) { onDispose { intakeViewModel.discardGeneration() } }
+
     LaunchedEffect(validatedDraft) {
         val draft = validatedDraft ?: return@LaunchedEffect
-        if (viewModel.enterAiReview(draft)) {
+        val configurationRevision =
+            (aiGenerationState as? AiGenerationUiState.Validated)?.configurationRevision
+        if (viewModel.enterAiReview(draft, configurationRevision)) {
             intakeViewModel.onDraftConsumed(draft)
         }
     }
 
+    LaunchedEffect(nextWeekRequested, uiState, saveState.isSaving) {
+        if (nextWeekRequested && viewModel.beginNextWeekPlanning()) onNextWeekRequestConsumed()
+    }
+    val backToSetup: () -> Unit = {
+        intakeViewModel.discardGeneration()
+        viewModel.backToSetup()
+    }
+    val cancelPlanning: () -> Unit = {
+        if (viewModel.cancelPlanning()) {
+            intakeViewModel.cancelGeneration()
+            intakeViewModel.clearGeneratedDraft()
+            onPlanAccepted()
+        }
+    }
+    BackHandler(
+        enabled =
+            uiState == PlanUiState.Setup ||
+                uiState is PlanUiState.Review ||
+                uiState is PlanUiState.AiReview
+    ) {
+        if (uiState == PlanUiState.Setup) cancelPlanning() else backToSetup()
+    }
+
     PlanContent(
         uiState = uiState,
+        saveState = saveState,
+        onPlanNextWeek = { viewModel.beginNextWeekPlanning() },
+        onCancelPlanning = cancelPlanning,
         intakeState = intakeState,
         aiAvailable = intakeViewModel.aiAvailable,
         aiGenerationState = aiGenerationState,
@@ -115,11 +144,20 @@ fun PlanScreen(
         onPreferencesChanged = intakeViewModel::setExercisePreferences,
         onDislikesChanged = intakeViewModel::setExerciseDislikes,
         onGenerate = { viewModel.generatePlan(intakeState.goal, intakeState.selectedDays) },
-        onGenerateWithAi = intakeViewModel::generateWithAi,
+        onGenerateWithAi = { intakeViewModel.generateWithAi(viewModel.targetWeekStart()) },
         onCancelAiGeneration = intakeViewModel::cancelGeneration,
         onClearAiResult = intakeViewModel::clearGeneratedDraft,
         onDeleteWorkout = viewModel::deleteWorkoutFromReview,
-        onBackToSetup = viewModel::backToSetup,
+        onMoveRuleWorkout = viewModel::moveRuleWorkout,
+        onEditRuleExercise = viewModel::editRuleExercise,
+        onAddRuleExercise = viewModel::addRuleExercise,
+        onRemoveRuleExercise = viewModel::removeRuleExercise,
+        onMoveRuleExercise = viewModel::moveRuleExercise,
+        ruleUndo = ruleUndo,
+        onUndoRuleRemoval = viewModel::undoRuleRemoval,
+        onRuleUndoExpired = viewModel::expireRuleUndo,
+        ruleExerciseSuggestions = suggestions,
+        onBackToSetup = backToSetup,
         onAccept = {
             viewModel.acceptPlan {
                 intakeViewModel.resetAfterAcceptance()
@@ -130,11 +168,14 @@ fun PlanScreen(
         onOpenWorkoutPreview = onOpenWorkoutPreview,
         onAddAiExercise = viewModel::addAiExercise,
         onReplaceAiExercise = viewModel::replaceAiExercise,
-        onRegenerateAi = intakeViewModel::generateWithAi,
-        onUseRuleFallback = intakeViewModel::generateWithRuleBasedFallback,
+        onRegenerateAi = { intakeViewModel.generateWithAi(viewModel.targetWeekStart()) },
+        onUseRuleFallback = {
+            intakeViewModel.generateWithRuleBasedFallback(viewModel.targetWeekStart())
+        },
         remotePlanningExperimentState = remotePlanningExperimentState,
         onRemotePlanningEnabledChanged = intakeViewModel::setRemotePlanningEnabled,
         onRemotePlanningApiKeyChanged = intakeViewModel::setRemotePlanningApiKey,
+        onRemotePlanningOptionChanged = intakeViewModel::setRemotePlanningOption,
         modifier = modifier,
     )
 }
@@ -172,75 +213,127 @@ internal fun PlanContent(
     remotePlanningExperimentState: RemotePlanningExperimentState = RemotePlanningExperimentState(),
     onRemotePlanningEnabledChanged: (Boolean) -> Unit = {},
     onRemotePlanningApiKeyChanged: (String) -> Unit = {},
+    onRemotePlanningOptionChanged: (String) -> Unit = {},
+    onMoveRuleWorkout: (String, Int) -> Unit = { _, _ -> },
+    onEditRuleExercise: (String, RuleExerciseForm) -> Unit = { _, _ -> },
+    onAddRuleExercise: (String, RuleExerciseForm) -> Unit = { _, _ -> },
+    onRemoveRuleExercise: (String) -> Unit = {},
+    onMoveRuleExercise: (String, String, Int) -> Unit = { _, _, _ -> },
+    ruleUndo: RuleExerciseRemoval? = null,
+    onUndoRuleRemoval: () -> Unit = {},
+    onRuleUndoExpired: (RuleExerciseRemoval) -> Unit = {},
+    ruleExerciseSuggestions: List<String> = emptyList(),
+    saveState: PlanSaveUiState = PlanSaveUiState(),
+    onPlanNextWeek: () -> Unit = {},
+    onCancelPlanning: () -> Unit = {},
 ) {
-    when (uiState) {
-        PlanUiState.Loading -> {
-            Box(
-                modifier.fillMaxSize().testTag(TestTags.PLAN_LOADING),
-                contentAlignment = Alignment.Center,
+    Column(modifier.fillMaxSize()) {
+        saveState.error?.let {
+            Text(
+                it,
+                color = MaterialTheme.colorScheme.error,
+                modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp)
+            )
+        }
+        if (saveState.isSaving)
+            Text("Saving plan…", modifier = Modifier.padding(horizontal = 24.dp))
+        if (
+            uiState == PlanUiState.Setup ||
+                uiState is PlanUiState.Review ||
+                uiState is PlanUiState.AiReview
+        ) {
+            TextButton(
+                onClick = onCancelPlanning,
+                enabled =
+                    !saveState.isSaving &&
+                        (uiState !is PlanUiState.AiReview || !uiState.review.isAccepting)
             ) {
-                CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
+                Text("Cancel Planning")
             }
         }
-        PlanUiState.Setup ->
-            PlanSetupScreen(
-                intakeState = intakeState,
-                aiAvailable = aiAvailable,
-                aiGenerationState = aiGenerationState,
-                onGoalSelected = onGoalSelected,
-                onDayToggled = onDayToggled,
-                onExperienceSelected = onExperienceSelected,
-                onEquipmentToggled = onEquipmentToggled,
-                onCautionTagToggled = onCautionTagToggled,
-                onInjuryNotesChanged = onInjuryNotesChanged,
-                onPreferencesChanged = onPreferencesChanged,
-                onDislikesChanged = onDislikesChanged,
-                onGenerate = onGenerate,
-                onGenerateWithAi = onGenerateWithAi,
-                onCancelAiGeneration = onCancelAiGeneration,
-                onClearAiResult = onClearAiResult,
-                remotePlanningExperimentState = remotePlanningExperimentState,
-                onRemotePlanningEnabledChanged = onRemotePlanningEnabledChanged,
-                onRemotePlanningApiKeyChanged = onRemotePlanningApiKeyChanged,
-                modifier = modifier,
-            )
-        is PlanUiState.Review ->
-            PlanReviewScreen(
-                generated = uiState.generated,
-                onDeleteWorkout = onDeleteWorkout,
-                onBackToSetup = onBackToSetup,
-                onAccept = onAccept,
-                modifier = modifier,
-            )
-        is PlanUiState.AiReview ->
-            AiPlanReviewScreen(
-                state = uiState.review,
-                onAddExercise = onAddAiExercise,
-                onReplaceExercise = onReplaceAiExercise,
-                onEditInputs = {
-                    onClearAiResult()
-                    onBackToSetup()
-                },
-                onRegenerate = onRegenerateAi,
-                onUseRuleFallback = onUseRuleFallback,
-                onAccept = onAccept,
-                modifier = modifier,
-                generationState = aiGenerationState,
-                onCancelGeneration = onCancelAiGeneration,
-                onClearGeneration = onClearAiResult,
-            )
-        is PlanUiState.Accepted ->
-            PlanAcceptedScreen(
-                planned = uiState.planned,
-                completed = uiState.completed,
-                workouts = uiState.workouts,
-                todayWorkout = uiState.todayWorkout,
-                nextWorkout = uiState.nextWorkout,
-                hasActiveSession = uiState.hasActiveSession,
-                onStartWorkout = onStartWorkout,
-                onOpenWorkoutPreview = onOpenWorkoutPreview,
-                modifier = modifier,
-            )
+        Box(Modifier.weight(1f)) {
+            when (uiState) {
+                PlanUiState.Loading -> {
+                    Box(
+                        modifier.fillMaxSize().testTag(TestTags.PLAN_LOADING),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
+                    }
+                }
+                PlanUiState.Setup ->
+                    PlanSetupScreen(
+                        intakeState = intakeState,
+                        aiAvailable = aiAvailable,
+                        aiGenerationState = aiGenerationState,
+                        onGoalSelected = onGoalSelected,
+                        onDayToggled = onDayToggled,
+                        onExperienceSelected = onExperienceSelected,
+                        onEquipmentToggled = onEquipmentToggled,
+                        onCautionTagToggled = onCautionTagToggled,
+                        onInjuryNotesChanged = onInjuryNotesChanged,
+                        onPreferencesChanged = onPreferencesChanged,
+                        onDislikesChanged = onDislikesChanged,
+                        onGenerate = onGenerate,
+                        onGenerateWithAi = onGenerateWithAi,
+                        onCancelAiGeneration = onCancelAiGeneration,
+                        onClearAiResult = onClearAiResult,
+                        remotePlanningExperimentState = remotePlanningExperimentState,
+                        onRemotePlanningEnabledChanged = onRemotePlanningEnabledChanged,
+                        onRemotePlanningApiKeyChanged = onRemotePlanningApiKeyChanged,
+                        onRemotePlanningOptionChanged = onRemotePlanningOptionChanged,
+                        modifier = Modifier,
+                    )
+                is PlanUiState.Review ->
+                    RulePlanReviewScreen(
+                        generated = uiState.generated,
+                        onMoveWorkout = onMoveRuleWorkout,
+                        onEditExercise = onEditRuleExercise,
+                        onAddExercise = onAddRuleExercise,
+                        onRemoveExercise = onRemoveRuleExercise,
+                        onMoveExercise = onMoveRuleExercise,
+                        undo = ruleUndo,
+                        onUndo = onUndoRuleRemoval,
+                        onUndoExpired = onRuleUndoExpired,
+                        suggestions = ruleExerciseSuggestions,
+                        isSaving = saveState.isSaving,
+                        onDeleteWorkout = onDeleteWorkout,
+                        onBackToSetup = onBackToSetup,
+                        onAccept = onAccept,
+                        modifier = Modifier,
+                    )
+                is PlanUiState.AiReview ->
+                    AiPlanReviewScreen(
+                        state = uiState.review,
+                        onAddExercise = onAddAiExercise,
+                        onReplaceExercise = onReplaceAiExercise,
+                        onEditInputs = {
+                            onClearAiResult()
+                            onBackToSetup()
+                        },
+                        onRegenerate = onRegenerateAi,
+                        onUseRuleFallback = onUseRuleFallback,
+                        onAccept = onAccept,
+                        modifier = Modifier,
+                        generationState = aiGenerationState,
+                        onCancelGeneration = onCancelAiGeneration,
+                        onClearGeneration = onClearAiResult,
+                    )
+                is PlanUiState.Accepted ->
+                    PlanAcceptedScreen(
+                        planned = uiState.planned,
+                        onPlanNextWeek = onPlanNextWeek,
+                        completed = uiState.completed,
+                        workouts = uiState.workouts,
+                        todayWorkout = uiState.todayWorkout,
+                        nextWorkout = uiState.nextWorkout,
+                        hasActiveSession = uiState.hasActiveSession,
+                        onStartWorkout = onStartWorkout,
+                        onOpenWorkoutPreview = onOpenWorkoutPreview,
+                        modifier = Modifier,
+                    )
+            }
+        }
     }
 }
 
@@ -308,6 +401,7 @@ private fun PlanSetupScreen(
     remotePlanningExperimentState: RemotePlanningExperimentState,
     onRemotePlanningEnabledChanged: (Boolean) -> Unit,
     onRemotePlanningApiKeyChanged: (String) -> Unit,
+    onRemotePlanningOptionChanged: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Column(
@@ -477,6 +571,7 @@ private fun PlanSetupScreen(
                 state = remotePlanningExperimentState,
                 onEnabledChanged = onRemotePlanningEnabledChanged,
                 onApiKeyChanged = onRemotePlanningApiKeyChanged,
+                onOptionChanged = onRemotePlanningOptionChanged,
             )
         }
 
@@ -534,72 +629,6 @@ private fun SetupSectionTitle(
 }
 
 @Composable
-private fun RemoteAiLab(
-    state: RemotePlanningExperimentState,
-    onEnabledChanged: (Boolean) -> Unit,
-    onApiKeyChanged: (String) -> Unit,
-) {
-    SetupSectionTitle(
-        title = "Remote AI Lab",
-        modifier = Modifier.testTag(TestTags.PLAN_REMOTE_AI_LAB),
-    )
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Column(modifier = Modifier.weight(1f).padding(end = 16.dp)) {
-            Text(
-                text = "Use Google Gemini",
-                style = MaterialTheme.typography.bodyLarge,
-                color = MaterialTheme.colorScheme.onSurface,
-            )
-            Text(
-                text = "Debug experiment only. Gemini quota may apply.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-        Switch(
-            checked = state.enabled,
-            onCheckedChange = onEnabledChanged,
-            modifier =
-                Modifier.testTag(TestTags.PLAN_REMOTE_AI_TOGGLE).semantics {
-                    contentDescription = "Use remote AI experiment"
-                },
-        )
-    }
-
-    Spacer(Modifier.height(12.dp))
-    Text(
-        text =
-            "Planning inputs, injury notes, and summarized 28-day history are sent to Google Gemini.",
-        style = MaterialTheme.typography.bodySmall,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-    )
-    Spacer(Modifier.height(4.dp))
-    Text(
-        text = "Key stays in memory and clears when the app process ends.",
-        style = MaterialTheme.typography.bodySmall,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-    )
-
-    if (state.enabled) {
-        Spacer(Modifier.height(12.dp))
-        OutlinedTextField(
-            value = state.apiKey,
-            onValueChange = onApiKeyChanged,
-            label = { Text("Gemini API key") },
-            supportingText = { Text("Required for remote generation. Never stored on disk.") },
-            modifier = Modifier.fillMaxWidth().testTag(TestTags.PLAN_REMOTE_AI_KEY),
-            singleLine = true,
-            visualTransformation = PasswordVisualTransformation(),
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
-        )
-    }
-}
-
-@Composable
 private fun PlanningTextField(
     value: String,
     onValueChange: (String) -> Unit,
@@ -612,7 +641,7 @@ private fun PlanningTextField(
         onValueChange = onValueChange,
         label = { Text(label) },
         supportingText = { Text(supportingText) },
-        modifier = modifier.fillMaxWidth(),
+        modifier = modifier.fillMaxWidth().semantics { contentDescription = label },
         minLines = 2,
         maxLines = 4,
     )
@@ -828,178 +857,6 @@ private fun DayChip(
     }
 }
 
-// -- Review Screen --
-
-@Composable
-private fun PlanReviewScreen(
-    generated: GeneratedPlan,
-    onDeleteWorkout: (String) -> Unit,
-    onBackToSetup: () -> Unit,
-    onAccept: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    Column(
-        modifier =
-            modifier
-                .fillMaxSize()
-                .padding(horizontal = 24.dp)
-                .verticalScroll(rememberScrollState()),
-    ) {
-        Spacer(Modifier.height(16.dp))
-
-        Text(
-            text = "WEEKLY PLAN",
-            style = MaterialTheme.typography.labelLarge,
-            color = MaterialTheme.colorScheme.primary,
-        )
-        Text(
-            text = "THIS WEEK",
-            style = MaterialTheme.typography.headlineMedium,
-            color = MaterialTheme.colorScheme.onSurface,
-        )
-
-        Spacer(Modifier.height(24.dp))
-
-        generated.workouts.forEach { workout ->
-            val exercises =
-                generated.exercises
-                    .filter { it.plannedWorkoutId == workout.id }
-                    .sortedBy { it.orderIndex }
-            ReviewWorkoutCard(
-                workout = workout,
-                exercises = exercises,
-                onDelete = { onDeleteWorkout(workout.id) },
-            )
-            Spacer(Modifier.height(20.dp))
-        }
-
-        Spacer(Modifier.height(32.dp))
-
-        PlanReviewActions(
-            canAccept = generated.workouts.isNotEmpty(),
-            onBackToSetup = onBackToSetup,
-            onAccept = onAccept,
-        )
-
-        Spacer(Modifier.height(32.dp))
-    }
-}
-
-@Composable
-private fun PlanReviewActions(
-    canAccept: Boolean,
-    onBackToSetup: () -> Unit,
-    onAccept: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    BoxWithConstraints(modifier.fillMaxWidth()) {
-        val stackActions = maxWidth < 480.dp || LocalDensity.current.fontScale >= 1.5f
-        if (stackActions) {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                RegenerateButton(onClick = onBackToSetup)
-                GreenGradientButton(
-                    text = "Accept Plan",
-                    onClick = onAccept,
-                    enabled = canAccept,
-                )
-            }
-        } else {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
-                RegenerateButton(
-                    onClick = onBackToSetup,
-                    modifier = Modifier.weight(1f),
-                )
-                GreenGradientButton(
-                    text = "Accept Plan",
-                    onClick = onAccept,
-                    enabled = canAccept,
-                    modifier = Modifier.weight(1f),
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun RegenerateButton(
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    Box(
-        modifier =
-            modifier
-                .fillMaxWidth()
-                .heightIn(min = 48.dp)
-                .clip(RoundedCornerShape(4.dp))
-                .background(SurfaceContainerHigh)
-                .clickable(role = Role.Button, onClick = onClick)
-                .padding(horizontal = 16.dp, vertical = 12.dp),
-        contentAlignment = Alignment.Center,
-    ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Icon(
-                imageVector = Icons.Default.Refresh,
-                contentDescription = null,
-                modifier = Modifier.size(18.dp),
-                tint = MaterialTheme.colorScheme.onSurface,
-            )
-            Spacer(Modifier.width(8.dp))
-            Text(
-                text = "REGENERATE",
-                style = MaterialTheme.typography.labelLarge,
-                color = MaterialTheme.colorScheme.onSurface,
-            )
-        }
-    }
-}
-
-@Composable
-private fun ReviewWorkoutCard(
-    workout: PlannedWorkout,
-    exercises: List<PlannedExercise>,
-    onDelete: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    Column(modifier = modifier.testTag(TestTags.workout(workout.id))) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(
-                text = dayOfWeekAbbrev(workout.dayOfWeek),
-                style = MaterialTheme.typography.titleSmall,
-                color = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.testTag(TestTags.planReviewDay(workout.id)),
-            )
-            Text(
-                text = " — ${workout.title}",
-                style = MaterialTheme.typography.titleSmall,
-                color = MaterialTheme.colorScheme.onSurface,
-                modifier = Modifier.weight(1f),
-            )
-            IconButton(onClick = onDelete, modifier = Modifier.size(48.dp)) {
-                Icon(
-                    imageVector = Icons.Default.Close,
-                    contentDescription =
-                        "Remove ${workout.title} on ${workoutDayFullName(workout.dayOfWeek)}",
-                    modifier = Modifier.size(18.dp),
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-        }
-
-        Spacer(Modifier.height(8.dp))
-
-        exercises.forEach { exercise ->
-            ReviewExerciseRow(exercise = exercise)
-            Spacer(Modifier.height(4.dp))
-        }
-    }
-}
-
 private val workoutDayLabels =
     listOf(
         "MO" to "Monday",
@@ -1011,43 +868,12 @@ private val workoutDayLabels =
         "SU" to "Sunday",
     )
 
-private fun workoutDayFullName(dayOfWeek: Int): String =
-    workoutDayLabels.getOrNull(dayOfWeek - 1)?.second ?: "day $dayOfWeek"
-
-@Composable
-private fun ReviewExerciseRow(
-    exercise: PlannedExercise,
-    modifier: Modifier = Modifier,
-) {
-    Row(
-        modifier =
-            modifier
-                .fillMaxWidth()
-                .testTag(TestTags.planExercise(exercise.id))
-                .padding(vertical = 2.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Text(
-            text = exercise.name,
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurface,
-            modifier = Modifier.weight(1f),
-        )
-
-        val weightText = if (exercise.weightKg > 0) "${exercise.weightKg.toInt()}kg" else "BW"
-        Text(
-            text = "${exercise.sets}×${exercise.reps} · $weightText",
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-    }
-}
-
 // -- Accepted/Lightweight Status Screen --
 
 @Composable
 private fun PlanAcceptedScreen(
     planned: Int,
+    onPlanNextWeek: () -> Unit,
     completed: Int,
     workouts: List<PlannedWorkout>,
     todayWorkout: PlannedWorkout?,
@@ -1099,6 +925,10 @@ private fun PlanAcceptedScreen(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
 
+            if (planned > 0 && completed == planned) {
+                Spacer(Modifier.height(24.dp))
+                GreenGradientButton(text = "Plan Next Week", onClick = onPlanNextWeek)
+            }
             if (todayWorkout != null) {
                 Spacer(Modifier.height(24.dp))
                 GreenGradientButton(text = "Start Workout", onClick = onStartWorkout)

@@ -78,15 +78,24 @@ class PlanPersistenceJourneyTest {
         composeRule.onNodeWithTag(TestTags.PLAN_GENERATE).performScrollTo().performClick()
         waitForText("WEEKLY PLAN")
 
-        composeRule.onNodeWithContentDescription("Remove Push A on Monday").assertIsDisplayed()
-        composeRule.onNodeWithContentDescription("Remove Pull A on Wednesday").assertIsDisplayed()
-        composeRule.onNodeWithContentDescription("Remove Legs on Friday").assertIsDisplayed()
-        composeRule.onNodeWithTag(TestTags.workout("e2e-2")).assertIsDisplayed()
-        composeRule.onNodeWithTag(TestTags.workout("e2e-6")).assertIsDisplayed()
-        composeRule.onNodeWithTag(TestTags.workout("e2e-10")).assertIsDisplayed()
-        composeRule.onNodeWithText("Barbell Bench Press").assertIsDisplayed()
-        composeRule.onNodeWithText("Barbell Rows").assertIsDisplayed()
-        composeRule.onNodeWithText("Barbell Squats").assertIsDisplayed()
+        composeRule
+            .onNodeWithContentDescription("Remove Push A on Monday")
+            .performScrollTo()
+            .assertIsDisplayed()
+        composeRule
+            .onNodeWithContentDescription("Remove Pull A on Wednesday")
+            .performScrollTo()
+            .assertIsDisplayed()
+        composeRule
+            .onNodeWithContentDescription("Remove Legs on Friday")
+            .performScrollTo()
+            .assertIsDisplayed()
+        composeRule.onNodeWithTag(TestTags.workout("e2e-2")).performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithTag(TestTags.workout("e2e-6")).performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithTag(TestTags.workout("e2e-10")).performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithText("Barbell Bench Press").performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithText("Barbell Rows").performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithText("Barbell Squats").performScrollTo().assertIsDisplayed()
 
         composeRule.onNodeWithText("ACCEPT PLAN").performScrollTo().performClick()
         waitForText(HOME_SUMMARY)

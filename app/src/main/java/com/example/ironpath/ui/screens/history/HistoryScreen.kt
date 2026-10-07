@@ -26,12 +26,17 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.EmojiEvents
 import androidx.compose.material.icons.filled.FitnessCenter
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -59,6 +64,7 @@ fun HistoryScreen(
     modifier: Modifier = Modifier,
     onOpenLog: (String) -> Unit = {},
     viewModel: HistoryViewModel = hiltViewModel(),
+    onOpenRecordSource: (String) -> Unit = onOpenLog,
 ) {
     val selectedTab by viewModel.selectedTab.collectAsStateWithLifecycle()
     val logs by viewModel.logs.collectAsStateWithLifecycle()
@@ -67,6 +73,22 @@ fun HistoryScreen(
     val addRecordError by viewModel.addRecordError.collectAsStateWithLifecycle()
     val suggestions by viewModel.exerciseSuggestions.collectAsStateWithLifecycle()
 
+    val editingRecord by viewModel.editingRecord.collectAsStateWithLifecycle()
+    val busy by viewModel.isSavingRecord.collectAsStateWithLifecycle()
+    var missingSource by rememberSaveable { mutableStateOf(false) }
+    if (missingSource) {
+        AlertDialog(
+            onDismissRequest = { missingSource = false },
+            title = { Text("Source workout unavailable") },
+            text = {
+                Text(
+                    "This logged record is preserved, but its source workout is no longer available."
+                )
+            },
+            confirmButton = { TextButton(onClick = { missingSource = false }) { Text("OK") } },
+        )
+    }
+
     // Intercept system back so it returns to the records list, not pops History off the nav stack
     BackHandler(enabled = addRecordShown, onBack = viewModel::hideAddRecord)
 
@@ -74,6 +96,9 @@ fun HistoryScreen(
         addRecordShown -> {
             AddRecordScreen(
                 suggestions = suggestions,
+                record = editingRecord,
+                busy = busy,
+                onDelete = viewModel::deleteEditingRecord,
                 today = viewModel.today(),
                 onSave = { draft -> viewModel.saveRecord(draft) {} },
                 onCancel = viewModel::hideAddRecord,
@@ -90,6 +115,12 @@ fun HistoryScreen(
                 onTabSelected = viewModel::selectTab,
                 onAddRecord = viewModel::showAddRecord,
                 onLogClick = { log -> onOpenLog(log.id) },
+                onRecordClick = { record ->
+                    if (record.sourceType == RecordSource.Manual) viewModel.showEditRecord(record)
+                    else if (record.sourceWorkoutLogId != null)
+                        onOpenRecordSource(record.sourceWorkoutLogId)
+                    else missingSource = true
+                },
                 zoneId = viewModel.zoneId,
                 modifier = modifier,
             )
@@ -109,6 +140,7 @@ internal fun HistoryContent(
     zoneId: ZoneId,
     modifier: Modifier = Modifier,
     onLogClick: (WorkoutLog) -> Unit = {},
+    onRecordClick: (PersonalRecord) -> Unit = {},
 ) {
     Column(
         modifier = modifier.fillMaxSize().padding(horizontal = 16.dp),
@@ -131,6 +163,7 @@ internal fun HistoryContent(
             HistoryTab.Records ->
                 RecordsContent(
                     records = records,
+                    onRecordClick = onRecordClick,
                     onAddRecord = onAddRecord,
                     modifier = Modifier.weight(1f),
                 )
@@ -297,6 +330,7 @@ private fun LogRow(
 private fun RecordsContent(
     records: List<PersonalRecord>,
     onAddRecord: () -> Unit,
+    onRecordClick: (PersonalRecord) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     if (records.isEmpty()) {
@@ -314,7 +348,7 @@ private fun RecordsContent(
             Spacer(Modifier.height(16.dp))
 
             records.forEach { record ->
-                RecordRow(record)
+                RecordRow(record, onClick = { onRecordClick(record) })
                 Spacer(Modifier.height(8.dp))
             }
 
@@ -425,6 +459,7 @@ private fun ScrollableCenteredEmptyState(
 @Composable
 private fun RecordRow(
     record: PersonalRecord,
+    onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Row(
@@ -432,6 +467,13 @@ private fun RecordRow(
             modifier
                 .fillMaxWidth()
                 .testTag(TestTags.record(record.id))
+                .clickable(
+                    role = Role.Button,
+                    onClickLabel =
+                        if (record.sourceType == RecordSource.Manual) "Edit record"
+                        else "Open source workout",
+                    onClick = onClick
+                )
                 .clip(RoundedCornerShape(4.dp))
                 .background(SurfaceContainerLow)
                 .padding(16.dp),

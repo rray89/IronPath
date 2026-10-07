@@ -54,9 +54,17 @@ fun HomeScreen(
     onOpenWorkoutPreview: (String) -> Unit,
     modifier: Modifier = Modifier,
     viewModel: HomeViewModel = hiltViewModel(),
+    onPlanNextWeek: () -> Unit = onNavigateToPlan,
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
-    HomeContent(uiState, onNavigateToPlan, onNavigateToActive, onOpenWorkoutPreview, modifier)
+    HomeContent(
+        uiState,
+        onNavigateToPlan,
+        onNavigateToActive,
+        onOpenWorkoutPreview,
+        modifier,
+        onPlanNextWeek
+    )
 }
 
 // -- Pure render composable (no ViewModel, previewable) --
@@ -68,6 +76,7 @@ internal fun HomeContent(
     onNavigateToActive: () -> Unit,
     onOpenWorkoutPreview: (String) -> Unit,
     modifier: Modifier = Modifier,
+    onPlanNextWeek: () -> Unit = onNavigateToPlan,
 ) {
     when (uiState) {
         HomeUiState.Loading -> {
@@ -81,7 +90,7 @@ internal fun HomeContent(
         HomeUiState.NoPlan -> HomeEmptyState(onNavigateToPlan, modifier)
         is HomeUiState.ActivePlan ->
             HomeActivePlanState(uiState, onNavigateToActive, onOpenWorkoutPreview, modifier)
-        is HomeUiState.WeekComplete -> HomeWeekCompleteState(uiState, onNavigateToPlan, modifier)
+        is HomeUiState.WeekComplete -> HomeWeekCompleteState(uiState, onPlanNextWeek, modifier)
     }
 }
 

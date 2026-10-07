@@ -51,10 +51,19 @@ data class ExerciseDraft(
     val targetWeightKg: Double,
 )
 
+data class PlanningTokenUsage(
+    val inputTokens: Long? = null,
+    val outputTokens: Long? = null,
+    val totalTokens: Long? = null,
+)
+
 data class PlanningProviderMetadata(
     val engineType: PlanningEngineType,
     val generationDurationMillis: Long,
     val fallbackReason: String? = null,
+    val sourceLabel: String? = null,
+    val remoteConfigurationRevision: Long? = null,
+    val tokenUsage: PlanningTokenUsage? = null,
 )
 
 sealed interface PlanningResult {

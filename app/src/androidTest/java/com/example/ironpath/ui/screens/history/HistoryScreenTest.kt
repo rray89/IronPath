@@ -1,7 +1,7 @@
 package com.example.ironpath.ui.screens.history
 
 import androidx.compose.ui.test.assertCountEquals
-import androidx.compose.ui.test.assertHasNoClickAction
+import androidx.compose.ui.test.assertHasClickAction
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
@@ -65,7 +65,7 @@ class HistoryScreenTest {
     }
 
     @Test
-    fun recordsAreDisplayOnly_showBothSourceBadges_andPreserveDecimalWeights() {
+    fun recordsOpenCorrectRow_showBothSourceBadges_andPreserveDecimalWeights() {
         val manual =
             personalRecord(
                 id = "manual",
@@ -80,17 +80,22 @@ class HistoryScreenTest {
                 weightKg = 100.0,
                 source = RecordSource.Logged,
             )
+        val opened = mutableListOf<PersonalRecord>()
         setHistoryContent(
             selectedTab = HistoryTab.Records,
             records = listOf(manual, logged),
+            onRecordClick = { opened += it },
         )
 
-        composeRule.onNodeWithTag(TestTags.record("manual")).assertHasNoClickAction()
-        composeRule.onNodeWithTag(TestTags.record("logged")).assertHasNoClickAction()
+        composeRule.onNodeWithTag(TestTags.record("manual")).assertHasClickAction()
+        composeRule.onNodeWithTag(TestTags.record("logged")).assertHasClickAction()
         composeRule.onAllNodesWithText("MANUAL").assertCountEquals(1)
         composeRule.onAllNodesWithText("LOGGED").assertCountEquals(1)
         composeRule.onNodeWithText("62.5 kg").assertIsDisplayed()
         composeRule.onNodeWithText("100 kg").assertIsDisplayed()
+        composeRule.onNodeWithTag(TestTags.record("manual")).performClick()
+        composeRule.onNodeWithTag(TestTags.record("logged")).performClick()
+        assertEquals(listOf(manual, logged), opened)
     }
 
     @Test
@@ -129,6 +134,7 @@ class HistoryScreenTest {
         onTabSelected: (HistoryTab) -> Unit = {},
         onAddRecord: () -> Unit = {},
         onLogClick: (WorkoutLog) -> Unit = {},
+        onRecordClick: (PersonalRecord) -> Unit = {},
     ) {
         composeRule.setContent {
             IronPathTheme {
@@ -139,6 +145,7 @@ class HistoryScreenTest {
                     onTabSelected = onTabSelected,
                     onAddRecord = onAddRecord,
                     onLogClick = onLogClick,
+                    onRecordClick = onRecordClick,
                     zoneId = ZoneOffset.UTC,
                 )
             }
