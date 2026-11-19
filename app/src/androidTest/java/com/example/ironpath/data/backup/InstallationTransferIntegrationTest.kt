@@ -1,9 +1,9 @@
 package com.example.ironpath.data.backup
 
 import android.content.Context
-import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.example.ironpath.testutil.FileBackedRoomTestDatabaseRule
+import com.example.ironpath.testutil.IsolatedNoBackupDirectory
 import com.example.ironpath.testutil.SequenceIdProvider
 import kotlinx.coroutines.runBlocking
 import org.junit.After
@@ -18,8 +18,12 @@ import org.junit.runner.RunWith
 class InstallationTransferIntegrationTest {
     @get:Rule val databaseRule = FileBackedRoomTestDatabaseRule()
 
-    private val context = ApplicationProvider.getApplicationContext<Context>()
-    private val sentinelFile = context.noBackupFilesDir.resolve("ironpath-installation")
+    @get:Rule val isolatedFiles = IsolatedNoBackupDirectory()
+    private val context: Context
+        get() = isolatedFiles.context
+
+    private val sentinelFile
+        get() = context.noBackupFilesDir.resolve("ironpath-installation")
 
     @Before
     @After

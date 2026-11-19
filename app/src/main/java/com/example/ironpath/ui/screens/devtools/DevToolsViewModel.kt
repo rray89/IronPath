@@ -3,6 +3,7 @@ package com.example.ironpath.ui.screens.devtools
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.ironpath.dev.DevToolsSeeder
+import com.example.ironpath.domain.account.ProfileGenerationToken
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
@@ -13,24 +14,48 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
 @HiltViewModel
-class DevToolsViewModel @Inject constructor(private val seeder: DevToolsSeeder) : ViewModel() {
+class DevToolsViewModel
+@Inject
+constructor(
+    private val seeder: DevToolsSeeder,
+    private val profileGenerationToken: ProfileGenerationToken? = null,
+) : ViewModel() {
 
     private val _status = MutableStateFlow<String?>(null)
     val status: StateFlow<String?> = _status.asStateFlow()
 
     private val _showClearConfirm = MutableStateFlow(false)
     val showClearConfirm: StateFlow<Boolean> = _showClearConfirm.asStateFlow()
+    private var clearProfileGeneration: Long? = null
 
-    fun seedPlanForToday() = runAction("Plan seeded for today") { seeder.seedPlanForToday() }
+    init {
+        profileGenerationToken?.let { token ->
+            viewModelScope.launch { runCatching { token.initialize() } }
+        }
+    }
 
-    fun seedPlanForTomorrow() =
-        runAction("Plan seeded for tomorrow") { seeder.seedPlanForTomorrow() }
+    fun seedPlanForToday() {
+        val generation = requestProfileGeneration() ?: return
+        runAction("Plan seeded for today") { seeder.seedPlanForToday(generation) }
+    }
 
-    fun seedHistoryLogs() = runAction("History logs seeded") { seeder.seedHistoryLogs() }
+    fun seedPlanForTomorrow() {
+        val generation = requestProfileGeneration() ?: return
+        runAction("Plan seeded for tomorrow") { seeder.seedPlanForTomorrow(generation) }
+    }
 
-    fun seedRecords() = runAction("Personal records seeded") { seeder.seedRecords() }
+    fun seedHistoryLogs() {
+        val generation = requestProfileGeneration() ?: return
+        runAction("History logs seeded") { seeder.seedHistoryLogs(generation) }
+    }
+
+    fun seedRecords() {
+        val generation = requestProfileGeneration() ?: return
+        runAction("Personal records seeded") { seeder.seedRecords(generation) }
+    }
 
     fun requestClearConfirmation() {
+        clearProfileGeneration = requestProfileGeneration() ?: return
         _showClearConfirm.value = true
     }
 
@@ -40,9 +65,11 @@ class DevToolsViewModel @Inject constructor(private val seeder: DevToolsSeeder) 
 
     fun confirmClearAllData(onComplete: () -> Unit) {
         _showClearConfirm.value = false
+        val expectedProfileGeneration = clearProfileGeneration
+        clearProfileGeneration = null
         viewModelScope.launch {
             try {
-                seeder.clearAllData()
+                seeder.clearAllData(expectedProfileGeneration)
                 onComplete()
             } catch (e: CancellationException) {
                 throw e
@@ -64,6 +91,9 @@ class DevToolsViewModel @Inject constructor(private val seeder: DevToolsSeeder) 
             }
         }
     }
+
+    private fun requestProfileGeneration(): Long? =
+        if (profileGenerationToken == null) null else profileGenerationToken.current()
 
     private suspend fun showStatus(message: String) {
         _status.value = message

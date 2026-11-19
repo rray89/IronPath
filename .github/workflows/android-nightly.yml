@@ -2,7 +2,8 @@ name: Android Nightly
 
 on:
   schedule:
-    - cron: "0 10 * * *"
+    # Full regression runs weekly on Sunday at 10:00 UTC.
+    - cron: "0 10 * * 0"
   workflow_dispatch:
 
 concurrency:

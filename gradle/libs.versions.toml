@@ -26,6 +26,9 @@ profileInstaller = "1.4.1"
 uiAutomator = "2.4.0"
 mlKitGenAiPrompt = "1.0.0-beta3"
 mlKitGenAiSchemaCompiler = "1.0.0-alpha1"
+firebaseBom = "34.19.0"
+androidxCredentials = "1.6.0"
+googleId = "1.2.1"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -75,6 +78,12 @@ kotlinx-serialization-bom = { module = "org.jetbrains.kotlinx:kotlinx-serializat
 kotlinx-serialization-json = { module = "org.jetbrains.kotlinx:kotlinx-serialization-json" }
 mlkit-genai-prompt = { module = "com.google.mlkit:genai-prompt", version.ref = "mlKitGenAiPrompt" }
 mlkit-genai-schema-compiler = { module = "com.google.mlkit:genai-schema-compiler", version.ref = "mlKitGenAiSchemaCompiler" }
+firebase-bom = { module = "com.google.firebase:firebase-bom", version.ref = "firebaseBom" }
+firebase-auth = { module = "com.google.firebase:firebase-auth" }
+androidx-credentials = { module = "androidx.credentials:credentials", version.ref = "androidxCredentials" }
+androidx-credentials-play-services-auth = { module = "androidx.credentials:credentials-play-services-auth", version.ref = "androidxCredentials" }
+googleid = { module = "com.google.android.libraries.identity.googleid:googleid", version.ref = "googleId" }
+kotlinx-coroutines-play-services = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-play-services", version.ref = "coroutines" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

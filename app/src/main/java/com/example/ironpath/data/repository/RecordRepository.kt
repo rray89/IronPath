@@ -1,10 +1,10 @@
 package com.example.ironpath.data.repository
 
-import androidx.room.withTransaction
 import com.example.ironpath.data.backup.BackupChangeTracker
 import com.example.ironpath.data.local.IronPathDatabase
 import com.example.ironpath.data.local.dao.RecordDao
 import com.example.ironpath.data.local.entity.PersonalRecord
+import com.example.ironpath.data.local.withProfileWrite
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.flow.Flow
@@ -22,8 +22,8 @@ constructor(
 
     suspend fun getAllRecordExerciseNames(): List<String> = recordDao.getAllRecordExerciseNames()
 
-    suspend fun insertRecord(record: PersonalRecord) =
-        database.withTransaction {
+    suspend fun insertRecord(record: PersonalRecord, expectedProfileGeneration: Long? = null) =
+        database.withProfileWrite(expectedProfileGeneration) {
             recordDao.insertRecord(record)
             backupChangeTracker.markIncludedDataChanged()
         }

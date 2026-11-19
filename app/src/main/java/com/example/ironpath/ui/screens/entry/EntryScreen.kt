@@ -38,6 +38,8 @@ fun EntryScreen(
     continuing: Boolean = false,
     onSignIn: () -> Unit = {},
     accountExperiencePreviewEnabled: Boolean = ACCOUNT_EXPERIENCE_PREVIEW_ENABLED,
+    accountSignInAvailable: Boolean = true,
+    accountBusy: Boolean = false,
 ) {
     val previewContent = accountExperienceEntryContent.takeIf { accountExperiencePreviewEnabled }
     Box(
@@ -126,7 +128,18 @@ fun EntryScreen(
 
             if (previewContent != null) {
                 Spacer(Modifier.height(12.dp))
-                OutlinedButton(onClick = onSignIn) { Text(previewContent.signInLabel) }
+                OutlinedButton(
+                    onClick = onSignIn,
+                    enabled = !accountBusy && !continuing && accountSignInAvailable,
+                ) {
+                    Text(previewContent.signInLabel)
+                }
+                Text(
+                    if (accountSignInAvailable) previewContent.signInNotice
+                    else
+                        "Google sign-in is unavailable until private Firebase preview configuration is supplied.",
+                    style = MaterialTheme.typography.bodySmall,
+                )
             }
 
             Spacer(Modifier.height(32.dp))

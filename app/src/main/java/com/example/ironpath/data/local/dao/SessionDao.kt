@@ -24,6 +24,9 @@ interface SessionDao {
 
     @Query("DELETE FROM active_sessions WHERE id = :id") suspend fun deleteSession(id: String)
 
+    @Query("SELECT EXISTS(SELECT 1 FROM planned_workouts WHERE id = :workoutId)")
+    suspend fun plannedWorkoutExists(workoutId: String): Boolean
+
     // SessionExercise
     @Insert suspend fun insertSessionExercises(exercises: List<SessionExercise>)
 
@@ -54,9 +57,18 @@ interface SessionDao {
     @Transaction
     suspend fun startNewSession(session: ActiveSession, exercises: List<SessionExercise>) {
         val existing = getActiveSession()
-        if (existing != null) {
-            deleteSession(existing.id)
+        if (existing != null) deleteSession(existing.id)
+        insertSession(session)
+        insertSessionExercises(exercises)
+    }
+
+    @Transaction
+    suspend fun startPlannedSession(session: ActiveSession, exercises: List<SessionExercise>) {
+        check(plannedWorkoutExists(session.sourcePlannedWorkoutId)) {
+            "Planned workout ${session.sourcePlannedWorkoutId} no longer exists"
         }
+        val existing = getActiveSession()
+        if (existing != null) deleteSession(existing.id)
         insertSession(session)
         insertSessionExercises(exercises)
     }

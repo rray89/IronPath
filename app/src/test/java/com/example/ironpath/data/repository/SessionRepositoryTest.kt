@@ -3,6 +3,7 @@ package com.example.ironpath.data.repository
 import androidx.room.withTransaction
 import com.example.ironpath.data.backup.BackupChangeTracker
 import com.example.ironpath.data.local.IronPathDatabase
+import com.example.ironpath.data.local.dao.AccountDeletionDao
 import com.example.ironpath.data.local.dao.HistoryDao
 import com.example.ironpath.data.local.dao.PlanDao
 import com.example.ironpath.data.local.dao.SessionDao
@@ -33,6 +34,7 @@ class SessionRepositoryTest {
     private lateinit var historyDao: HistoryDao
     private lateinit var planDao: PlanDao
     private lateinit var database: IronPathDatabase
+    private lateinit var accountDeletionDao: AccountDeletionDao
     private lateinit var performanceTracer: PerformanceTracer
     private lateinit var backupChangeTracker: BackupChangeTracker
     private lateinit var repository: SessionRepository
@@ -84,11 +86,14 @@ class SessionRepositoryTest {
         historyDao = mockk()
         planDao = mockk()
         database = mockk()
+        accountDeletionDao = mockk()
+        every { database.accountDeletionDao() } returns accountDeletionDao
+        coEvery { accountDeletionDao.getJournal() } returns null
         performanceTracer = mockk(relaxed = true)
         backupChangeTracker = mockk()
         every { performanceTracer.beginAsyncSection(any()) } returns 1
 
-        coEvery { sessionDao.startNewSession(any(), any()) } returns Unit
+        coEvery { sessionDao.startPlannedSession(any(), any()) } returns Unit
         coEvery { sessionDao.updateSet(any()) } returns Unit
         coEvery { sessionDao.insertSet(any()) } returns Unit
         coEvery { sessionDao.getExercisesForSession(any()) } returns emptyList()
@@ -133,7 +138,7 @@ class SessionRepositoryTest {
     @Test
     fun `startSession delegates to sessionDao startNewSession`() = runTest {
         repository.startSession(session, listOf(sessionExercise))
-        coVerify(exactly = 1) { sessionDao.startNewSession(session, listOf(sessionExercise)) }
+        coVerify(exactly = 1) { sessionDao.startPlannedSession(session, listOf(sessionExercise)) }
     }
 
     @Test

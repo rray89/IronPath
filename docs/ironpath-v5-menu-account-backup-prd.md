@@ -1,8 +1,8 @@
 # IronPath v5 Menu, Account, and Backup PRD
 
 Date: 2026-07-26
-Last updated: 2026-09-17
-Status: Feat11.3 Experience Direction accepted by BOSS; PR #53 in review (`feat/feat11.3-experience-direction`)
+Last updated: 2026-09-29
+Status: Feat11.3 Experience Direction merged in PR #53; feat11.3.1 First Usable Slice accepted by BOSS on September 18, 2026 (RRA-59, PR #55); feat11.3.3 functional First Usable Slice accepted by BOSS on September 24, 2026 (RRA-63); feat11.4.1 account choices and explicit sign-out accepted by BOSS on September 29, 2026 (RRA-64, PR #59)
 
 ## Purpose
 
@@ -184,9 +184,10 @@ reviewing the fixture journey, confirming the restore-feedback fix, and checking
 exclusive conflict selection and return navigation. Restore feedback shows only the
 latest result: a short-press hint and a completed-preview notice never appear together.
 This is product acceptance of the debug-only Experience Direction, not delivery of
-real authentication, backup, sync, restore, or undo. The next bounded slice remains
-`feat11.3.1`: the account shell and persisted account/data-choice state with deterministic
-credentials. Implementation of that slice has not started.
+real authentication, backup, sync, restore, or undo. The subsequent bounded slice,
+`feat11.3.1`, adds the account shell and persisted account/data-choice state with
+deterministic credentials. BOSS accepted that First Usable Slice on September 18,
+2026, under RRA-59.
 
 The approved checkpoint is intentionally fixture-backed and debug-only. It makes no
 Google, Firebase, Room-mutation, upload, download, merge, or restore call. It exists to
@@ -204,6 +205,96 @@ review the following first-release journey before durable implementation:
 Automatic/background backup, automatic/background sync, per-item conflict editing,
 sign-out and account-deletion lifecycle hardening, and production Firebase activation
 are deferred beyond the V5 manual account/backup release.
+
+### Feat11.3.1 First Usable Slice
+
+- The debug Entry and drawer open the Account & Backup shell. The sign-in action uses
+  a clearly labelled demo account; it does not contact Google or Firebase.
+- Only the synthetic session identifier is persisted in a debug-only, non-transferred
+  atomic file in `noBackupFilesDir`. Account/data-choice state is reconstructed from
+  that session and the existing Room ownership and revision metadata, without a new
+  Room schema.
+- An unclaimed local profile remains unclaimed after sign-in. Same-owner data resumes
+  its existing lineage; differently owned data remains blocked even when empty.
+- Installation validation gates account readiness. A failed account-state check leaves
+  local workout flows available and presents an account retry action.
+- Cancelling setup, system Back, and toolbar Back from a pending account choice clear
+  the pending demo session before returning to the previous destination. A failed
+  durable cancellation stays on the shell with retry/cancel actions. Restarting before
+  cancellation reconstructs the pending choice; restarting after cancellation is local-only.
+- Credential selection never completes onboarding. `Continue on this device` retains
+  the existing explicit onboarding action.
+- Backup, sync, and restore remain unavailable in the shell. `Explore backup preview`
+  opens the separately labelled, unchanged Experience Direction fixture journey; its
+  completion messages do not change the shell's account or backup state.
+- Release retains the inert account binding and exposes no demo sign-in or preview
+  route. No live configuration, ownership/training-data mutation, sign-out/delete UI,
+  background work, manual operation, or undo is added by this slice.
+
+#### First Usable Slice review packet
+
+BOSS accepted the debug build on Seeker on September 18, 2026, after the
+following review path and separate checks of toolbar and Android system Back.
+Acceptance covers the persisted demo account, cancellation, restart recovery and
+return navigation. It does not claim live authentication or manual data transfer.
+
+1. From Home, open the menu and `Account & Backup`; confirm `Local only`.
+2. Choose `Sign in with Google`; confirm the clearly labelled demo identity and
+   `Data choice required`, with manual operations still unavailable.
+3. Close and reopen the app without clearing storage. Reopen the account page and
+   confirm the pending choice survives.
+4. Use toolbar/system Back or `Cancel account setup`. Reopen the app and account
+   page; confirm `Local only` survives too.
+5. Open `Explore backup preview` to revisit the accepted fixture journey and return
+   to the account shell without changing its state.
+
+The synthetic identity and unavailable manual actions are intentional boundaries,
+not live authentication or backup. No additional product assumption is introduced
+beyond the accepted deterministic first slice. The next product slice is
+explicit manual backup and revision-aware sync (feat11.3.2), followed
+by whole-backup restore and undo (feat11.3.3).
+
+The original cancellation behavior in this September 18 review packet was superseded
+by the approved Feat11.4.1 correction below: only Back before credential acceptance
+cancels sign-in; post-acceptance Back preserves the authenticated session.
+
+### Feat11.3.2 implementation contract
+
+BOSS authorized the next manual backup/sync slice on September 18, 2026. The accepted
+Experience Direction remains the interaction baseline. This slice gets its own First
+Usable Slice review before merge; physical acceptance may wait until the next day if
+the Seeker lock screen prevents testing. Code and automated verification may continue.
+
+BOSS completed and accepted the six-step Seeker functional walkthrough on September
+24, 2026, including manual sync and restart persistence. Account & Backup usability
+refinement is a low-priority follow-up (RRA-62); functional delivery remains the
+priority. This acceptance does not waive technical review, CI or the merge gate.
+
+- The debug build uses a clearly labelled, persistent **demo backup on this device**.
+  It contacts no live Google or Firebase service and does not protect against device
+  loss or uninstall. The confirmation explains that manual sync can change real local
+  training records. Release keeps the inert coordinator and no demo storage adapter.
+- `Back Up Now` first shows included counts. Explicit confirmation associates eligible
+  unclaimed data; empty data associates without creating an empty backup. A previously
+  nonempty lineage becoming empty or losing more than half its included records needs
+  an additional destructive acknowledgement.
+- `Review manual sync` uses a durable shared baseline, local revision and cloud
+  generation. One-sided changes are included in either confirmed outcome. The two
+  accepted conflict choices select local or cloud **conflicting versions**; neither
+  choice is selected automatically. Invalid merged graphs cannot be confirmed.
+- Previews are ephemeral. Back cancels the review and returns to the account overview
+  without cancelling account setup. Confirmation rechecks the captured identity,
+  installation, local revision and remote generation; changed inputs require review
+  again. An active workout blocks sync, while backup excludes its transient records.
+- Shared baselines are stored transactionally in bounded Room chunk rows. Reset and
+  installation transfer clear that lineage. A remote completion racing with a local
+  write cannot mark the newer local state up to date or discard the write.
+- Deterministic adapter tests and Firebase emulator protocol integration cover manual
+  publication, merged snapshots, generation races and denied access. They do not imply
+  live Firebase activation or real Google authentication.
+
+Whole-backup restore and undo remain the following feat11.3.3 flow. This slice adds no
+background work, sign-out/deletion controls, live credentials or billing configuration.
 
 ### Free-tier enforcement
 
@@ -240,9 +331,10 @@ global destinations instead of a second copy of Home, Plan, Active, and History.
 The drawer contains:
 
 1. Account and backup header
-2. `Manual`
-3. `AI & Privacy`
-4. `About IronPath`
+2. `AI & Privacy`
+3. `About IronPath`
+
+The Manual screen is retained for existing navigation state, with its drawer entry hidden.
 
 `Settings` is not shown until IronPath has at least one real user setting worth
 managing. DevTools, debug provider controls, and test-data actions remain outside the
@@ -383,11 +475,11 @@ ViewModels and workout repositories do not depend directly on Firebase classes.
 
 ### Account state
 
-At minimum, the domain distinguishes:
+Authentication state and local-data association are separate facts. At minimum, the
+domain distinguishes:
 
 - `LocalOnly`
 - `SigningIn`
-- `AwaitingDataChoice`
 - `SignedIn`
 - `NeedsReauthentication`
 - `SigningOut`
@@ -395,13 +487,46 @@ At minimum, the domain distinguishes:
 - recoverable error with a sanitized reason
 
 Repeated sign-in, sign-out, restore, backup, and delete actions are serialized.
-Late credential or network results cannot replace a newer account operation.
-`AwaitingDataChoice` is derived from the authenticated Firebase session plus persisted
-local ownership/lineage metadata; it is never an in-memory-only state. Cancelling the
-choice signs out of Firebase and returns deterministically to `LocalOnly`, including
-after process death.
+Late credential or network results cannot replace a newer account operation. Once a
+credential has been accepted and the session is durably saved, the account remains
+`SignedIn` even when the local profile has not been associated. Local ownership,
+remote-backup availability, and any required data choice are separate persisted or
+derived context; they do not turn an authenticated account into an unsigned setup.
+Cancelling the credential chooser before a credential is accepted returns to
+`LocalOnly`. After acceptance, ordinary Back and choosing to decide later preserve the
+session. Only explicit sign-out clears it during ordinary navigation.
 
----
+#### Approved Feat11.4.1 account-choice correction — September 25, 2026
+
+BOSS approved separating successful demo sign-in from the decision to associate local
+training data. The deterministic demo adapter remains debug-only and contacts no live
+Google or cloud service.
+
+- Returning Home, using toolbar/system Back, or restarting after credential selection
+  preserves the signed-in session. Back cancels sign-in only while credential selection
+  is still pending. Authentication invalidation and explicit sign-out retain their
+  existing security behavior.
+- If the deterministic local session record is unreadable, ordinary Back preserves it.
+  An explicit recovery action may clear only a record verified as invalid by the demo
+  adapter; it returns to local-only and preserves all training data and Room lineage.
+- If the included local training data is empty, the profile is unclaimed, and the
+  signed-in account has a complete demo backup, Account & Backup presents three clear
+  actions: `Restore backup`, `Keep this device empty`, and `Decide later`.
+- `Decide later` preserves the session and leaves local ownership, training rows,
+  backup lineage, and the remote snapshot unchanged. It performs no restore, upload,
+  association, or overwrite. The choice can be revisited from Account & Backup.
+- `Keep this device empty` explicitly associates the empty local profile with the
+  signed-in account. It changes only local ownership metadata; it does not publish an
+  empty snapshot, alter shared-backup lineage, or change/delete the existing remote
+  backup. It is unavailable while an active workout exists or when local ownership
+  belongs to another account, even if the included training tables are empty.
+- `Restore backup` opens the existing whole-backup preview and retains validation,
+  impact review, active-workout acknowledgement, hold confirmation, atomic replacement,
+  and undo protections.
+- A stale account epoch, changed local profile, installation mismatch, pending sign-out,
+  foreign owner, or changed remote snapshot cannot reuse an earlier choice. A later
+  remote generation remains subject to explicit backup/sync/restore review; keeping an
+  empty profile grants no overwrite consent.
 
 ## Feature 3: Free Firebase backup foundation
 
@@ -641,7 +766,8 @@ Before local replacement, the app:
 
 Restore cannot proceed silently while an `ActiveSession` exists. The user may return
 to the workout or choose `Discard active workout and restore`; that confirmation names
-the loss. The final Restore action requires a long press after the impact preview.
+the loss. The acknowledgement starts unchecked and applies to the session shown in the
+preview. The final Restore action requires a long press after the impact preview.
 Immediately before a confirmed successful restore, the same Room transaction captures
 the complete pre-restore local durable-data bundle, replaces the prior undo snapshot,
 deletes the active session and cascaded children when applicable, replaces the included
@@ -650,6 +776,48 @@ revision. Exactly one pre-restore snapshot is retained and supports one atomic u
 the next successful restore replaces it. Any download, parse, validation, confirmation
 cancellation, or transaction failure leaves the pre-restore local database, active
 session, and prior undo snapshot unchanged.
+
+### feat11.3.3 First Usable Slice
+
+The first usable restore slice reads only the latest complete supported backup. It does
+not offer a historical-backup picker. Its accepted demo adapter stores data inside this
+app on this device; it is useful for reviewing and exercising the flow, but does not
+protect against uninstall or device loss and does not imply a live Google or Firebase
+backup.
+
+The one undo is a bounded Room snapshot tied to the account and installation that
+performed the restore. It survives process recreation, is consumed after a successful
+undo, and is replaced only by a later successful restore. Failed or cancelled restore
+and undo leave it available; local reset or installation transfer clears it. Undo has
+its own impact preview and long-press confirmation, performs no remote write, restores
+the previous local training rows and their matching shared-backup baseline, preserves
+the current installation ID, and advances the local revision. It does not restore an
+active workout that was discarded by restore. Any active workout blocks undo until the
+user finishes or discards it through the normal workout flow. Undo stays `Local changes` or
+`Review required` until an explicit manual backup or sync establishes current lineage;
+the old complete revision marker never advances just because local rows were restored.
+If a same-account remote observation is newer than that restored baseline, the app
+keeps it available in the coordinator while preserving the older shared baseline for
+three-way conflict review. A fresh explicit latest lookup can refresh the displayed
+observation after process recreation.
+
+In the retained same-account acceptance walkthrough, undo leaves the account at
+`Local changes`, not `Up to date`, until an explicit manual backup or sync reestablishes
+current lineage. An unowned profile or an unobserved newer remote generation may require
+`Review required` in other scenarios; those conditions are outside that walkthrough.
+
+#### Functional acceptance checkpoint — September 24, 2026
+
+BOSS accepted the functional First Usable Slice after confirming that restore removed
+the newly added record B, one undo brought B back, the account reported `Local changes`,
+and Home and History showed records A and B. The walkthrough used the accepted local
+demo adapter; it does not establish live Google or Firebase backup.
+
+The later presentation-only change colors Restore and Undo hold guidance with the theme
+error color. Its isolated API 29 Compose screen test passed 15/15, and the theme error
+color `#CF6679` has 5.36:1 contrast on the review surface `#0E0E0E`. BOSS waived a
+personal retest of this polish. Affected code review and PR CI remain required before
+merge.
 
 ### Sign-in and manual data-choice matrix
 
@@ -671,8 +839,9 @@ manual actions. It does not attach, upload, merge, or replace workout data.
      after confirmation; same-record conflicts require the user to choose `Merge and
      keep local conflict versions` or `Overwrite this device from cloud`.
    - `Preview whole-backup restore` never merges. It validates the complete snapshot,
-     shows backup date/source and categorized impact counts, and proceeds only after
-     the final long-press confirmation.
+     identifies that it is using the latest complete backup, shows backup date/source
+     and categorized impact counts, and proceeds only after the final long-press
+     confirmation.
 4. Canceling any preview leaves local data, remote data, ownership, lineage, and the
    existing pre-restore undo snapshot unchanged.
 
@@ -755,9 +924,9 @@ Signed in:
 - `Review manual sync`
 - restore availability and last remote snapshot summary
 
-`Sign out` and `Delete cloud account and backup` are not exposed in the
-`feat11.3.1`–`feat11.3.3` implementation sequence. They remain specified below for the
-later lifecycle-hardening slice.
+`Sign out` is available in the `feat11.4` lifecycle flow. `Delete account` is available
+only in the debug demo adapter through `feat11.4.2`; release bindings report the action
+as unavailable until a production deletion service is implemented.
 
 No UI claims `Up to date` based only on authentication state.
 
@@ -777,34 +946,49 @@ the Firebase session is cleared.
 
 ### Delete-account behavior
 
-Deferred to `feat11.4`, beyond the V5 manual account/backup release.
+### `feat11.4.2` demo first usable slice
 
-Because V5 forbids Cloud Functions, deletion is an authenticated client-owned flow:
+Account deletion removes the current IronPath account incarnation, all of its backups,
+and all local training data, including an active workout and restore/undo metadata. The
+flow offers no option to keep device data. It is irreversible. The Google identity itself
+is unaffected; signing into that same demo identity again creates a new IronPath account
+incarnation with no access to the deleted incarnation's backups.
 
-1. Require recent Google authentication before destructive work.
-2. Read the authoritative `backupIds` registry for the current UID.
-3. For every registered backup, delete all chunk documents, then its manifest, then
-   remove its registry entry; every phase is bounded, retryable, and idempotent.
-4. Verify the registry is empty and a query over `users/{uid}/backups` returns zero
-   manifest documents.
-5. Delete `users/{uid}` only after step 4 succeeds.
-6. Delete the Firebase Authentication account.
-7. Ask whether to erase the device or retain its data as a new unclaimed local profile.
+This implementation is deliberately demo-only. The debug adapter uses a deterministic,
+local file-backed backup store and a persisted demo identity registry. It does not call
+Google, Firebase Authentication, Firestore, or any network service. Release binds an
+unavailable deletion manager, so production UI cannot claim deletion succeeded.
 
-The UI reports completion only after remote deletion and Firebase account deletion
-succeed. Recoverable failure retains enough authenticated state to retry and never
-claims the account was deleted.
+The deletion screen is available for a matching `SignedIn` demo owner and while account
+setup is unresolved only when this authenticated demo identity faces an unclaimed local
+profile. The latter confirmation binds the request and journal to a null local owner plus
+the captured profile generation, and clearly says that all unclaimed local training data
+will be removed. A profile owned by another UID cannot be deleted through this path. The
+screen displays the current demo identity, explains the complete deletion scope and
+irreversibility, and requires a second confirmation whose final action says
+`DELETE ACCOUNT AND ALL DATA`. Canceling before the first destructive write has no
+effect. Once PREPARED is durable, there is no cancellation action.
 
-Deleting a Firebase Auth account and later signing in with the same Google identity is
-treated as a new account with a potentially different UID. Remote residue under the
-deleted UID would then be unrecoverable by the client, which is why remote verification
-must succeed before Auth deletion. The same chunks → manifest → registry ordering is
-mandatory for ordinary retention cleanup.
+The debug flow persists a deletion journal before ordinary session, installation, and
+navigation recovery. It purges and verifies all per-account backup state even when the
+existing index is malformed or uses an unsupported version, writes a permanent
+account-incarnation tombstone, then atomically clears Room training data, account
+ownership, backup lineage, and restore/undo state while advancing the local profile
+generation. Only after those steps does it clear the demo session and mark the journal
+COMPLETE. A retry or startup recovery resumes from the recorded stage. If remote backup
+purge has not completed, the session remains available for retry; pending cleanup keeps
+training and profile writes blocked. Old generation requests are rejected after the
+local profile is reset. Restore undo preserves the current profile generation, and a
+successful ordinary `Remove data from this device` sign-out recreates navigation-scoped
+ViewModels before new profile writes can begin.
 
-This client-owned deletion is acceptable for a private portfolio phase. Before any
-public release, IronPath must add a production deletion mechanism that remains
-available after uninstall, an external deletion-request path, a published privacy
-policy, and any required server-side cleanup.
+Ordinary sign-out remains separate: it still offers Keep or Remove local data and never
+deletes a remote backup.
+
+Before public release, replace this demonstration with recent Google reauthentication,
+Firebase Authentication deletion, authoritative server-side backup cleanup and
+verification, an external deletion-request path, and a published privacy policy. The
+demo slice is not evidence that production account deletion is available.
 
 ### Android platform backup
 
@@ -891,7 +1075,8 @@ The Entry, Manual, AI & Privacy, and Account & Backup copy must match this polic
    absent
 6. `feat11.3.2: implement revision-aware manual backup/sync preview and explicit
    conflict outcomes against deterministic and emulator adapters`; add no background
-   scheduling
+   scheduling. The First Usable Slice review and Seeker walkthrough are in
+   [`feat11.3.2-manual-backup-sync-review.md`](feat11.3.2-manual-backup-sync-review.md).
 7. `feat11.3.3: implement whole-backup restore preview, long-press confirmation, atomic
    replacement, exactly one pre-restore undo snapshot, and the fixture/emulator
    end-to-end journey`
@@ -927,8 +1112,9 @@ Cover:
 - first-run local continuation and remembered onboarding
 - returning local user startup while offline
 - successful, cancelled, failed, repeated, and recreated sign-in
-- process death during `AwaitingDataChoice`, plus cancellation that leaves no Firebase
-  session
+- process recreation during `AwaitingDataChoice`; cancellation before credential
+  acceptance leaves no demo session, while post-acceptance Back and `Decide later`
+  preserve it
 - same-account return after sign-out with retained local data
 - different-account attempt against retained owned data
 - local-only mutation during offline account state
@@ -1048,7 +1234,7 @@ Cover:
 
 A strong V5 demo shows:
 
-1. Open the new drawer and Manual from an existing local workout state.
+1. Open the drawer from an existing local workout.
 2. Show the AI & Privacy explanation and local-only account status.
 3. Sign in with Google and show that identity alone performs no upload.
 4. Open the manual-sync preview. Show the non-conflicting changes and the explicit

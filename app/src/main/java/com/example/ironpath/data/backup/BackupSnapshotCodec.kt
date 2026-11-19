@@ -30,6 +30,7 @@ import kotlinx.serialization.json.put
 class BackupSnapshotCodec(
     private val maxChunkBytes: Int = MAX_CHUNK_BYTES,
     private val maxChunks: Int = MAX_CHUNKS,
+    private val preserveDanglingProvenance: Boolean = false,
 ) {
     init {
         require(maxChunkBytes > 0)
@@ -37,7 +38,7 @@ class BackupSnapshotCodec(
     }
 
     fun encode(bundle: BackupBundle): EncodedBackupSnapshot {
-        val validated = BackupBundleValidator.validate(bundle).bundle
+        val validated = BackupBundleValidator.validate(bundle, preserveDanglingProvenance).bundle
         val envelopes = validated.toEnvelopes()
         val chunks = mutableListOf<BackupChunk>()
         var pending = mutableListOf<JsonObject>()
@@ -120,7 +121,7 @@ class BackupSnapshotCodec(
             require(decoded.entityCounts() == snapshot.entityCounts) {
                 "Snapshot entity counts do not match"
             }
-            return BackupBundleValidator.validate(decoded)
+            return BackupBundleValidator.validate(decoded, preserveDanglingProvenance)
         } catch (failure: InvalidBackupSnapshotException) {
             throw failure
         } catch (failure: Exception) {
@@ -144,6 +145,7 @@ class BackupSnapshotCodec(
             lineage = lineage,
             contentDigest = snapshot.contentDigest,
             nulledProvenanceFields = validated.nulledProvenanceFields,
+            remoteSnapshot = snapshot,
         )
     }
 

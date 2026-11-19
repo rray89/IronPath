@@ -7,10 +7,15 @@ class FakeOnboardingRepository : OnboardingRepository {
     var completionCount = 0
         private set
 
+    var failReads = false
+
     var resetCount = 0
         private set
 
-    override suspend fun isCompleted(): Boolean = completed
+    override suspend fun isCompleted(): Boolean {
+        check(!failReads) { "Onboarding state is unavailable" }
+        return completed
+    }
 
     override suspend fun complete(): Boolean {
         completionCount++

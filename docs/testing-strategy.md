@@ -74,10 +74,39 @@ Every database version increment must export the new schema and add both a direc
 | Local feature work | Focused JVM or device tests first; Seeker is the default physical target |
 | Pull request | `Static & Build`, `Unit Tests & Coverage`, and `API 29 Hilt Smoke` |
 | Push to `main` | The same production PR workflow against the merge result |
-| Nightly or manual dispatch | API 29 and 36 compatibility matrix, API 36 accessibility, three fresh journey executions, release Baseline Profile generation, and API 36 benchmarks |
+| Weekly full regression or manual dispatch | API 29 and 36 compatibility matrix, API 36 accessibility, three fresh journey executions, release Baseline Profile generation, and API 36 benchmarks |
 | Release-sensitive performance change | Nightly emulator execution plus controlled physical-device evidence when setting a regression threshold |
 
 The principal local gates are:
+
+For Seeker or another physical device with existing app data, build the APKs and
+run a selected set of isolated tests directly. **Do not use
+any Gradle/UTP-managed connected instrumentation on that device**, including
+`connectedDebugAndroidTest`, aggregate `connectedAndroidTest` / `connectedCheck`,
+and connected profile/benchmark tasks. Runner cleanup can uninstall the target
+package and its data even when every test uses an isolated database; benchmark
+variants also use the same application ID.
+Verify the selected tests also isolate account files and preferences. Keep the
+test APK installed after the run; do not clear or uninstall either package.
+`install -r` updates an app; it is not a data backup or a preservation guarantee.
+Never resolve an update failure by uninstalling or clearing data. Establish the
+installed package/files baseline before testing, and use a disposable emulator if
+preservation cannot be verified.
+The project also disables connected-runner uninstall cleanup and incompatible-APK
+uninstall fallback in `gradle.properties` as defense in depth. These defaults do
+not replace the physical-device procedure or provide recovery for a prior deletion.
+Set `ANDROID_SERIAL` from `adb devices -l` and `TEST_CLASSES` to the reviewed,
+comma-separated class list before these commands:
+
+```bash
+./gradlew assembleDebug assembleDebugAndroidTest
+adb -s "$ANDROID_SERIAL" install -r app/build/outputs/apk/debug/app-debug.apk
+adb -s "$ANDROID_SERIAL" install -r -t app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
+adb -s "$ANDROID_SERIAL" shell am instrument -w -r -e class "$TEST_CLASSES" com.example.ironpath.test/com.example.ironpath.HiltTestRunner
+```
+
+Confirm that the app package and its existing files remain present after the run.
+Use disposable managed emulators for the full suite:
 
 ```bash
 ./gradlew spotlessCheck :app:lintDebug :app:lintBenchmarkRelease assembleDebug assembleRelease
@@ -86,6 +115,13 @@ The principal local gates are:
 ./gradlew pixel2Api29DebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.notClass=com.example.ironpath.accessibility.PlatformAccessibilityChecksTest
 ./gradlew productionMatrixGroupDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.notClass=com.example.ironpath.accessibility.PlatformAccessibilityChecksTest
 ./gradlew pixel8Api36DebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.package=com.example.ironpath.accessibility
+```
+
+The following connected performance commands require an explicitly selected
+**disposable device with no app data to retain**. They are not the normal Seeker
+feature-test path. The nightly workflow uses disposable API 36 emulators.
+
+```bash
 ./gradlew :app:generateReleaseBaselineProfile -PbaselineProfileUseConnectedDevices=true -Pandroid.testInstrumentationRunnerArguments.class=com.example.ironpath.benchmark.BaselineProfileGenerator -Pandroid.testInstrumentationRunnerArguments.androidx.benchmark.enabledRules=BaselineProfile
 ./gradlew :benchmark:connectedBenchmarkReleaseAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=com.example.ironpath.benchmark.StartupBenchmark,com.example.ironpath.benchmark.CriticalFlowBenchmark -Pandroid.testInstrumentationRunnerArguments.androidx.benchmark.enabledRules=Macrobenchmark
 ```
@@ -95,6 +131,8 @@ CI adds `-Pandroid.testoptions.manageddevices.emulator.gpu=swiftshader_indirect`
 AGP 9.1 resolves managed-device coverage through the last registered device. The dedicated coverage property therefore registers only the managed API 29 target for that invocation; ordinary and nightly runs without the property retain the API 29 + 36 matrix.
 
 ## CI trigger policy
+
+The `Android Nightly` workflow runs once a week on Sunday at 10:00 UTC and remains available through manual dispatch. The historical workflow name and artifact names are retained. This replaces daily scheduling to reduce routine CI usage and failure-email frequency; it does not suppress failures or change the full regression suite.
 
 The production workflow runs for pull requests targeting `main` and pushes to `main`. Feature and bug branches are intentionally not also push-triggered: an earlier draft included `feat/**` and `bug/**`, but an open pull request then caused the same commit to run both push and pull-request workflows. The pull-request event supplies full branch validation, and the `main` push validates the merged result without duplicate paid CI work.
 

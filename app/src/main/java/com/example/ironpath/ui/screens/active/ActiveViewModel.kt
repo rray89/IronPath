@@ -9,6 +9,7 @@ import com.example.ironpath.data.local.entity.SessionSet
 import com.example.ironpath.data.local.entity.WorkoutLog
 import com.example.ironpath.data.repository.PlanRepository
 import com.example.ironpath.data.repository.SessionRepository
+import com.example.ironpath.domain.account.ProfileGenerationToken
 import com.example.ironpath.domain.identity.IdProvider
 import com.example.ironpath.domain.planner.findNextUpcomingWorkout
 import com.example.ironpath.domain.planner.findWorkoutScheduledToday
@@ -41,6 +42,7 @@ constructor(
     private val startPlannedWorkout: StartPlannedWorkoutUseCase,
     private val timeProvider: TimeProvider,
     private val idProvider: IdProvider,
+    private val profileGenerationToken: ProfileGenerationToken? = null,
 ) : ViewModel() {
 
     private val activeSession = sessionRepository.observeActiveSession()
@@ -70,6 +72,9 @@ constructor(
     val elapsedSeconds: StateFlow<Long> = _elapsedSeconds.asStateFlow()
 
     init {
+        profileGenerationToken?.let { token ->
+            viewModelScope.launch { runCatching { token.initialize() } }
+        }
         // Timer coroutine
         viewModelScope.launch {
             while (isActive) {
@@ -127,30 +132,61 @@ constructor(
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ActiveUiState.Loading)
 
     fun startSession(workout: PlannedWorkout) {
-        viewModelScope.launch { startPlannedWorkout(workout) }
+        val expectedProfileGeneration = profileGenerationToken?.current()
+        if (profileGenerationToken != null && expectedProfileGeneration == null) return
+        viewModelScope.launch {
+            try {
+                startPlannedWorkout(workout, expectedProfileGeneration)
+            } catch (cancellation: CancellationException) {
+                throw cancellation
+            } catch (_: Exception) {
+                // A reset profile invalidates an action already queued by this screen.
+            }
+        }
     }
 
     fun updateSet(set: SessionSet) {
-        viewModelScope.launch { sessionRepository.updateSet(set) }
+        val expectedProfileGeneration = profileGenerationToken?.current()
+        if (profileGenerationToken != null && expectedProfileGeneration == null) return
+        viewModelScope.launch {
+            try {
+                sessionRepository.updateSet(set, expectedProfileGeneration)
+            } catch (cancellation: CancellationException) {
+                throw cancellation
+            } catch (_: Exception) {
+                // Stale workout edits are discarded after a profile reset.
+            }
+        }
     }
 
     fun nowMillis(): Long = timeProvider.epochMillis()
 
     fun addExtraSet(exerciseId: String, currentSetCount: Int) {
+        val expectedProfileGeneration = profileGenerationToken?.current()
+        if (profileGenerationToken != null && expectedProfileGeneration == null) return
         viewModelScope.launch {
-            sessionRepository.insertSet(
-                SessionSet(
-                    id = idProvider.newId(),
-                    sessionExerciseId = exerciseId,
-                    setNumber = currentSetCount + 1,
-                    isExtra = true,
-                ),
-            )
+            try {
+                sessionRepository.insertSet(
+                    SessionSet(
+                        id = idProvider.newId(),
+                        sessionExerciseId = exerciseId,
+                        setNumber = currentSetCount + 1,
+                        isExtra = true,
+                    ),
+                    expectedProfileGeneration,
+                )
+            } catch (cancellation: CancellationException) {
+                throw cancellation
+            } catch (_: Exception) {
+                // Stale workout edits are discarded after a profile reset.
+            }
         }
     }
 
     fun finishWorkout(onComplete: () -> Unit) {
         if (finishInProgress) return
+        val expectedProfileGeneration = profileGenerationToken?.current()
+        if (profileGenerationToken != null && expectedProfileGeneration == null) return
         finishInProgress = true
         viewModelScope.launch {
             try {
@@ -171,7 +207,11 @@ constructor(
                         exerciseCount = exs.size,
                     )
 
-                sessionRepository.completeSession(session.id, log)
+                sessionRepository.completeSession(
+                    session.id,
+                    log,
+                    expectedProfileGeneration,
+                )
 
                 _elapsedSeconds.value = 0
             } catch (cancellation: CancellationException) {

@@ -31,6 +31,7 @@
 ## Device Policy
 
 - Seeker is the default physical target for local instrumented and smoke tests. Confirm it appears as `device` in `adb devices -l`; if multiple targets are attached, set `ANDROID_SERIAL` for the command and never hardcode the serial in the repository.
+- On a physical device whose app data must be retained, do not use Gradle/UTP-managed connected instrumentation, including `connectedDebugAndroidTest`, `connectedAndroidTest`, `connectedCheck`, or connected profile/benchmark tasks: runner cleanup can uninstall the target package. Build the APKs, use `adb install -r`, and invoke only verified isolated test classes through `am instrument`, following `docs/testing-strategy.md`. Never clear or uninstall the installed app as test cleanup; connected profile/benchmark tasks require a disposable device.
 - If Seeker is absent, offline, or unauthorized, use `./gradlew pixel2Api29DebugAndroidTest`. API 36 accessibility, adaptive-layout, and performance coverage follows the broader matrix in `docs/testing-strategy.md` rather than the default feature loop.
 
 ## PR & Branch Naming

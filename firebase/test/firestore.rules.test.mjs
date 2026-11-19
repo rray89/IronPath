@@ -17,6 +17,7 @@ import {
 } from "firebase/firestore";
 import { after, before, beforeEach, test } from "node:test";
 import assert from "node:assert/strict";
+import { registerManualProtocolTests } from "./manual-backup.protocol.mjs";
 
 const projectId = "demo-ironpath";
 let testEnvironment;
@@ -52,6 +53,27 @@ test("owner can atomically claim, upload, complete, list, and delete a backup", 
   await assertSucceeds(removeManifestFromRegistry(owner));
   await assertSucceeds(deleteDoc(user));
   assert.equal((await assertSucceeds(getDoc(manifest))).exists(), false);
+});
+
+test("owner can read a retained COMPLETE snapshot but cannot rewrite its metadata or chunks", async () => {
+  await seedCompleteHistory();
+  await testEnvironment.withSecurityRulesDisabled(async (context) => {
+    const firestore = context.firestore();
+    for (const backupId of ["old", "latest"]) {
+      await setDoc(
+        doc(firestore, `users/owner-a/backups/${backupId}/chunks/000`),
+        validChunk(),
+      );
+    }
+  });
+
+  const owner = testEnvironment.authenticatedContext("owner-a").firestore();
+  const { user, manifest, chunk } = backupRefs(owner, "latest");
+  await assertSucceeds(getDoc(user));
+  await assertSucceeds(getDoc(manifest));
+  await assertSucceeds(getDoc(chunk));
+  await assertFails(updateDoc(manifest, { contentDigest: "0".repeat(64) }));
+  await assertFails(updateDoc(chunk, { payload: "corrupted" }));
 });
 
 test("unauthenticated clients cannot access account backup paths", async () => {
@@ -453,3 +475,5 @@ async function seedThreeCompleteBackups() {
     });
   });
 }
+
+registerManualProtocolTests(() => testEnvironment);
