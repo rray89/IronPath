@@ -158,6 +158,75 @@ class ManualBackupViewModelTest {
     }
 
     @Test
+    fun `action failure is typed before status changes and repeated preview clears it`() = runTest {
+        val f = Fixture()
+        advanceUntilIdle()
+        f.backup.status.value = BackupStatus.UpToDate(123L)
+        f.vm.previewBackup()
+        advanceUntilIdle()
+        f.backup.result = BackupActionResult.Failed(BackupFailureReason.PermissionDenied)
+        f.vm.confirm()
+        advanceUntilIdle()
+        assertEquals(BackupStatus.UpToDate(123L), f.vm.manual.value.status)
+        assertEquals(BackupFailureReason.PermissionDenied, f.vm.manual.value.feedbackFailureReason)
+        assertEquals(1L, f.vm.manual.value.feedbackFailureVersion)
+        assertEquals(
+            "Backup access was denied. Your local data remains available.",
+            f.vm.manual.value.feedback
+        )
+
+        f.vm.previewBackup()
+        advanceUntilIdle()
+        assertNull(f.vm.manual.value.feedbackFailureReason)
+        f.backup.result = BackupActionResult.Completed
+        f.backup.status.value = BackupStatus.NeedsAttention(BackupFailureReason.PermissionDenied)
+        f.vm.confirm()
+        advanceUntilIdle()
+        assertNull(f.vm.manual.value.feedbackFailureReason)
+        assertEquals("Manual backup complete in demo storage.", f.vm.manual.value.feedback)
+    }
+
+    @Test
+    fun `repeated identical failure advances its occurrence even without a status update`() =
+        runTest {
+            val f = Fixture()
+            advanceUntilIdle()
+            f.backup.result = BackupActionResult.Failed(BackupFailureReason.PermissionDenied)
+            repeat(2) {
+                f.vm.previewBackup()
+                advanceUntilIdle()
+                f.vm.confirm()
+                advanceUntilIdle()
+                assertEquals((it + 1).toLong(), f.vm.manual.value.feedbackFailureVersion)
+                assertEquals(
+                    BackupFailureReason.PermissionDenied,
+                    f.vm.manual.value.feedbackFailureReason
+                )
+            }
+        }
+
+    @Test
+    fun `refresh replaces an earlier action error with the latest typed lookup result`() = runTest {
+        val f = Fixture()
+        advanceUntilIdle()
+        f.vm.previewBackup()
+        advanceUntilIdle()
+        f.backup.result = BackupActionResult.Failed(BackupFailureReason.PermissionDenied)
+        f.vm.confirm()
+        advanceUntilIdle()
+        f.backup.lookup = BackupLookupResult.Failed(BackupFailureReason.Offline)
+        f.vm.refresh()
+        advanceUntilIdle()
+        assertEquals(BackupFailureReason.Offline, f.vm.manual.value.feedbackFailureReason)
+
+        f.backup.lookup = BackupLookupResult.Absent
+        f.vm.refresh()
+        advanceUntilIdle()
+        assertNull(f.vm.manual.value.feedbackFailureReason)
+        assertNull(f.vm.manual.value.feedback)
+    }
+
+    @Test
     fun `new view model has no replayable preview but reads persisted status`() = runTest {
         val f = Fixture()
         advanceUntilIdle()

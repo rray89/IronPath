@@ -81,6 +81,7 @@ constructor(
                             )
                                 it.copy(
                                     busy = false,
+                                    feedbackFailureReason = null,
                                     feedback = null,
                                     accountDeletion = AccountDeletionUiState(),
                                 )
@@ -115,12 +116,15 @@ constructor(
         )
             return
         viewModelScope.launch {
-            mutableManual.update { it.copy(signOutBusy = true, feedback = null) }
+            mutableManual.update {
+                it.copy(signOutBusy = true, feedbackFailureReason = null, feedback = null)
+            }
             val result = accountGateway.recoverUnreadableSession()
             refreshBackupStatus()
             mutableManual.update {
                 it.copy(
                     signOutBusy = false,
+                    feedbackFailureReason = null,
                     feedback =
                         when (result) {
                             AccountActionResult.Completed ->
@@ -138,7 +142,9 @@ constructor(
     fun refresh() {
         if (manual.value.busy || manual.value.signOutBusy) return
         val cloudStatusRequest = capabilities.mode == AccountExperienceCapabilities.Mode.AuthPreview
-        mutableManual.update { it.copy(busy = cloudStatusRequest, feedback = null) }
+        mutableManual.update {
+            it.copy(busy = cloudStatusRequest, feedbackFailureReason = null, feedback = null)
+        }
         viewModelScope.launch {
             try {
                 accountGateway.refresh()
@@ -194,6 +200,7 @@ constructor(
                     refreshBackupStatus()
                     mutableManual.update {
                         it.copy(
+                            feedbackFailureReason = null,
                             feedback =
                                 "This device will stay empty. The complete demo backup remains available to restore."
                         )
@@ -203,6 +210,7 @@ constructor(
                 BackupActionResult.Cancelled ->
                     mutableManual.update {
                         it.copy(
+                            feedbackFailureReason = null,
                             feedback = "The account changed before this device could be associated."
                         )
                     }
@@ -226,6 +234,7 @@ constructor(
         mutableManual.update {
             it.copy(
                 signOutReview = SignOutReviewUiState(target),
+                feedbackFailureReason = null,
                 feedback = null,
             )
         }
@@ -345,6 +354,7 @@ constructor(
                                 profile.email,
                             )
                     ),
+                feedbackFailureReason = null,
                 feedback = null,
             )
         }
@@ -353,7 +363,11 @@ constructor(
     fun dismissDeleteReview() {
         if (manual.value.accountDeletion.busy || manual.value.accountDeletion.retryAvailable) return
         mutableManual.update {
-            it.copy(accountDeletion = AccountDeletionUiState(), feedback = null)
+            it.copy(
+                accountDeletion = AccountDeletionUiState(),
+                feedbackFailureReason = null,
+                feedback = null
+            )
         }
     }
 
@@ -379,6 +393,7 @@ constructor(
             mutableManual.update {
                 it.copy(
                     accountDeletion = AccountDeletionUiState(),
+                    feedbackFailureReason = null,
                     feedback =
                         "The signed-in account or local profile changed. Review the account before deleting it.",
                 )
@@ -388,6 +403,7 @@ constructor(
         mutableManual.update {
             it.copy(
                 busy = true,
+                feedbackFailureReason = null,
                 feedback = null,
                 accountDeletion = it.accountDeletion.copy(busy = true),
             )
@@ -420,6 +436,7 @@ constructor(
         mutableManual.update {
             it.copy(
                 busy = true,
+                feedbackFailureReason = null,
                 feedback = null,
                 accountDeletion = it.accountDeletion.copy(busy = true),
             )
@@ -464,6 +481,7 @@ constructor(
                             latest = null,
                             undoAvailable = false,
                             status = BackupStatus.LocalOnly,
+                            feedbackFailureReason = null,
                             feedback =
                                 "The demo IronPath account, all demo backups, and this device's training data were deleted. Your Google account was not affected.",
                             accountDeletion =
@@ -483,6 +501,7 @@ constructor(
                         it.copy(
                             busy = false,
                             accountDeletion = AccountDeletionUiState(),
+                            feedbackFailureReason = null,
                             feedback =
                                 "The account or local profile changed. No different account was deleted.",
                         )
@@ -496,6 +515,7 @@ constructor(
                             it.copy(
                                 busy = false,
                                 accountDeletion = AccountDeletionUiState(),
+                                feedbackFailureReason = null,
                                 feedback =
                                     "Account deletion is unavailable in the current account state.",
                             )
@@ -509,6 +529,7 @@ constructor(
                             it.copy(
                                 busy = false,
                                 accountDeletion = it.accountDeletion.copy(busy = false),
+                                feedbackFailureReason = null,
                                 feedback =
                                     "Account deletion could not finish. Check the account state before trying again.",
                             )
@@ -525,6 +546,7 @@ constructor(
                     it.copy(
                         busy = false,
                         accountDeletion = it.accountDeletion.copy(busy = false),
+                        feedbackFailureReason = null,
                         feedback =
                             "Account deletion could not finish. Check the account state before trying again.",
                     )
@@ -536,6 +558,7 @@ constructor(
         mutableManual.update {
             it.copy(
                 busy = true,
+                feedbackFailureReason = null,
                 feedback =
                     "Deletion is paused at ${progress.stage.name.lowercase().replace('_', ' ')}. Retry to finish the same operation.",
                 accountDeletion =
@@ -557,6 +580,7 @@ constructor(
             it.copy(
                 signOutBusy = true,
                 signOutReview = it.signOutReview?.copy(confirmingRemoval = false),
+                feedbackFailureReason = null,
                 feedback = null,
             )
         }
@@ -575,6 +599,7 @@ constructor(
                                 latest = null,
                                 undoAvailable = false,
                                 status = BackupStatus.LocalOnly,
+                                feedbackFailureReason = null,
                                 feedback =
                                     when {
                                         capabilities.canUseBackup && dataWasRemoved ->
@@ -595,6 +620,7 @@ constructor(
                             it.copy(
                                 signOutBusy = false,
                                 signOutReview = null,
+                                feedbackFailureReason = null,
                                 feedback =
                                     "The account changed before sign-out. No other account was cleared."
                             )
@@ -606,6 +632,7 @@ constructor(
                             it.copy(
                                 signOutBusy = false,
                                 signOutReview = null,
+                                feedbackFailureReason = null,
                                 feedback = "Sign-out is unavailable in the current account state."
                             )
                         }
@@ -619,6 +646,7 @@ constructor(
                                 review = null,
                                 latest = if (pending) null else it.latest,
                                 undoAvailable = if (pending) false else it.undoAvailable,
+                                feedbackFailureReason = null,
                                 feedback =
                                     if (pending)
                                         "Training data was removed. Finish sign-out to verify and clear this account session."
@@ -636,6 +664,7 @@ constructor(
                     it.copy(
                         signOutBusy = false,
                         signOutReview = null,
+                        feedbackFailureReason = null,
                         feedback =
                             "Sign-out could not finish. Check the account state and try again."
                     )
@@ -693,7 +722,9 @@ constructor(
         val review = (manual.value.review as? ManualReview.Sync)?.preview ?: return
         if (resolution == SyncConflictResolution.KeepLocal && !review.canKeepLocal) return
         if (resolution == SyncConflictResolution.KeepCloud && !review.canKeepCloud) return
-        mutableManual.update { it.copy(resolution = resolution, feedback = null) }
+        mutableManual.update {
+            it.copy(resolution = resolution, feedbackFailureReason = null, feedback = null)
+        }
     }
 
     fun confirmDestructive(confirmed: Boolean) {
@@ -703,14 +734,21 @@ constructor(
     fun confirmActiveWorkoutDiscard(confirmed: Boolean) {
         if (!manual.value.busy)
             mutableManual.update {
-                it.copy(activeWorkoutDiscardConfirmed = confirmed, feedback = null)
+                it.copy(
+                    activeWorkoutDiscardConfirmed = confirmed,
+                    feedbackFailureReason = null,
+                    feedback = null
+                )
             }
     }
 
     fun holdGuidance() {
         if (!manual.value.busy)
             mutableManual.update {
-                it.copy(feedback = "Press and hold to confirm this whole-backup change.")
+                it.copy(
+                    feedbackFailureReason = null,
+                    feedback = "Press and hold to confirm this whole-backup change."
+                )
             }
     }
 
@@ -776,6 +814,7 @@ constructor(
                     mutableManual.update {
                         it.copy(
                             review = null,
+                            feedbackFailureReason = null,
                             feedback = message,
                             resolution = null,
                             destructiveConfirmed = false,
@@ -795,7 +834,12 @@ constructor(
                 }
                 BackupActionResult.Cancelled -> {
                     discardReview()
-                    mutableManual.update { it.copy(feedback = "Manual operation cancelled.") }
+                    mutableManual.update {
+                        it.copy(
+                            feedbackFailureReason = null,
+                            feedback = "Manual operation cancelled."
+                        )
+                    }
                 }
                 BackupActionResult.Unavailable -> {
                     discardReview()
@@ -840,7 +884,7 @@ constructor(
                 !cancellationRequired ||
                     accountGateway.cancelDataChoice() == AccountActionResult.Completed
             ) {
-                mutableManual.update { it.copy(feedback = null) }
+                mutableManual.update { it.copy(feedbackFailureReason = null, feedback = null) }
                 refreshBackupStatus()
                 onLeave()
             }
@@ -867,7 +911,7 @@ constructor(
                 manual.value.accountDeletion.busy
         )
             return
-        mutableManual.update { it.copy(busy = true, feedback = null) }
+        mutableManual.update { it.copy(busy = true, feedbackFailureReason = null, feedback = null) }
         viewModelScope.launch {
             try {
                 action()
@@ -883,7 +927,13 @@ constructor(
     }
 
     private fun showFailure(reason: BackupFailureReason) {
-        mutableManual.update { it.copy(feedback = backupFailureMessage(reason)) }
+        mutableManual.update {
+            it.copy(
+                feedbackFailureReason = reason,
+                feedbackFailureVersion = it.feedbackFailureVersion + 1,
+                feedback = backupFailureMessage(reason)
+            )
+        }
     }
 
     private suspend fun refreshBackupStatus() {
@@ -893,6 +943,7 @@ constructor(
     private fun unavailable() {
         mutableManual.update {
             it.copy(
+                feedbackFailureReason = null,
                 feedback = "This manual action is not available. Your local data remains available."
             )
         }
