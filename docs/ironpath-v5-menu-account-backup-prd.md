@@ -331,9 +331,10 @@ global destinations instead of a second copy of Home, Plan, Active, and History.
 The drawer contains:
 
 1. Account and backup header
-2. `Manual`
-3. `AI & Privacy`
-4. `About IronPath`
+2. `AI & Privacy`
+3. `About IronPath`
+
+The Manual screen is retained for existing navigation state, with its drawer entry hidden.
 
 `Settings` is not shown until IronPath has at least one real user setting worth
 managing. DevTools, debug provider controls, and test-data actions remain outside the
@@ -1233,7 +1234,7 @@ Cover:
 
 A strong V5 demo shows:
 
-1. Open the new drawer and Manual from an existing local workout state.
+1. Open the drawer from an existing local workout.
 2. Show the AI & Privacy explanation and local-only account status.
 3. Sign in with Google and show that identity alone performs no upload.
 4. Open the manual-sync preview. Show the non-conflicting changes and the explicit

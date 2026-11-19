@@ -120,6 +120,59 @@ class RoomBackupStoreTest {
     }
 
     @Test
+    fun confirmedBackupAssociationIsDurableAndNeverChangesTrainingData() = runBlocking {
+        val database = databaseRule.database
+        database.recordDao().insertRecord(TestData.record(id = "associated-record"))
+        val store = RoomBackupStore(database, SequenceIdProvider("installation"))
+        store.markIncludedDataChanged()
+        val captured = store.capture()
+        assertTrue(store.associateForBackup(captured, AccountId("account")))
+        val reopened = RoomBackupStore(database, SequenceIdProvider("unused")).capture()
+        assertEquals(captured.metadata.copy(ownerUid = "account"), reopened.metadata)
+        assertEquals(captured.bundle, reopened.bundle)
+        assertTrue(database.backupDao().getBaselineChunks().isEmpty())
+        val snapshot = BackupSnapshotCodec().encode(captured.bundle)
+        val artifact =
+            RemoteBackupArtifact(
+                RemoteBackupSummary(
+                    "backup",
+                    1000,
+                    captured.metadata.installationId,
+                    snapshot.entityCounts
+                ),
+                1,
+                snapshot
+            )
+        assertTrue(store.recordBackup(reopened, AccountId("account"), artifact))
+        assertEquals(captured.bundle, store.capture().bundle)
+    }
+
+    @Test
+    fun confirmedBackupAssociationRejectsOwnerProfileRevisionAndSignOutRaces() = runBlocking {
+        val database = databaseRule.database
+        val store = RoomBackupStore(database, SequenceIdProvider("installation"))
+        database.recordDao().insertRecord(TestData.record(id = "untouched"))
+        val captured = store.capture()
+        val mutations =
+            listOf(
+                captured.metadata.copy(ownerUid = "other"),
+                captured.metadata.copy(profileGeneration = 1),
+                captured.metadata.copy(installationId = "another-installation"),
+                captured.metadata.copy(localChangeRevision = 1),
+                captured.metadata.copy(pendingSignOutUid = "account"),
+            )
+        for (changed in mutations) {
+            database.backupDao().updateMetadata(changed)
+            assertFalse(store.associateForBackup(captured, AccountId("account")))
+            assertEquals(changed, database.backupDao().getMetadata())
+            assertEquals(captured.bundle.personalRecords, store.capture().bundle.personalRecords)
+        }
+        database.backupDao().updateMetadata(captured.metadata)
+        database.sessionDao().startNewSession(TestData.session(), emptyList())
+        assertFalse(store.associateForBackup(captured, AccountId("account")))
+    }
+
+    @Test
     fun restore_requiresExplicitActiveSessionDiscardThenAtomicallyReplacesIncludedData() =
         runBlocking {
             val database = databaseRule.database
