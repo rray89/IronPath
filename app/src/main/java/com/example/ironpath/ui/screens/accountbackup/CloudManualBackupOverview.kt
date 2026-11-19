@@ -3,17 +3,27 @@ package com.example.ironpath.ui.screens.accountbackup
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.relocation.BringIntoViewRequester
+import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.error
+import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.unit.dp
+import com.example.ironpath.domain.backup.BackupFailureReason
 import com.example.ironpath.domain.backup.BackupStatus
 
 /** Shared credential-free presentation seam; release has no live cloud route or transport. */
@@ -24,6 +34,7 @@ internal fun CloudManualBackupOverview(
     onBackup: () -> Unit,
     onRefresh: () -> Unit,
 ) {
+    val failure = manual.cloudFailureReason()
     Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
         AccountSection(
             backupStatusLabel(manual.status),
@@ -37,6 +48,13 @@ internal fun CloudManualBackupOverview(
             AccountSection(
                 "LATEST COMPLETE CLOUD BACKUP",
                 "${completionTime(latest.completedAtEpochMillis)}\n${countSummary(latest.entityCounts)}"
+            )
+        }
+        failure?.let {
+            CloudBackupError(
+                it,
+                revealActionFailure = manual.feedbackFailureReason != null,
+                failureVersion = manual.feedbackFailureVersion
             )
         }
         Button(
@@ -62,21 +80,56 @@ internal fun CloudManualBackupOverview(
                         stateDescription = "Busy"
                     }
             )
-        if (
-            manual.status == BackupStatus.OfflinePending ||
-                manual.status is BackupStatus.NeedsAttention
+        manual.feedback
+            ?.takeIf { failure == null && manual.feedbackFailureReason == null }
+            ?.let {
+                Text(
+                    it,
+                    style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite }
+                )
+            }
+    }
+}
+
+@Composable
+private fun CloudBackupError(
+    reason: BackupFailureReason,
+    revealActionFailure: Boolean,
+    failureVersion: Long
+) {
+    val message = backupFailureMessage(reason)
+    val causeRequester = remember { BringIntoViewRequester() }
+    LaunchedEffect(reason, revealActionFailure, failureVersion) {
+        if (revealActionFailure) {
+            // Wait for the new heading to be placed; the whole card can exceed a large-text
+            // viewport.
+            withFrameNanos {}
+            causeRequester.bringIntoView()
+        }
+    }
+    Surface(
+        color = MaterialTheme.colorScheme.surfaceContainerLow,
+        modifier =
+            Modifier.fillMaxWidth().semantics(mergeDescendants = true) {
+                error(message)
+                liveRegion = LiveRegionMode.Assertive
+                stateDescription = "Backup failed"
+            },
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             Text(
-                "An interrupted request may have reached the cloud. Refresh to check the latest complete backup, then open a fresh preview to retry.",
-                style = MaterialTheme.typography.bodyMedium
+                message,
+                color = MaterialTheme.colorScheme.error,
+                style = MaterialTheme.typography.titleMedium,
+                modifier = Modifier.bringIntoViewRequester(causeRequester).semantics { heading() }
             )
-        }
-        manual.feedback?.let {
-            Text(
-                it,
-                style = MaterialTheme.typography.bodyMedium,
-                modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite }
-            )
+            cloudFailureRecovery(reason)?.let {
+                Text(it, style = MaterialTheme.typography.bodyMedium)
+            }
         }
     }
 }

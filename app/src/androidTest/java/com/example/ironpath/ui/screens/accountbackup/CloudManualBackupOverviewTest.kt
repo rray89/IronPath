@@ -1,19 +1,29 @@
 package com.example.ironpath.ui.screens.accountbackup
 
+import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Surface
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
 import com.example.ironpath.domain.backup.*
+import com.example.ironpath.ui.theme.Error
 import com.example.ironpath.ui.theme.IronPathTheme
+import com.example.ironpath.ui.theme.OnSurface
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Rule
 import org.junit.Test
 
@@ -21,6 +31,8 @@ class CloudManualBackupOverviewTest {
     @get:Rule val composeRule = createComposeRule()
     private var backups = 0
     private var refreshes = 0
+    private var ui by mutableStateOf(ManualBackupUiState())
+    private lateinit var scrollState: ScrollState
 
     @Test
     fun explicitActionsRemainReachableAtTwoHundredPercentPortrait() =
@@ -31,8 +43,15 @@ class CloudManualBackupOverviewTest {
         checkActions(DpSize(640.dp, 320.dp))
 
     @Test
-    fun unknownReceiptAnnouncesRefreshRecoveryAndDisablesActionsWhileBusy() {
-        setOverview(ManualBackupUiState(status = BackupStatus.OfflinePending, busy = true))
+    fun busyOperationDisablesActionsAndHidesEarlierError() {
+        setOverview(
+            ManualBackupUiState(
+                status = BackupStatus.OfflinePending,
+                busy = true,
+                feedback = DENIED,
+                feedbackFailureReason = BackupFailureReason.PermissionDenied
+            )
+        )
         composeRule.onNodeWithText("BACK UP NOW").performScrollTo().assertIsNotEnabled()
         composeRule.onNodeWithText("REFRESH BACKUP STATUS").performScrollTo().assertIsNotEnabled()
         composeRule
@@ -41,12 +60,88 @@ class CloudManualBackupOverviewTest {
                 SemanticsMatcher.expectValue(SemanticsProperties.LiveRegion, LiveRegionMode.Polite)
             )
         composeRule
+            .onNode(SemanticsMatcher.keyIsDefined(SemanticsProperties.Error))
+            .assertDoesNotExist()
+        composeRule.onNodeWithText(DENIED, useUnmergedTree = true).assertDoesNotExist()
+        assertEquals(0, backups)
+    }
+
+    @Test
+    fun deniedAccessIsRedAccessibleAndReachableAtTwoHundredPercentPortrait() =
+        checkDeniedAccess(DpSize(320.dp, 640.dp))
+
+    @Test
+    fun deniedAccessIsRedAccessibleAndReachableAtTwoHundredPercentLandscape() =
+        checkDeniedAccess(DpSize(640.dp, 320.dp))
+
+    @Test
+    fun repeatedRefreshAtBottomRevealsCauseAtTwoHundredPercentPortrait() =
+        checkRefreshRevealsCause(DpSize(320.dp, 640.dp))
+
+    @Test
+    fun repeatedRefreshAtBottomRevealsCauseAtTwoHundredPercentLandscape() =
+        checkRefreshRevealsCause(DpSize(640.dp, 320.dp))
+
+    @Test
+    fun restoredStatusAloneDoesNotRequestScrolling() {
+        setOverview(
+            ManualBackupUiState(status = BackupStatus.UpToDate(1000)),
+            DpSize(640.dp, 320.dp)
+        )
+        composeRule.onNodeWithText("REFRESH BACKUP STATUS").performScrollTo()
+        var previousScroll = 0
+        composeRule.runOnIdle {
+            previousScroll = scrollState.value
+            ui = ui.copy(status = BackupStatus.NeedsAttention(BackupFailureReason.PermissionDenied))
+        }
+        composeRule.runOnIdle { assertEquals(previousScroll, scrollState.value) }
+    }
+
+    @Test
+    fun unknownReceiptLeadsWithTypedCauseBeforeRefreshRecovery() {
+        setOverview(ManualBackupUiState(status = BackupStatus.OfflinePending))
+        val alert = composeRule.onNode(SemanticsMatcher.keyIsDefined(SemanticsProperties.Error))
+        alert.assert(
+            SemanticsMatcher.expectValue(SemanticsProperties.LiveRegion, LiveRegionMode.Assertive)
+        )
+        assertEquals(
+            "Offline — try again when connected.",
+            alert.fetchSemanticsNode().config[SemanticsProperties.Text].first().text
+        )
+        composeRule
             .onNodeWithText(
-                "An interrupted request may have reached the cloud. Refresh to check the latest complete backup, then open a fresh preview to retry."
+                "An interrupted request may have reached the cloud. When connected, refresh to check the latest complete backup, then open a fresh preview to retry.",
+                useUnmergedTree = true
             )
             .performScrollTo()
             .assertIsDisplayed()
-        assertEquals(0, backups)
+    }
+
+    @Test
+    fun repeatedActionsReplaceErrorAndSuccessStaysNeutralDespiteOlderErrorStatus() {
+        setOverview(
+            ManualBackupUiState(
+                status = BackupStatus.NeedsAttention(BackupFailureReason.PermissionDenied),
+                feedback = DENIED,
+                feedbackFailureReason = BackupFailureReason.PermissionDenied
+            )
+        )
+        repeat(2) {
+            composeRule.onNodeWithText("BACK UP NOW").performScrollTo().performClick()
+            composeRule.onNodeWithText("REFRESH BACKUP STATUS").performScrollTo().performClick()
+        }
+        composeRule.runOnIdle {
+            assertEquals(2, backups)
+            assertEquals(2, refreshes)
+            ui = ui.copy(feedback = "Manual cloud backup complete.", feedbackFailureReason = null)
+        }
+        composeRule
+            .onNode(SemanticsMatcher.keyIsDefined(SemanticsProperties.Error))
+            .assertDoesNotExist()
+        composeRule.onNodeWithText(DENIED, useUnmergedTree = true).assertDoesNotExist()
+        assertTextColorAndNoOverflow("Manual cloud backup complete.", OnSurface)
+        composeRule.runOnIdle { ui = ui.copy(feedback = "Manual operation cancelled.") }
+        assertTextColorAndNoOverflow("Manual operation cancelled.", OnSurface)
     }
 
     @Test
@@ -124,7 +219,91 @@ class CloudManualBackupOverviewTest {
         }
     }
 
-    private fun setOverview(ui: ManualBackupUiState, size: DpSize = DpSize(320.dp, 640.dp)) {
+    private fun checkDeniedAccess(size: DpSize) {
+        // Action failures must be visible even before the coordinator updates its status.
+        setOverview(
+            ManualBackupUiState(
+                status = BackupStatus.UpToDate(1000),
+                feedback = DENIED,
+                feedbackFailureReason = BackupFailureReason.PermissionDenied
+            ),
+            size
+        )
+        composeRule
+            .onNode(SemanticsMatcher.expectValue(SemanticsProperties.Error, DENIED))
+            .assert(
+                SemanticsMatcher.expectValue(
+                    SemanticsProperties.LiveRegion,
+                    LiveRegionMode.Assertive
+                )
+            )
+            .assert(
+                SemanticsMatcher.expectValue(SemanticsProperties.StateDescription, "Backup failed")
+            )
+        assertTextColorAndNoOverflow(DENIED, Error)
+        composeRule
+            .onNodeWithText(
+                "Check that you are using the intended account. After cloud access is restored, refresh backup status, then open a fresh backup preview.",
+                useUnmergedTree = true
+            )
+            .performScrollTo()
+            .assertIsDisplayed()
+        composeRule.onNodeWithText("An interrupted request", substring = true).assertDoesNotExist()
+        composeRule.onNodeWithText("BACK UP NOW").performScrollTo().assertIsEnabled().performClick()
+        composeRule
+            .onNodeWithText("REFRESH BACKUP STATUS")
+            .performScrollTo()
+            .assertIsEnabled()
+            .performClick()
+        composeRule.runOnIdle {
+            assertEquals(1, backups)
+            assertEquals(1, refreshes)
+        }
+    }
+
+    private fun checkRefreshRevealsCause(size: DpSize) {
+        setOverview(
+            ManualBackupUiState(status = BackupStatus.UpToDate(1000)),
+            size,
+            onRefresh = {
+                refreshes++
+                // Complete immediately to cover identical results coalesced within one frame.
+                ui =
+                    ui.copy(
+                        feedback = DENIED,
+                        feedbackFailureReason = BackupFailureReason.PermissionDenied,
+                        feedbackFailureVersion = ui.feedbackFailureVersion + 1
+                    )
+            }
+        )
+        repeat(2) {
+            composeRule.onNodeWithText("REFRESH BACKUP STATUS").performScrollTo().performClick()
+            // No manual scroll to the alert: the returned action error must reveal its own cause.
+            composeRule.onNodeWithText(DENIED, useUnmergedTree = true).assertIsDisplayed()
+        }
+        composeRule.runOnIdle { assertEquals(2, refreshes) }
+    }
+
+    private fun assertTextColorAndNoOverflow(
+        text: String,
+        color: androidx.compose.ui.graphics.Color
+    ) {
+        val layouts = mutableListOf<TextLayoutResult>()
+        composeRule
+            .onNodeWithText(text, useUnmergedTree = true)
+            .performScrollTo()
+            .assertIsDisplayed()
+            .performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(layouts) }
+        assertEquals(color, layouts.single().layoutInput.style.color)
+        assertFalse(layouts.single().hasVisualOverflow)
+    }
+
+    private fun setOverview(
+        state: ManualBackupUiState,
+        size: DpSize = DpSize(320.dp, 640.dp),
+        onRefresh: () -> Unit = { refreshes++ }
+    ) {
+        ui = state
         composeRule.setContent {
             DeviceConfigurationOverride(
                 DeviceConfigurationOverride.ForcedSize(size) then
@@ -132,12 +311,17 @@ class CloudManualBackupOverviewTest {
             ) {
                 IronPathTheme {
                     Surface {
-                        Column(Modifier.verticalScroll(rememberScrollState())) {
-                            CloudManualBackupOverview(ui, true, { backups++ }, { refreshes++ })
+                        scrollState = rememberScrollState()
+                        Column(Modifier.verticalScroll(scrollState).padding(24.dp)) {
+                            CloudManualBackupOverview(ui, true, { backups++ }, onRefresh)
                         }
                     }
                 }
             }
         }
+    }
+
+    private companion object {
+        const val DENIED = "Backup access was denied. Your local data remains available."
     }
 }
