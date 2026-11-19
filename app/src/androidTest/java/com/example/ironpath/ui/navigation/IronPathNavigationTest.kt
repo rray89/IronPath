@@ -408,20 +408,19 @@ class IronPathNavigationTest {
 
         val headerY =
             composeRule.onNodeWithText("LOCAL PROFILE").fetchSemanticsNode().positionInRoot.y
-        val manualY = composeRule.onNodeWithText("Manual").fetchSemanticsNode().positionInRoot.y
         val privacyY =
             composeRule.onNodeWithText("AI & Privacy").fetchSemanticsNode().positionInRoot.y
         val aboutY =
             composeRule.onNodeWithText("About IronPath").fetchSemanticsNode().positionInRoot.y
-        assertTrue(headerY < manualY)
-        assertTrue(manualY < privacyY)
+        assertTrue(headerY < privacyY)
+        composeRule.onNodeWithText("Manual").assertDoesNotExist()
         assertTrue(privacyY < aboutY)
         composeRule.onNodeWithText("Stored on this device").assertIsDisplayed()
         composeRule.onNodeWithText("Back up your training data").assertIsDisplayed()
         composeRule.onNodeWithText("Settings").assertDoesNotExist()
 
-        composeRule.onNodeWithText("Manual").performClick()
-        waitForRoute(Route.MANUAL)
+        composeRule.onNodeWithText("AI & Privacy").performClick()
+        waitForRoute(Route.AI_PRIVACY)
         composeRule
             .onNodeWithContentDescription("Back")
             .assertIsDisplayed()
@@ -430,10 +429,6 @@ class IronPathNavigationTest {
         composeRule.onNodeWithContentDescription("Menu").assertDoesNotExist()
         assertBottomBarDoesNotExist()
 
-        composeRule.onNodeWithContentDescription("Back").performClick()
-        waitForRoute(Route.HOME)
-
-        navigateFromDrawer("AI & Privacy", Route.AI_PRIVACY)
         composeRule.onNodeWithContentDescription("Back").performClick()
         waitForRoute(Route.HOME)
 
@@ -510,15 +505,15 @@ class IronPathNavigationTest {
     }
 
     @Test
-    fun manualRoundTrip_preservesPlannerSelectionAndReturnsToPlan() {
+    fun aboutRoundTrip_preservesPlannerSelectionAndReturnsToPlan() {
         enterApp()
         navigateToBottomDestination(Route.PLAN)
         waitForTag(TestTags.planDay(1))
         composeRule.onNodeWithTag(TestTags.planDay(1)).performClick().assertIsOn()
 
         composeRule.onNodeWithContentDescription("Menu").performClick()
-        composeRule.onNodeWithText("Manual").assertIsDisplayed().performClick()
-        waitForRoute(Route.MANUAL)
+        composeRule.onNodeWithText("About IronPath").assertIsDisplayed().performClick()
+        waitForRoute(Route.ABOUT)
         composeRule.onNodeWithContentDescription("Back").performClick()
         waitForRoute(Route.PLAN)
 

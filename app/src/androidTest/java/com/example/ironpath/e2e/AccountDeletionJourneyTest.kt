@@ -147,7 +147,7 @@ class AccountDeletionJourneyTest {
             .onNodeWithTag(TestTags.RECORD_WEIGHT)
             .performScrollTo()
             .performTextReplacement("100")
-        composeRule.onNodeWithText("SAVE").performScrollTo().performClick()
+        saveRecordAndWaitForList()
         waitForText("Post-recovery squat")
         assertEquals(
             "Post-recovery squat",
@@ -169,7 +169,7 @@ class AccountDeletionJourneyTest {
             .onNodeWithTag(TestTags.RECORD_WEIGHT)
             .performScrollTo()
             .performTextReplacement("110")
-        composeRule.onNodeWithText("SAVE").performScrollTo().performClick()
+        saveRecordAndWaitForList()
         waitForText("Post-second-recovery squat")
         assertEquals(
             setOf("Post-recovery squat", "Post-second-recovery squat"),
@@ -241,7 +241,7 @@ class AccountDeletionJourneyTest {
             .onNodeWithTag(TestTags.RECORD_WEIGHT)
             .performScrollTo()
             .performTextReplacement("100")
-        composeRule.onNodeWithText("SAVE").performScrollTo().performClick()
+        saveRecordAndWaitForList()
         waitForText("Post-delete squat")
         assertEquals(
             "Post-delete squat",
@@ -262,7 +262,7 @@ class AccountDeletionJourneyTest {
             .onNodeWithTag(TestTags.RECORD_WEIGHT)
             .performScrollTo()
             .performTextReplacement("105")
-        composeRule.onNodeWithText("SAVE").performScrollTo().performClick()
+        saveRecordAndWaitForList()
         waitForText("Post-recreate squat")
         assertEquals(
             setOf("Post-delete squat", "Post-recreate squat"),
@@ -342,7 +342,7 @@ class AccountDeletionJourneyTest {
             .onNodeWithTag(TestTags.RECORD_WEIGHT)
             .performScrollTo()
             .performTextReplacement("90")
-        composeRule.onNodeWithText("SAVE").performScrollTo().performClick()
+        saveRecordAndWaitForList()
         waitForText("Post-sign-out squat")
         assertEquals(1L, runBlocking { database.backupDao().getMetadata()?.profileGeneration })
 
@@ -361,7 +361,7 @@ class AccountDeletionJourneyTest {
             .onNodeWithTag(TestTags.RECORD_WEIGHT)
             .performScrollTo()
             .performTextReplacement("95")
-        composeRule.onNodeWithText("SAVE").performScrollTo().performClick()
+        saveRecordAndWaitForList()
         waitForText("Post-sign-out-recreate squat")
         assertEquals(
             setOf("Post-sign-out squat", "Post-sign-out-recreate squat"),
@@ -431,6 +431,12 @@ class AccountDeletionJourneyTest {
         composeRule.activityRule.scenario.recreate()
         waitForText("CONTINUE ON THIS DEVICE", timeoutMillis = 10_000)
         composeRule.onNodeWithText("No workout plan yet").assertDoesNotExist()
+    }
+
+    private fun saveRecordAndWaitForList() {
+        composeRule.onNodeWithText("SAVE").performScrollTo().performClick()
+        // The editor also contains the exercise name while the Room write is pending.
+        waitForText("ADD NEW RECORD")
     }
 
     private fun waitForText(text: String, timeoutMillis: Long = 5_000) {

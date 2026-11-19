@@ -4,8 +4,8 @@ on:
   push:
     branches: [main]
   pull_request:
-    # Validate stacked cloud sync and restore while their reviewed dependencies are unmerged.
-    branches: [main, codex/feat11.4.4-cloud-backup, codex/feat11.4.5-cloud-sync, codex/feat11.4.6-cloud-restore]
+    # Run stacked restore and deletion candidates against their open dependencies.
+    branches: [main, codex/feat11.4.5-cloud-sync, codex/feat11.4.6-cloud-restore]
 
 concurrency:
   group: android-ci-${{ github.event.pull_request.number || github.ref }}

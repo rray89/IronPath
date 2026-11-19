@@ -46,7 +46,6 @@ constructor(
                 token
             },
             authorized = ::authorized,
-            rollbackAuthorized = ::sameSession,
         )
     }
 }

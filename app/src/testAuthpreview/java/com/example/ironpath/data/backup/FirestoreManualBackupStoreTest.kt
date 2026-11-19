@@ -100,6 +100,36 @@ class FirestoreManualBackupStoreTest {
     }
 
     @Test
+    fun fakeRejectsBlindDuplicateAndReadAfterWriteTransactions() = runTest {
+        val client = Client()
+        assertTrue(
+            runCatching { client.transaction { put("users/owner", buildJsonObject {}) } }.isFailure
+        )
+        assertTrue(
+            runCatching {
+                    client.transaction {
+                        get("users/owner")
+                        put("users/owner", buildJsonObject {})
+                        delete("users/owner")
+                    }
+                }
+                .isFailure
+        )
+        assertTrue(
+            runCatching {
+                    client.transaction {
+                        get("users/owner")
+                        put("users/owner", buildJsonObject {})
+                        get("users/owner/backups/new")
+                    }
+                }
+                .isFailure
+        )
+        assertTrue(client.documents.isEmpty())
+        assertEquals(0, client.writes)
+    }
+
+    @Test
     fun inspectionNeverWritesOrFetchesChunks() = runTest {
         val f = Fixture()
         assertEquals(RemoteBackupInspection.Absent(), f.store.inspect(f.owner))
@@ -339,15 +369,24 @@ class FirestoreManualBackupStoreTest {
         }
 
         override suspend fun transaction(block: suspend FirestoreBackupTransaction.() -> Unit) {
-            val staged = documents.toMutableMap()
+            val snapshot = documents.toMap()
+            val staged = snapshot.toMutableMap()
+            val readPaths = mutableSetOf<String>()
+            val mutatedPaths = mutableSetOf<String>()
             var chunk = false
             var complete = false
             var count = 0
             val transaction =
                 object : FirestoreBackupTransaction {
-                    override suspend fun get(path: String) = this@Client.get(path)
+                    override suspend fun get(path: String): JsonObject? {
+                        check(mutatedPaths.isEmpty())
+                        readPaths += path
+                        reads += path
+                        return snapshot[path]
+                    }
 
                     override fun put(path: String, fields: JsonObject, serverTimes: Set<String>) {
+                        check(path in readPaths && mutatedPaths.add(path))
                         staged[path] =
                             JsonObject(
                                 fields +
@@ -361,6 +400,7 @@ class FirestoreManualBackupStoreTest {
                     }
 
                     override fun delete(path: String) {
+                        check(path in readPaths && mutatedPaths.add(path))
                         if (failCleanup)
                             throw CloudBackupFailure(BackupFailureReason.PermissionDenied)
                         staged.remove(path)
@@ -368,6 +408,8 @@ class FirestoreManualBackupStoreTest {
                     }
                 }
             transaction.block()
+            if (readPaths.any { documents[it] != snapshot[it] })
+                throw CloudBackupFailure(BackupFailureReason.ConcurrentRemoteChange)
             documents.clear()
             documents.putAll(staged)
             writes += count
