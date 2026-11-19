@@ -36,6 +36,12 @@ data class ManualBackupUiState(
     val destructiveConfirmed: Boolean = false,
     val activeWorkoutDiscardConfirmed: Boolean = false,
     val feedback: String? = null,
+    /** Typed severity for the current feedback; ordinary messages clear it. */
+    val feedbackFailureReason: BackupFailureReason? = null,
+    /**
+     * Distinguishes repeated identical failures, including operations that finish within a frame.
+     */
+    val feedbackFailureVersion: Long = 0,
     val signOutReview: SignOutReviewUiState? = null,
     val signOutBusy: Boolean = false,
     /** Count committed local profile resets for UI state consumers. */

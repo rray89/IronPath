@@ -2,6 +2,7 @@ package com.example.ironpath.data.backup
 
 import com.example.ironpath.domain.backup.BackupFailureReason
 import com.sun.net.httpserver.HttpServer
+import java.io.ByteArrayInputStream
 import java.net.InetSocketAddress
 import kotlinx.coroutines.*
 import kotlinx.serialization.json.*
@@ -15,9 +16,15 @@ class FirestoreBackupRestClientTest {
     private var body = "{}"
     private var aborts = 0
     private var commits = 0
+    private var commitStatus = 200
+    private var commitErrorStatus = "ABORTED"
     private var authorized = true
     private var loseCommitResponse = false
-    private var rollbackStatus = 200
+    private var beginStatus = 200
+    private var batchReadTime = "2026-09-30T00:00:01Z"
+    private var batchUpdateTime = "2026-09-30T00:00:00.123456Z"
+    private val missingPaths = mutableSetOf<String>()
+    private var batchOverride: ((JsonObject) -> String)? = null
     private val server =
         HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0).apply {
             createContext("/") { exchange ->
@@ -28,15 +35,61 @@ class FirestoreBackupRestClientTest {
                 var code = status
                 val response =
                     when {
-                        path.endsWith(":beginTransaction") -> "{\"transaction\":\"tx+/=\"}"
-                        path.endsWith(":batchGet") ->
-                            "[{\"found\":{\"name\":\"projects/demo-ironpath/databases/(default)/documents/users/owner\",\"fields\":{\"generation\":{\"integerValue\":\"0\"}}}}]"
-                        path.endsWith(":rollback") -> {
-                            code = rollbackStatus
-                            "{}"
+                        path.endsWith(":beginTransaction") -> {
+                            code = beginStatus
+                            "{\"transaction\":\"tx+/=\"}"
+                        }
+                        path.endsWith(":batchGet") -> {
+                            val request = Json.parseToJsonElement(incoming).jsonObject
+                            batchOverride?.invoke(request)
+                                ?: run {
+                                    val name =
+                                        request
+                                            .getValue("documents")
+                                            .jsonArray
+                                            .single()
+                                            .jsonPrimitive
+                                            .content
+                                    JsonArray(
+                                            listOf(
+                                                buildJsonObject {
+                                                    put("readTime", batchReadTime)
+                                                    if (
+                                                        name.substringAfter("/documents/") in
+                                                            missingPaths
+                                                    )
+                                                        put("missing", name)
+                                                    else
+                                                        put(
+                                                            "found",
+                                                            buildJsonObject {
+                                                                put("name", name)
+                                                                put("updateTime", batchUpdateTime)
+                                                                put(
+                                                                    "fields",
+                                                                    buildJsonObject {
+                                                                        put(
+                                                                            "generation",
+                                                                            buildJsonObject {
+                                                                                put(
+                                                                                    "integerValue",
+                                                                                    "0"
+                                                                                )
+                                                                            }
+                                                                        )
+                                                                    }
+                                                                )
+                                                            }
+                                                        )
+                                                }
+                                            )
+                                        )
+                                        .toString()
+                                }
                         }
                         path.endsWith(":commit") -> {
                             commits++
+                            if (code == 200) code = commitStatus
                             if (aborts > 0) {
                                 aborts--
                                 code = 409
@@ -45,7 +98,8 @@ class FirestoreBackupRestClientTest {
                                 exchange.close()
                                 return@createContext
                             }
-                            if (code == 409) "{\"error\":{\"status\":\"ABORTED\"}}" else "{}"
+                            if (code >= 400) "{\"error\":{\"status\":\"$commitErrorStatus\"}}"
+                            else "{}"
                         }
                         else -> body
                     }
@@ -81,6 +135,21 @@ class FirestoreBackupRestClientTest {
         )
         assertEquals(JsonNull, fields["empty"])
         assertTrue(requests.all { "test-token" !in it.first })
+    }
+
+    @Test
+    fun sameSessionCanInspectWhenOrdinaryReadSucceedsButExplicitBeginIsDenied() = runBlocking {
+        body = "{\"fields\":{\"generation\":{\"integerValue\":\"0\"}}}"
+        beginStatus = 403
+        val subject = client()
+        assertEquals(0, subject.get("users/owner")!!.getValue("generation").jsonPrimitive.int)
+
+        subject.transaction {
+            assertEquals(0, get("users/owner")!!.getValue("generation").jsonPrimitive.int)
+        }
+
+        assertEquals(0, commits)
+        assertTrue(requests.none { it.first.endsWith(":beginTransaction") })
     }
 
     @Test
@@ -121,7 +190,11 @@ class FirestoreBackupRestClientTest {
         assertEquals(3, callbacks)
         assertEquals(3, commits)
         val commit = Json.parseToJsonElement(requests.last().second).jsonObject
-        assertEquals("tx+/=", commit.getValue("transaction").jsonPrimitive.content)
+        assertFalse("transaction" in commit)
+        assertEquals(
+            buildJsonObject { put("updateTime", batchUpdateTime) },
+            commit.getValue("writes").jsonArray.single().jsonObject["currentDocument"]
+        )
         assertEquals(
             "REQUEST_TIME",
             commit
@@ -137,16 +210,15 @@ class FirestoreBackupRestClientTest {
                 .jsonPrimitive
                 .content
         )
-        val read = requests.first { it.first.endsWith(":batchGet") }
-        assertEquals(
-            "tx+/=",
-            Json.parseToJsonElement(read.second)
-                .jsonObject
-                .getValue("transaction")
-                .jsonPrimitive
-                .content
+        assertTrue(
+            requests
+                .filter { it.first.endsWith(":batchGet") }
+                .all {
+                    val read = Json.parseToJsonElement(it.second).jsonObject
+                    "readTime" !in read && "transaction" !in read && "newTransaction" !in read
+                }
         )
-        assertTrue(requests.none { "?transaction=" in it.first })
+        assertTrue(requests.none { it.first.endsWith(":beginTransaction") })
     }
 
     @Test
@@ -154,7 +226,12 @@ class FirestoreBackupRestClientTest {
         status = 403
         assertEquals(
             BackupFailureReason.PermissionDenied,
-            (runCatching { client().transaction { put("users/owner", buildJsonObject {}) } }
+            (runCatching {
+                        client().transaction {
+                            get("users/owner")
+                            put("users/owner", buildJsonObject {})
+                        }
+                    }
                     .exceptionOrNull() as CloudBackupFailure)
                 .reason
         )
@@ -169,8 +246,7 @@ class FirestoreBackupRestClientTest {
     }
 
     @Test
-    fun callbackFailureRollsBackBeforeCommitWithoutReplacingOriginalFailure() = runBlocking {
-        rollbackStatus = 503
+    fun callbackFailureNeedsNoRollbackAndPreservesOriginalFailure() = runBlocking {
         val original = CloudBackupFailure(BackupFailureReason.ConcurrentRemoteChange)
         val error =
             runCatching {
@@ -184,42 +260,41 @@ class FirestoreBackupRestClientTest {
         assertSame(original, error)
         assertEquals(0, commits)
         assertEquals(
-            listOf(":beginTransaction", ":batchGet", ":rollback"),
+            listOf(":batchGet"),
             requests.map { ":" + it.first.substringAfterLast(":") },
         )
-        val rollback = Json.parseToJsonElement(requests.last().second).jsonObject
-        assertEquals("tx+/=", rollback.getValue("transaction").jsonPrimitive.content)
     }
 
     @Test
-    fun cancellationBeforeCommitRollsBackAndStillPropagatesCancellation() = runBlocking {
-        var cancelled = false
-        val task = launch {
-            val operation = currentCoroutineContext()[Job]!!
-            val subject =
-                FirestoreBackupRestClient(
-                    "demo-ironpath",
-                    { "test-token" },
-                    { authorized && operation.isActive },
-                    "http://127.0.0.1:${server.address.port}/v1",
-                    rollbackAuthorized = { authorized },
-                )
-            try {
-                subject.transaction {
-                    get("users/owner")
-                    currentCoroutineContext().cancel()
-                    currentCoroutineContext().ensureActive()
+    fun cancellationBeforeCommitSendsNoWriteOrCleanupAndStillPropagatesCancellation() =
+        runBlocking {
+            var cancelled = false
+            val task = launch {
+                val operation = currentCoroutineContext()[Job]!!
+                val subject =
+                    FirestoreBackupRestClient(
+                        "demo-ironpath",
+                        { "test-token" },
+                        { authorized && operation.isActive },
+                        "http://127.0.0.1:${server.address.port}/v1",
+                    )
+                try {
+                    subject.transaction {
+                        get("users/owner")
+                        currentCoroutineContext().cancel()
+                        currentCoroutineContext().ensureActive()
+                    }
+                } catch (error: CancellationException) {
+                    cancelled = true
                 }
-            } catch (error: CancellationException) {
-                cancelled = true
             }
-        }
-        task.join()
+            task.join()
 
-        assertTrue(cancelled)
-        assertEquals(0, commits)
-        assertTrue(requests.last().first.endsWith(":rollback"))
-    }
+            assertTrue(cancelled)
+            assertEquals(0, commits)
+            assertEquals(1, requests.size)
+            assertTrue(requests.single().first.endsWith(":batchGet"))
+        }
 
     @Test
     fun sessionChangeBeforeCommitDoesNotSendCleanupWithChangedIdentity() = runBlocking {
@@ -235,7 +310,7 @@ class FirestoreBackupRestClientTest {
                 .exceptionOrNull()
 
         assertSame(original, error)
-        assertEquals(2, requests.size)
+        assertEquals(1, requests.size)
         assertEquals(0, commits)
     }
 
@@ -243,7 +318,12 @@ class FirestoreBackupRestClientTest {
     fun lostCommitResponseIsNotReplayed() = runBlocking {
         loseCommitResponse = true
         val error =
-            runCatching { client().transaction { put("users/owner", buildJsonObject {}) } }
+            runCatching {
+                    client().transaction {
+                        get("users/owner")
+                        put("users/owner", buildJsonObject {})
+                    }
+                }
                 .exceptionOrNull() as CloudBackupFailure
         assertEquals(BackupFailureReason.Offline, error.reason)
         assertEquals(1, commits)
@@ -254,8 +334,13 @@ class FirestoreBackupRestClientTest {
     fun abortedRetryIsBoundedAndUnknownWireTypesFailClosed() = runBlocking {
         aborts = 4
         val error =
-            runCatching { client().transaction { delete("users/owner") } }.exceptionOrNull()
-                as CloudBackupFailure
+            runCatching {
+                    client().transaction {
+                        get("users/owner")
+                        delete("users/owner")
+                    }
+                }
+                .exceptionOrNull() as CloudBackupFailure
         assertEquals(BackupFailureReason.ConcurrentRemoteChange, error.reason)
         assertEquals(3, commits)
         body = "{\"fields\":{\"forbidden\":{\"bytesValue\":\"AA==\"}}}"
@@ -264,5 +349,153 @@ class FirestoreBackupRestClientTest {
             (runCatching { client().get("users/owner") }.exceptionOrNull() as CloudBackupFailure)
                 .reason
         )
+    }
+
+    @Test
+    fun dependentReadsShareServerSnapshotAndReadOnlyInspectionNeverCommits() = runBlocking {
+        client().transaction {
+            get("users/owner")
+            get("users/owner/backups/complete")
+            get("users/owner")
+        }
+        assertEquals(2, requests.size)
+        val first = Json.parseToJsonElement(requests[0].second).jsonObject
+        val second = Json.parseToJsonElement(requests[1].second).jsonObject
+        assertFalse("readTime" in first)
+        assertEquals(batchReadTime, second.getValue("readTime").jsonPrimitive.content)
+        assertEquals(0, commits)
+    }
+
+    @Test
+    fun commitGuardsCreationDeletionAndEveryUnwrittenReadIncludingAbsence() = runBlocking {
+        missingPaths += "users/owner/backups/new"
+        missingPaths += "users/owner/backups/absent"
+        client().transaction {
+            get("users/owner")
+            get("users/owner/backups/new")
+            get("users/owner/backups/old")
+            get("users/owner/backups/absent")
+            put("users/owner/backups/new", buildJsonObject { put("generation", 1) })
+            delete("users/owner/backups/old")
+        }
+        val writes =
+            Json.parseToJsonElement(requests.last().second)
+                .jsonObject
+                .getValue("writes")
+                .jsonArray
+                .map { it.jsonObject }
+        assertEquals(4, writes.size)
+        assertEquals(buildJsonObject { put("exists", false) }, writes[0]["currentDocument"])
+        assertTrue(writes[1].getValue("delete").jsonPrimitive.content.endsWith("/backups/old"))
+        assertEquals(
+            buildJsonObject { put("updateTime", batchUpdateTime) },
+            writes[1]["currentDocument"]
+        )
+        assertTrue(writes[2].getValue("verify").jsonPrimitive.content.endsWith("/users/owner"))
+        assertEquals(writes[1]["currentDocument"], writes[2]["currentDocument"])
+        assertTrue(writes[3].getValue("verify").jsonPrimitive.content.endsWith("/backups/absent"))
+        assertEquals(writes[0]["currentDocument"], writes[3]["currentDocument"])
+    }
+
+    @Test
+    fun writePermissionIsIndependentFromSuccessfulInspectionAndNeverRetried() = runBlocking {
+        client().transaction { get("users/owner") }
+        commitStatus = 403
+        val failure =
+            runCatching {
+                    client().transaction {
+                        get("users/owner")
+                        put("users/owner", buildJsonObject {})
+                    }
+                }
+                .exceptionOrNull() as CloudBackupFailure
+        assertEquals(BackupFailureReason.PermissionDenied, failure.reason)
+        assertEquals(1, commits)
+    }
+
+    @Test
+    fun blindWritesDuplicateWritesAndReadsAfterWritesFailBeforeCommit() = runBlocking {
+        assertTrue(
+            runCatching { client().transaction { put("users/owner", buildJsonObject {}) } }
+                .isFailure
+        )
+        assertTrue(
+            runCatching {
+                    client().transaction {
+                        get("users/owner")
+                        put("users/owner", buildJsonObject {})
+                        put("users/owner", buildJsonObject {})
+                    }
+                }
+                .isFailure
+        )
+        assertTrue(
+            runCatching {
+                    client().transaction {
+                        get("users/owner")
+                        delete("users/owner")
+                        get("users/owner/backups/other")
+                    }
+                }
+                .isFailure
+        )
+        assertEquals(0, commits)
+    }
+
+    @Test
+    fun mismatchedSnapshotTimeCannotBecomeACompletedInspection() = runBlocking {
+        val failure =
+            runCatching {
+                    client().transaction {
+                        get("users/owner")
+                        batchReadTime = "2026-09-30T00:00:02Z"
+                        get("users/owner/backups/complete")
+                    }
+                }
+                .exceptionOrNull()
+        assertEquals(BackupFailureReason.ServiceUnavailable, (failure as CloudBackupFailure).reason)
+        assertEquals(0, commits)
+    }
+
+    @Test
+    fun failedVersionPreconditionAndAlreadyExistsRequireReviewWithoutRetry() = runBlocking {
+        for ((http, status) in listOf(400 to "FAILED_PRECONDITION", 409 to "ALREADY_EXISTS")) {
+            commitStatus = http
+            commitErrorStatus = status
+            val before = commits
+            val failure =
+                runCatching {
+                        client().transaction {
+                            get("users/owner")
+                            put("users/owner", buildJsonObject {})
+                        }
+                    }
+                    .exceptionOrNull() as CloudBackupFailure
+            assertEquals(BackupFailureReason.ConcurrentRemoteChange, failure.reason)
+            assertEquals(before + 1, commits)
+        }
+    }
+
+    @Test
+    fun fragmentedStructuredErrorIsReadCompletelyButOversizeOrPartialJsonIsRejected() {
+        val error = """{"error":{"status":"FAILED_PRECONDITION"}}""".toByteArray()
+        val fragmented =
+            object : ByteArrayInputStream(error) {
+                override fun read(bytes: ByteArray, offset: Int, length: Int) =
+                    super.read(bytes, offset, minOf(3, length))
+            }
+        assertEquals("FAILED_PRECONDITION", firestoreRestErrorStatus(fragmented))
+        assertNull(firestoreRestErrorStatus(ByteArrayInputStream(error.copyOf(error.size - 1))))
+        assertNull(firestoreRestErrorStatus(ByteArrayInputStream(error + ByteArray(8193))))
+    }
+
+    @Test
+    fun malformedReadEnvelopeIsAServiceFailureWithoutClaimingCorruptBackup() = runBlocking {
+        batchOverride = { """[{"missing":"wrong/path","readTime":"$batchReadTime"}]""" }
+        val failure =
+            runCatching { client().transaction { get("users/owner") } }.exceptionOrNull()
+                as CloudBackupFailure
+        assertEquals(BackupFailureReason.ServiceUnavailable, failure.reason)
+        assertEquals(0, commits)
     }
 }

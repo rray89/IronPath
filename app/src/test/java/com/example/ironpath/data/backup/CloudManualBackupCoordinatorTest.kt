@@ -560,6 +560,55 @@ class CloudManualBackupCoordinatorTest {
     }
 
     @Test
+    fun newerCompleteBackupFromAnotherInstallationBlocksOwnedProfilesPreviewAndUpload() = runTest {
+        val f = Fixture()
+        val first = (f.subject.previewBackup() as BackupPreviewResult.Ready).preview
+        assertEquals(BackupActionResult.Completed, f.subject.confirmBackup(first.id))
+        val deviceA = f.local.value
+        val account = f.session.readSession()!!.id
+        assertEquals(account.opaqueValue, deviceA.metadata.ownerUid)
+        assertEquals(1L, deviceA.metadata.lastObservedRemoteGeneration)
+        assertEquals(1L, deviceA.baseline!!.generation)
+        assertEquals(deviceA.metadata.installationId, deviceA.baseline.summary.sourceInstallationId)
+        assertEquals(1, f.remote.publishes)
+
+        val deviceBSnapshot =
+            BackupSnapshotCodec()
+                .encode(
+                    deviceA.bundle.copy(
+                        localChangeRevision = 2,
+                        personalRecords =
+                            deviceA.bundle.personalRecords.map { it.copy(weightKg = 60.0) }
+                    )
+                )
+        val deviceB =
+            (f.remote.publish(account, 1, "installation-b", deviceBSnapshot)
+                    as RemoteBackupPublish.Completed)
+                .backup
+        assertEquals(2L, deviceB.generation)
+        assertNotEquals(deviceA.metadata.installationId, deviceB.summary.sourceInstallationId)
+        assertNotEquals(deviceA.baseline.summary.backupId, deviceB.summary.backupId)
+        assertNotEquals(deviceA.baseline.snapshot.contentDigest, deviceB.snapshot.contentDigest)
+        val publishesAfterDeviceB = f.remote.publishes
+        assertEquals(2, publishesAfterDeviceB)
+
+        assertEquals(BackupLookupResult.Complete(deviceB.summary), f.subject.latestCompleteBackup())
+        assertEquals(BackupStatus.ReviewRequired, f.subject.status.value)
+        assertEquals(deviceA, f.local.value)
+        val preview = f.subject.previewBackup()
+        if (preview is BackupPreviewResult.Ready) f.subject.confirmBackup(preview.preview.id)
+
+        assertEquals(publishesAfterDeviceB, f.remote.publishes)
+        assertEquals(
+            BackupPreviewResult.Failed(BackupFailureReason.ConcurrentRemoteChange),
+            preview
+        )
+        assertEquals(BackupStatus.ReviewRequired, f.subject.status.value)
+        assertEquals(deviceB, f.remote.current)
+        assertEquals(deviceA, f.local.value)
+    }
+
+    @Test
     fun failedPublicationPreservesLocalOwnershipAndMapsQuota() = runTest {
         val f = Fixture()
         val preview = (f.subject.previewBackup() as BackupPreviewResult.Ready).preview
@@ -759,9 +808,13 @@ class CloudManualBackupCoordinatorTest {
                 ?: RemoteBackupRetention.Completed
         }
 
-        fun artifact(snapshot: EncodedBackupSnapshot) =
+        fun artifact(
+            snapshot: EncodedBackupSnapshot,
+            sourceInstallationId: String = "installation",
+            backupId: String = "backup"
+        ) =
             RemoteBackupArtifact(
-                RemoteBackupSummary("backup", 1000, "installation", snapshot.entityCounts),
+                RemoteBackupSummary(backupId, 1000, sourceInstallationId, snapshot.entityCounts),
                 1,
                 snapshot
             )
@@ -789,7 +842,9 @@ class CloudManualBackupCoordinatorTest {
             failure?.let {
                 return RemoteBackupPublish.Failed(it)
             }
-            current = artifact(snapshot).copy(generation = expectedGeneration + 1)
+            current =
+                artifact(snapshot, sourceInstallationId, "backup-${expectedGeneration + 1}")
+                    .copy(generation = expectedGeneration + 1)
             onPublished()
             if (loseReceipt) {
                 loseReceipt = false

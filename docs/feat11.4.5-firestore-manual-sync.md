@@ -1,14 +1,19 @@
 # Feat11.4.5 — Real manual sync
 
-Status: [PR66](https://github.com/rray89/IronPath/pull/66) in review; combined backup +
-sync product acceptance pending.
+Status: [PR66](https://github.com/rray89/IronPath/pull/66) in review; backup accepted
+and merged, real manual-sync product acceptance pending.
 
 ## Scope and decisions
 
 BOSS authorized this bounded slice on October 2, 2026, moving the human checkpoint
-to a usable combined real backup + sync candidate. It is stacked on the reviewed,
-unmerged PR65 commit `445e8171ca008c83013c998a770649a496ad2142`. This does not
-accept PR65 or authorize live configuration, device changes, or a merge.
+to a usable combined real backup + sync candidate. On November 19, 2026 the
+coordinator reported BOSS's manual acceptance and merge of PR65, then authorized
+integrating main `1e8143ed23c30bf48da2d6afa52ed1f27307bdf6` and retargeting PR66 to
+main for sync testing. This integration preserves the hidden Manual drawer entry,
+Firestore 403 fix, cross-device backup protection and actionable error presentation.
+The coordinator owns device delivery, private configuration and dependent PRs;
+this worker does not operate Seeker or production services. Sync acceptance and
+merge remain separate gates.
 
 The accepted V5 manual-sync flow and `ManualSyncMerger` remain authoritative.
 Seven durable entity categories participate; active workouts, drafts, credentials,
@@ -42,9 +47,13 @@ the young upload slot cannot be overwritten; its existing 24-hour server lease m
 expire before safe reclamation. Local training remains available. This slice does
 not add a durable queued sync or a background recovery worker.
 
-Payload inspection uses the existing REST transaction and
-[batchGet transaction snapshot](https://firebase.google.com/docs/firestore/reference/rest/v1/projects.databases.documents/batchGet).
-Status Refresh remains metadata-only. The checked-in rules are unchanged.
+Payload inspection uses main's optimistic client transaction: the first
+[batchGet](https://firebase.google.com/docs/firestore/reference/rest/v1/projects.databases.documents/batchGet)
+pins a server `readTime`, and pointer, manifest and chunks are read at that same
+snapshot. Preview/cancel never commit writes. Publication atomically checks the
+read versions through commit preconditions and verify operations. Neither sync nor
+backup calls the rejected `beginTransaction` endpoint or `rollback`. Status Refresh
+remains metadata-only. The checked-in rules are unchanged.
 
 ## Verification plan
 
@@ -57,11 +66,13 @@ Status Refresh remains metadata-only. The checked-in rules are unchanged.
   builds, JVM/core coverage, checked-in Firebase rules, and applicable cloud CI.
 - Local Android emulators and Seeker checks are deferred by BOSS; no device install,
   clear/uninstall, live backend write, or frozen PR65 APK replacement is permitted.
-- Two sequential independent Astra Ultra reviews before final PR delivery.
+- Current merge review follows the November 19 Claude Code gate, including two
+  sequential read-only rounds for this auth/data change. Historical Astra reviews
+  are supplemental evidence only; the PR records exact current base/head receipts.
 
 ## Local candidate and verified evidence
 
-Production revision `133a67a5e3e9ece96c1a21057f25c9b0dba09c5b` passed 450 debug
+Historical October candidate `133a67a5e3e9ece96c1a21057f25c9b0dba09c5b` passed 450 debug
 and 447 authpreview JVM tests, core coverage 90.88% line / 71.00% branch, 25 Firebase
 rules tests, and four actual Kotlin REST emulator cases (zero failures or skips).
 JDK21 lint for debug/benchmark/authpreview, debug/release/authpreview assembly and
@@ -69,7 +80,10 @@ instrumentation APK compilation passed. Release mapping excludes the live cloud
 coordinator, transport, Firebase account adapter and authpreview screen. Initial
 regression tests failed before the implementation and passed afterward. API29 UI,
 Room and journey execution is performed by cloud CI; local device execution remains
-deferred. The PR tracks final CI and the two review receipts.
+deferred. These historical counts do not validate the November integration head;
+the PR tracks its actual CI and current review receipts. New real REST emulator
+regressions deny BeginTransaction while exercising sync preview, cancellation,
+one-sided merging, both explicit conflict choices, denied commits and lost receipts.
 
 Build with JDK21 and the Android SDK, without private configuration:
 
@@ -87,6 +101,13 @@ as described in the [identity preview](feat11.4.3-google-identity-auth-preview.m
 No private values belong in source, public artifacts or this review packet.
 
 ## Combined acceptance (coordinator prepares the configured APK and live rules)
+
+Use the configured authpreview build of PR66's current remote head. From Home,
+open the hamburger drawer, then **Account & Backup**. Sign in with the intended
+test account, tap **REVIEW MANUAL SYNC**, inspect the counts, and use
+**CONFIRM MANUAL SYNC** only after selecting an explicit conflict outcome when
+required. **BACK TO ACCOUNT & BACKUP** cancels review. The hidden **Manual** drawer
+entry is unrelated to this action and must remain hidden.
 
 1. Sign in and verify that no training data uploads automatically.
 2. Preview and confirm backup with synthetic portfolio data; refresh its summary.

@@ -37,17 +37,34 @@ there is no service account, Firebase CLI token or alternate authentication path
 appear in URLs, logs, source or public artifacts.
 
 Official contracts: [Firebase REST authentication](https://firebase.google.com/docs/firestore/use-rest-api),
-[beginTransaction](https://cloud.google.com/firestore/docs/reference/rest/v1/projects.databases.documents/beginTransaction),
-[commit](https://cloud.google.com/firestore/docs/reference/rest/v1/projects.databases.documents/commit),
-[write transforms](https://firebase.google.com/docs/firestore/reference/rest/v1/Write).
-Transactional reads use official POST [batchGet](https://firebase.google.com/docs/firestore/reference/rest/v1/projects.databases.documents/batchGet), keeping transaction bytes in the JSON body; GET with a transaction query exposes [an emulator decoder bug](https://github.com/firebase/firebase-tools/issues/3293). Transactions commit chunks and metadata against observed generations. Server transforms use
-REQUEST_TIME. Only a structured ABORTED response permits a bounded retry inside the user's active
-manual operation. Fixed-length HTTP streaming prevents buffered POST replay after a lost response.
-HTTP timeout/cancellation does not prove server cancellation. Before attempting commit, callback
-failure or cancellation makes one best-effort official [rollback](https://firebase.google.com/docs/firestore/reference/rest/v1/projects.databases.documents/rollback)
-to release Standard transaction read locks. Cleanup has two-second connect/read limits, requires the
-original UID and session epoch, and preserves the original failure. An attempted commit with an
-unknown receipt is never replayed or interpreted as successfully rolled back.
+[mobile/web optimistic transactions](https://firebase.google.com/docs/firestore/transaction-data-contention),
+[batchGet and readTime](https://firebase.google.com/docs/firestore/reference/rest/v1/projects.databases.documents/batchGet),
+[atomic commit](https://firebase.google.com/docs/firestore/reference/rest/v1/projects.databases.documents/commit),
+[document preconditions](https://firebase.google.com/docs/firestore/reference/rest/v1/Precondition),
+and [write transforms](https://firebase.google.com/docs/firestore/reference/rest/v1/Write).
+
+The client uses optimistic concurrency without `beginTransaction`, `newTransaction`, transaction IDs
+or rollback. The first POST batchGet is strongly consistent; its server `readTime` pins every later
+read in that callback to the same snapshot, including missing documents. Read-only inspection ends
+without calling commit. All reads precede mutations; each mutation target must have been read and
+can be mutated once. One atomic commit attaches `currentDocument.updateTime` to existing targets or
+`exists: false` to absent targets. Every read dependency that is not mutated receives a `verify`
+operation, so generation/upload-slot reads also guard chunk writes and cleanup. This is the wire
+operation used by the official [Firebase JS transaction implementation](https://github.com/firebase/firebase-js-sdk/blob/main/packages/firestore/src/core/transaction.ts)
+and documented in the public [Firebase Android client protobuf](https://github.com/firebase/firebase-android-sdk/blob/master/firebase-firestore/src/proto/google/firestore/v1/write.proto)
+(it is not listed on the general REST Write reference page). These operations are exercised against
+the checked-in rules by the actual Kotlin REST emulator suite. No rules/schema change is required.
+
+Commits still compare the observed generation, preserve chunk immutability and use REQUEST_TIME
+server transforms. A structured HTTP 409 ABORTED permits at most three attempts inside the active
+manual operation. A failed version precondition or ALREADY_EXISTS enters conflict review without
+retry. Permission, quota, transport failures and unknown commit receipts never trigger replay.
+When a read mutation target is concurrently deleted, the checked-in rules can reject the update
+with PERMISSION_DENIED before a version error; the adapter preserves that typed denial without
+recreating the target or retrying. It does not relabel arbitrary permission failures as conflicts.
+Fixed-length HTTP streaming prevents buffered POST replay after a lost response. Callback failure
+or cancellation before commit requires no lock cleanup; no server transaction was opened. Timeout
+or cancellation after attempting commit still does not prove that no remote write occurred.
 
 The [bounded protocol](../firebase/test/manual-backup.protocol.mjs) and checked-in rules preserve at most two
 complete backups after successful retention, one upload slot, six immutable chunks per backup,
@@ -71,7 +88,12 @@ npm run test:transport --prefix firebase
 Actual Kotlin REST emulator tests use unsigned emulator-only identity tokens for `demo-ironpath`,
 with owner, cross-UID and unauthenticated requests evaluated by the real checked-in rules. They
 cover completion, generation conflicts, immutable resume, uncertain receipts and bounded retention.
-JVM tests cover coordinator and HTTP behavior; API 29 CI covers the real Room association transaction
+Additional actual-transport regressions deny explicit BeginTransaction at an isolated HTTP proxy
+while forwarding normal owner requests to the emulator rules. They exercise the real coordinator's
+explicit refresh, preview/cancel and confirm chain, independent commit denial, lost HTTP COMPLETE
+receipts and coordinator recreation. Direct rule-enforced tests also check historical readTime
+consistency, competing first creation, and an unchanged-generation upload claim invalidating a
+read-only dependency during cleanup. JVM tests cover coordinator and HTTP behavior; API 29 CI covers the real Room association transaction
 and shared credential-free cloud presentation at 200% font scale. The live transport and Firebase
 configuration remain absent from debug/release source sets.
 
@@ -81,10 +103,30 @@ Firestore `(default)`, Standard, regional `us-west1`. Publish the tested rules a
 the owner's controlled setup. Chunk payload indexing is exempted to avoid unnecessary index cost.
 No Cloud Functions, Storage or paid service is required. Public CI remains emulator-only.
 
+## November 18 transport incident and downstream boundary
+
+BOSS's supplied live evidence under the same Seeker sign-in session/project: an ordinary owner
+metadata GET was allowed, then explicit REST BeginTransaction returned HTTP 403 during Refresh,
+before upload. This does not establish that every transaction fails or that the UID is empty.
+The isolated regression failed on the old transport for that endpoint denial before this repair.
+The repair removes that endpoint dependency from reads and writes; successful reads alone still do
+not establish live write permission. A separate simulated commit denial must remain a typed error
+and must never produce Up to date.
+
+This slice keeps manual sync, restore, undo and deletion unavailable. The downstream
+`codex/feat11.4.5-cloud-sync` and `codex/feat11.4.6-cloud-restore` work must integrate this transport
+and revalidate their own operations, including the read-before-write/one-mutation-per-path contract.
+Their code and PRs are not changed here; their live acceptance is not implied by this repair.
+
 ## First Usable Slice acceptance — pending
 
-No real configured device or live service has been exercised by the implementation worker. Do not
+This repair uses no device operations or live Firebase requests. Automated checks and public CI use
+no private configuration. A configured candidate still requires the owner's controlled private build. Do not
 merge until BOSS accepts the configured candidate on the review device:
+
+On an account without a COMPLETE backup, successful Refresh and preview exercise only the first
+strong batchGet. Step 3 (confirmed upload, then restart/Refresh) is the first live proof of the
+readTime and verify operations. Passing steps 1–2 alone does not establish upload compatibility.
 
 1. With one local record and Google signed in, open Account & Backup. Verify cloud status Refresh
    does not upload and local training data remains unchanged.
