@@ -59,6 +59,9 @@ Commits still compare the observed generation, preserve chunk immutability and u
 server transforms. A structured HTTP 409 ABORTED permits at most three attempts inside the active
 manual operation. A failed version precondition or ALREADY_EXISTS enters conflict review without
 retry. Permission, quota, transport failures and unknown commit receipts never trigger replay.
+When a read mutation target is concurrently deleted, the checked-in rules can reject the update
+with PERMISSION_DENIED before a version error; the adapter preserves that typed denial without
+recreating the target or retrying. It does not relabel arbitrary permission failures as conflicts.
 Fixed-length HTTP streaming prevents buffered POST replay after a lost response. Callback failure
 or cancellation before commit requires no lock cleanup; no server transaction was opened. Timeout
 or cancellation after attempting commit still does not prove that no remote write occurred.
@@ -120,6 +123,10 @@ Their code and PRs are not changed here; their live acceptance is not implied by
 This repair uses no device operations or live Firebase requests. Automated checks and public CI use
 no private configuration. A configured candidate still requires the owner's controlled private build. Do not
 merge until BOSS accepts the configured candidate on the review device:
+
+On an account without a COMPLETE backup, successful Refresh and preview exercise only the first
+strong batchGet. Step 3 (confirmed upload, then restart/Refresh) is the first live proof of the
+readTime and verify operations. Passing steps 1–2 alone does not establish upload compatibility.
 
 1. With one local record and Google signed in, open Account & Backup. Verify cloud status Refresh
    does not upload and local training data remains unchanged.

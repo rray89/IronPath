@@ -3,6 +3,7 @@ package com.example.ironpath.data.backup
 import com.example.ironpath.domain.account.AccountId
 import com.example.ironpath.domain.backup.BackupFailureReason
 import java.io.IOException
+import java.io.InputStream
 import java.net.HttpURLConnection
 import java.net.URI
 import java.time.Instant
@@ -63,50 +64,24 @@ class FirestoreBackupRestClient(
                 object : FirestoreBackupTransaction {
                     override suspend fun get(path: String): JsonObject? {
                         validatePath(path)
-                        check(writes.isEmpty()) { "Read before writing" }
+                        if (writes.isNotEmpty()) protocolFailure()
                         reads[path]?.let {
                             return it.fields
                         }
-                        val result =
+                        val response =
                             request(
-                                    "POST",
-                                    "$documents:batchGet",
-                                    buildJsonObject {
-                                        put(
-                                            "documents",
-                                            JsonArray(listOf(JsonPrimitive("$documents/$path")))
-                                        )
-                                        readTime?.let { put("readTime", it) }
-                                    }
-                                )!!
-                                .jsonArray
-                                .single()
-                                .jsonObject
-                        val receivedTime = result.getValue("readTime").jsonPrimitive.content
-                        val instant = Instant.parse(receivedTime)
-                        require(instant.nano % 1_000 == 0)
-                        readTime?.let { require(Instant.parse(it) == instant) }
+                                "POST",
+                                "$documents:batchGet",
+                                buildJsonObject {
+                                    put(
+                                        "documents",
+                                        JsonArray(listOf(JsonPrimitive("$documents/$path")))
+                                    )
+                                    readTime?.let { put("readTime", it) }
+                                }
+                            )!!
+                        val (receivedTime, document) = readResponse(path, response, readTime)
                         readTime = receivedTime
-                        val document =
-                            if ("missing" in result) {
-                                require(
-                                    result.getValue("missing").jsonPrimitive.content ==
-                                        "$documents/$path"
-                                )
-                                ReadDocument(null, null)
-                            } else {
-                                val found = result.getValue("found").jsonObject
-                                require(
-                                    found.getValue("name").jsonPrimitive.content ==
-                                        "$documents/$path"
-                                )
-                                val version = found.getValue("updateTime").jsonPrimitive.content
-                                require(Instant.parse(version) <= instant)
-                                ReadDocument(
-                                    decodeFields(found["fields"]?.jsonObject ?: buildJsonObject {}),
-                                    version
-                                )
-                            }
                         reads[path] = document
                         return document.fields
                     }
@@ -114,7 +89,7 @@ class FirestoreBackupRestClient(
                     private fun write(path: String, operation: JsonObject) {
                         validatePath(path)
                         // No blind writes or repeated writes can escape the version guard.
-                        check(path in reads && path !in writes) { "Read each mutation target once" }
+                        if (path !in reads || path in writes) protocolFailure()
                         writes[path] =
                             JsonObject(
                                 operation +
@@ -191,6 +166,44 @@ class FirestoreBackupRestClient(
         }
     }
 
+    private fun readResponse(
+        path: String,
+        response: JsonElement,
+        expectedTime: String?
+    ): Pair<String, ReadDocument> =
+        try {
+            val result = response.jsonArray.single().jsonObject
+            require(("missing" in result) xor ("found" in result))
+            val readTime = result.getValue("readTime").jsonPrimitive.content
+            val instant = Instant.parse(readTime)
+            require(instant.nano % 1_000 == 0)
+            expectedTime?.let { require(Instant.parse(it) == instant) }
+            val document =
+                if ("missing" in result) {
+                    require(result.getValue("missing").jsonPrimitive.content == "$documents/$path")
+                    ReadDocument(null, null)
+                } else {
+                    val found = result.getValue("found").jsonObject
+                    require(found.getValue("name").jsonPrimitive.content == "$documents/$path")
+                    val version = found.getValue("updateTime").jsonPrimitive.content
+                    val updated = Instant.parse(version)
+                    require(updated.nano % 1_000 == 0 && updated <= instant)
+                    ReadDocument(
+                        decodeFields(found["fields"]?.jsonObject ?: buildJsonObject {}),
+                        version
+                    )
+                }
+            readTime to document
+        } catch (error: CloudBackupFailure) {
+            throw error
+        } catch (_: RuntimeException) {
+            // A malformed/inconsistent wire response is not evidence of corrupt backup content.
+            protocolFailure()
+        }
+
+    private fun protocolFailure(): Nothing =
+        throw CloudBackupFailure(BackupFailureReason.ServiceUnavailable)
+
     private suspend fun request(
         method: String,
         path: String,
@@ -225,24 +238,7 @@ class FirestoreBackupRestClient(
                 if (code == 409 || (code == 400 && path.endsWith(":commit"))) {
                     // HTTP 409 also represents ALREADY_EXISTS. Only structured ABORTED proves
                     // the transaction did not commit and permits a bounded in-request retry.
-                    val error =
-                        connection.errorStream
-                            ?.use { stream ->
-                                val bytes = ByteArray(8192)
-                                val count = stream.read(bytes)
-                                if (count < 0) "" else String(bytes, 0, count, Charsets.UTF_8)
-                            }
-                            .orEmpty()
-                    val status =
-                        runCatching {
-                                Json.parseToJsonElement(error)
-                                    .jsonObject["error"]
-                                    ?.jsonObject
-                                    ?.get("status")
-                                    ?.jsonPrimitive
-                                    ?.content
-                            }
-                            .getOrNull()
+                    val status = firestoreRestErrorStatus(connection.errorStream)
                     if (code == 409 && status == "ABORTED") throw FirestoreRestAborted()
                     if (code == 409 || status == "FAILED_PRECONDITION")
                         throw CloudBackupFailure(BackupFailureReason.ConcurrentRemoteChange)
@@ -352,4 +348,29 @@ class FirestoreBackupRestClient(
         const val MAX_RESPONSE_BYTES = 2 * 1024 * 1024
         val TIMESTAMPS = setOf("createdAt", "completedAt", "latestCompletedAt")
     }
+}
+
+/** Read a complete, bounded structured error; partial JSON must never authorize commit replay. */
+internal fun firestoreRestErrorStatus(input: InputStream?): String? {
+    val error =
+        input?.use { stream ->
+            val bytes = ByteArray(8193)
+            var size = 0
+            while (size < bytes.size) {
+                val count = stream.read(bytes, size, bytes.size - size)
+                if (count < 0) break
+                size += count
+            }
+            if (size > 8192) return null
+            String(bytes, 0, size, Charsets.UTF_8)
+        } ?: return null
+    return runCatching {
+            Json.parseToJsonElement(error)
+                .jsonObject["error"]
+                ?.jsonObject
+                ?.get("status")
+                ?.jsonPrimitive
+                ?.content
+        }
+        .getOrNull()
 }

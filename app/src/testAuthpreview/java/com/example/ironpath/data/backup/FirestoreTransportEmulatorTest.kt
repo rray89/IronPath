@@ -28,6 +28,52 @@ import org.junit.Test
 /** Run only through firestoreTransportTest inside demo-ironpath's Firestore emulator. */
 class FirestoreTransportEmulatorTest {
     @Test
+    fun firstConfirmedBackupCreatesMetadataThroughTheCoordinatorWithBeginDenied() = runBlocking {
+        val owner = "owner-${UUID.randomUUID()}"
+        DeniedBeginProxy().use { proxy ->
+            val transport = client(owner, proxy.endpoint)
+            val local = LocalFixture(snapshot())
+            val subject = coordinator(owner, local, transport)
+            assertEquals(BackupLookupResult.Absent, subject.latestCompleteBackup())
+            val preview = (subject.previewBackup() as BackupPreviewResult.Ready).preview
+            assertNull(transport.get("users/$owner"))
+            assertEquals(0, proxy.commits.get())
+            assertNull(local.value.metadata.ownerUid)
+            assertEquals(BackupActionResult.Completed, subject.confirmBackup(preview.id))
+            assertEquals(4, proxy.commits.get())
+            assertTrue(subject.status.value is BackupStatus.UpToDate)
+            assertEquals(owner, local.value.metadata.ownerUid)
+            assertEquals(1L, local.value.baseline!!.generation)
+        }
+    }
+
+    @Test
+    fun deletedMutationTargetFailsClosedWithoutRecreationOrRetry() = runBlocking {
+        val owner = "owner-${UUID.randomUUID()}"
+        seedMetadata(owner)
+        val transport = client(owner)
+        var callbacks = 0
+        val failure =
+            runCatching {
+                    transport.transaction {
+                        callbacks++
+                        val original = requireNotNull(get("users/$owner"))
+                        client(owner).transaction {
+                            get("users/$owner")
+                            delete("users/$owner")
+                        }
+                        put("users/$owner", original)
+                    }
+                }
+                .exceptionOrNull() as CloudBackupFailure
+        // These strict rules can reject the now-missing update target before its version check.
+        // Preserve that permission result; never reinterpret arbitrary 403s as retryable conflicts.
+        assertEquals(BackupFailureReason.PermissionDenied, failure.reason)
+        assertEquals(1, callbacks)
+        assertNull(transport.get("users/$owner"))
+    }
+
+    @Test
     fun explicitRefreshPreviewCancelAndConfirmWorkWithBeginDenied() = runBlocking {
         val owner = "owner-${UUID.randomUUID()}"
         seedMetadata(owner)

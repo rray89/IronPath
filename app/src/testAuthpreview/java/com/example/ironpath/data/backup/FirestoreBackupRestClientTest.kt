@@ -2,6 +2,7 @@ package com.example.ironpath.data.backup
 
 import com.example.ironpath.domain.backup.BackupFailureReason
 import com.sun.net.httpserver.HttpServer
+import java.io.ByteArrayInputStream
 import java.net.InetSocketAddress
 import kotlinx.coroutines.*
 import kotlinx.serialization.json.*
@@ -452,7 +453,7 @@ class FirestoreBackupRestClientTest {
                     }
                 }
                 .exceptionOrNull()
-        assertTrue(failure is IllegalArgumentException)
+        assertEquals(BackupFailureReason.ServiceUnavailable, (failure as CloudBackupFailure).reason)
         assertEquals(0, commits)
     }
 
@@ -473,5 +474,28 @@ class FirestoreBackupRestClientTest {
             assertEquals(BackupFailureReason.ConcurrentRemoteChange, failure.reason)
             assertEquals(before + 1, commits)
         }
+    }
+
+    @Test
+    fun fragmentedStructuredErrorIsReadCompletelyButOversizeOrPartialJsonIsRejected() {
+        val error = """{"error":{"status":"FAILED_PRECONDITION"}}""".toByteArray()
+        val fragmented =
+            object : ByteArrayInputStream(error) {
+                override fun read(bytes: ByteArray, offset: Int, length: Int) =
+                    super.read(bytes, offset, minOf(3, length))
+            }
+        assertEquals("FAILED_PRECONDITION", firestoreRestErrorStatus(fragmented))
+        assertNull(firestoreRestErrorStatus(ByteArrayInputStream(error.copyOf(error.size - 1))))
+        assertNull(firestoreRestErrorStatus(ByteArrayInputStream(error + ByteArray(8193))))
+    }
+
+    @Test
+    fun malformedReadEnvelopeIsAServiceFailureWithoutClaimingCorruptBackup() = runBlocking {
+        batchOverride = { """[{"missing":"wrong/path","readTime":"$batchReadTime"}]""" }
+        val failure =
+            runCatching { client().transaction { get("users/owner") } }.exceptionOrNull()
+                as CloudBackupFailure
+        assertEquals(BackupFailureReason.ServiceUnavailable, failure.reason)
+        assertEquals(0, commits)
     }
 }
