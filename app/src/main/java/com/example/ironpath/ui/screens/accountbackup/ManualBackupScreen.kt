@@ -160,7 +160,8 @@ internal fun ManualBackupReviewScreen(
     ui: ManualBackupUiState,
     actions: ManualBackupActions,
     onBack: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    demoStorage: Boolean = true,
 ) {
     val review = ui.review ?: return
     Column(
@@ -176,17 +177,28 @@ internal fun ManualBackupReviewScreen(
             },
             style = MaterialTheme.typography.headlineMedium
         )
-        DemoBackupNotice()
+        if (demoStorage) DemoBackupNotice()
+        else
+            AccountSection(
+                "MANUAL CLOUD BACKUP",
+                "Only confirming this preview uploads included training data to your Google account's IronPath backup."
+            )
         when (review) {
             is ManualReview.Backup -> {
                 AccountSection("INCLUDED TRAINING DATA", countSummary(review.preview.entityCounts))
                 if (review.preview.associationOnly)
                     Text(
-                        "There is no included training data. Confirming links this local profile to the demo account without creating an empty backup."
+                        if (demoStorage)
+                            "There is no included training data. Confirming links this local profile to the demo account without creating an empty backup."
+                        else
+                            "There is no included training data. Confirming associates this device with your account without creating an empty cloud backup."
                     )
                 else
                     Text(
-                        "Confirming saves a complete demo backup of the included training data. Your active workout is not included."
+                        if (demoStorage)
+                            "Confirming saves a complete demo backup of the included training data. Your active workout is not included."
+                        else
+                            "Confirming associates this local profile with your account, then uploads a complete cloud backup. The association remains if upload fails. Your active workout, AI drafts and credentials are excluded."
                     )
                 if (review.preview.requiresDestructiveConfirmation) {
                     AccountSection(
@@ -522,7 +534,7 @@ internal fun backupStatusLabel(status: BackupStatus): String =
         is BackupStatus.NeedsAttention -> "Needs attention"
     }
 
-private fun completionTime(millis: Long): String =
+internal fun completionTime(millis: Long): String =
     DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm", Locale.ROOT)
         .withZone(ZoneId.systemDefault())
         .format(Instant.ofEpochMilli(millis))

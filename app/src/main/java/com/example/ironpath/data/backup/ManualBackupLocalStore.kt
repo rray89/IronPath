@@ -16,6 +16,12 @@ interface ManualBackupLocalStore {
 
     suspend fun associateEmpty(captured: ManualBackupCapture, accountId: AccountId): Boolean
 
+    /**
+     * Persist explicit association before cloud writes; the owned profile survives lost receipts.
+     */
+    suspend fun associateForBackup(captured: ManualBackupCapture, accountId: AccountId): Boolean =
+        false
+
     suspend fun recordBackup(
         captured: ManualBackupCapture,
         accountId: AccountId,

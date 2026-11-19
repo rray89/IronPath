@@ -43,7 +43,7 @@ session. Firebase UID is the account identity. Startup and provider-session chan
 Firebase session state and local account context; they do not fetch remote backup data or associate
 local workouts.
 
-Cloud backup and Google account deletion are unavailable in this preview. Signing in does not
+This document records the identity-only baseline. The subsequent [feat11.4.4 manual cloud backup](feat11.4.4-firestore-manual-backup.md) adds explicitly confirmed backup and status refresh. Google account deletion remains unavailable. Signing in does not
 upload, restore, merge, or link training data. Sign-out offers Keep and confirmed Remove choices;
 Remove uses the existing durable local removal journal and recovery flow. It does not delete the
 Google account.
