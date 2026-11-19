@@ -13,7 +13,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material3.Icon
@@ -65,13 +64,6 @@ fun IronPathDrawer(
                 onOpenExperiencePreview = { openAccountExperiencePreview(onDestinationSelected) },
             )
             Spacer(Modifier.height(12.dp))
-            DrawerDestination(
-                label = "Manual",
-                route = Route.MANUAL,
-                icon = Icons.AutoMirrored.Filled.MenuBook,
-                selectedRoute = selectedRoute,
-                onDestinationSelected = onDestinationSelected,
-            )
             DrawerDestination(
                 label = "AI & Privacy",
                 route = Route.AI_PRIVACY,

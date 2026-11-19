@@ -17,8 +17,8 @@ private const val ACCOUNT_BACKUP_ROUTE = "account_backup"
 internal val accountExperienceEntryContent =
     AccountExperienceEntryContent(
         privacyCopy =
-            "Google sign-in identifies your account in this preview. Training data stays on this " +
-                "device and is not uploaded or associated. Cloud backup is unavailable.",
+            "Google sign-in identifies your account. Training data stays local until you review " +
+                "and confirm a manual cloud backup.",
         signInLabel = "SIGN IN WITH GOOGLE",
         signInNotice = "Signing in does not upload or associate local training data.",
     )
@@ -26,11 +26,10 @@ internal val accountExperienceEntryContent =
 internal val accountExperienceDrawerContent =
     AccountExperienceDrawerContent(
         contentDescription =
-            "Google account preview. Training data stays on this device and is not uploaded or " +
-                "associated. Cloud backup is unavailable in this preview. Open Google Account.",
-        stateDescription = "Google account preview. Cloud backup unavailable.",
-        title = "Google account preview",
-        actionLabel = "Cloud backup unavailable",
+            "Google account and manual cloud backup. Signing in does not upload training data. Open Account and Backup.",
+        stateDescription = "Google account and manual cloud backup.",
+        title = "Google account",
+        actionLabel = "Account & Backup",
     )
 
 internal fun NavHostController.openAccountExperiencePreview() {
@@ -74,4 +73,4 @@ internal fun isAccountExperiencePreviewRoute(route: String?): Boolean =
 internal fun isAccountBackupRoute(route: String?): Boolean = route == ACCOUNT_BACKUP_ROUTE
 
 internal fun accountExperiencePreviewTopBarTitle(route: String?): String? =
-    if (route == ACCOUNT_BACKUP_ROUTE) "GOOGLE ACCOUNT" else null
+    if (route == ACCOUNT_BACKUP_ROUTE) "ACCOUNT & BACKUP" else null

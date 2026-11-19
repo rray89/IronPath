@@ -5,7 +5,8 @@
     "node": ">=20"
   },
   "scripts": {
-    "test": "firebase emulators:exec --only firestore --project demo-ironpath --config firebase.json \"node --test test/*.test.mjs\""
+    "test": "firebase emulators:exec --only firestore --project demo-ironpath --config firebase.json \"node --test test/*.test.mjs\"",
+    "test:transport": "firebase emulators:exec --only firestore --project demo-ironpath --config firebase.json \"../gradlew --no-daemon --max-workers=2 --project-dir .. :app:firestoreTransportTest --console=plain\""
   },
   "devDependencies": {
     "@firebase/rules-unit-testing": "5.0.1",

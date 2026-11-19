@@ -2,15 +2,16 @@
 
 This directory contains only the local Firestore emulator configuration and the Security Rules
 source intended for a future manual deployment. It cannot reach a live Firebase project, needs no
-Google account or service credential, and does not enable IronPath sign-in or remote backup.
+Google account or service credential, and stores no live project identifiers or credentials. The authpreview manual-backup transport is documented in [feat11.4.4](../docs/feat11.4.4-firestore-manual-backup.md).
 
 ## Local and CI verification
 
-Requirements: Node 20, JDK 21, and the repository Gradle wrapper.
+Requirements: Node 22, JDK 21, and the repository Gradle wrapper.
 
 ```bash
 npm ci --prefix firebase
 ./gradlew firebaseRulesTest
+npm run test:transport --prefix firebase
 ```
 
 The Gradle task starts the Firestore emulator with Firebase's emulator-only `demo-ironpath` project
@@ -21,8 +22,7 @@ unknown paths. No Firebase login or network access to a live backend is used.
 
 ## Future private live setup
 
-Live setup is intentionally deferred until the sign-in and remote-backup slice. At that point the
-portfolio owner must separately:
+For the isolated authpreview slice, the portfolio owner controls private live setup:
 
 1. Create one dedicated project on Spark with no linked billing account.
 2. Enable only Google Authentication and the default Firestore Standard database in `us-west1`.
