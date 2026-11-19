@@ -10,6 +10,9 @@ import androidx.navigation.NavHostController
 import androidx.navigation.compose.composable
 import com.example.ironpath.domain.account.AccountState
 
+internal const val ANDROID_TRAINING_BACKUP_POLICY =
+    "IronPath cloud backup and restore are not available in this version, and Android cloud backup is turned off. On Android 12 and higher, Android device-to-device transfer can copy your workout database when you set up a new phone."
+
 internal const val ACCOUNT_EXPERIENCE_PREVIEW_ENABLED = true
 
 private const val ACCOUNT_BACKUP_ROUTE = "account_backup"

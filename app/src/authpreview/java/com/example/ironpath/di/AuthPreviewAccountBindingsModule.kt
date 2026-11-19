@@ -1,17 +1,23 @@
 package com.example.ironpath.di
 
 import android.content.Context
+import com.example.ironpath.data.account.AccountDeletionIdentity
+import com.example.ironpath.data.account.AccountDeletionService
+import com.example.ironpath.data.account.AccountDeletionStore
+import com.example.ironpath.data.account.AuthPreviewDeletionService
 import com.example.ironpath.data.account.AuthPreviewFirebaseRuntime
 import com.example.ironpath.data.account.FirebaseAccountSessionAdapter
+import com.example.ironpath.data.account.FirebaseDeletionIdentity
 import com.example.ironpath.data.account.GoogleCredentialActivityBroker
 import com.example.ironpath.data.account.PersistedAccountGateway
+import com.example.ironpath.data.account.RoomAccountDeletionStore
+import com.example.ironpath.data.account.ServiceAccountDeletionManager
 import com.example.ironpath.data.backup.*
 import com.example.ironpath.domain.account.AccountCredentialActivityHost
 import com.example.ironpath.domain.account.AccountDeletionManager
 import com.example.ironpath.domain.account.AccountExperienceCapabilities
 import com.example.ironpath.domain.account.AccountGateway
 import com.example.ironpath.domain.account.AccountSessionAdapter
-import com.example.ironpath.domain.account.UnavailableAccountDeletionManager
 import com.example.ironpath.domain.backup.BackupCoordinator
 import dagger.Binds
 import dagger.Module
@@ -62,6 +68,24 @@ abstract class AuthPreviewAccountBindingsModule {
     @Singleton
     abstract fun bindManualBackupLocalStore(implementation: RoomBackupStore): ManualBackupLocalStore
 
+    @Binds
+    abstract fun bindDeletionManager(
+        implementation: ServiceAccountDeletionManager
+    ): AccountDeletionManager
+
+    @Binds
+    abstract fun bindDeletionStore(implementation: RoomAccountDeletionStore): AccountDeletionStore
+
+    @Binds
+    abstract fun bindDeletionService(
+        implementation: AuthPreviewDeletionService
+    ): AccountDeletionService
+
+    @Binds
+    abstract fun bindDeletionIdentity(
+        implementation: FirebaseDeletionIdentity
+    ): AccountDeletionIdentity
+
     companion object {
         @Provides
         @AuthPreviewAppVersion
@@ -70,15 +94,12 @@ abstract class AuthPreviewAccountBindingsModule {
 
         @Provides
         @Singleton
-        fun accountDeletionManager(): AccountDeletionManager = UnavailableAccountDeletionManager
-
-        @Provides
-        @Singleton
         fun accountExperienceCapabilities(
             runtime: AuthPreviewFirebaseRuntime,
         ): AccountExperienceCapabilities =
             AccountExperienceCapabilities.AuthPreview.copy(
                 canSignIn = runtime.configured,
+                canDeleteAccount = runtime.deletionConfigured,
                 canUseBackup = runtime.configured,
                 canAssociateLocalData = runtime.configured,
             )

@@ -9,6 +9,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import com.example.ironpath.data.local.entity.AccountDeletionJournal
 import com.example.ironpath.testutil.TestData
 import java.io.IOException
 import kotlinx.coroutines.flow.first
@@ -450,6 +451,157 @@ class IronPathDatabaseMigrationTest {
 
     @Test
     @Throws(IOException::class)
+    fun migrate7To8_preservesPendingDemoJournalProfileAndWorkoutDataWithNullServiceBinding() {
+        val name = "account-deletion-service-migration-7.db"
+        helper.createDatabase(name, 7).apply {
+            seedVersionOneData()
+            execSQL(
+                "INSERT INTO account_backup_metadata VALUES (1, 'owner', 'installation', 12, 10, 'backup', 3, 'digest', 'source', 100, 1, NULL, 9)"
+            )
+            execSQL(
+                "INSERT INTO account_deletion_journal (id, operationId, accountId, sessionEpoch, profileGeneration, stage, createdAtEpochMillis, expectedLocalOwnerUid) VALUES (1, 'pending-operation', 'owner', 7, 9, 'ACCOUNT_TOMBSTONED', 10000, 'owner')"
+            )
+            close()
+        }
+        helper.runMigrationsAndValidate(name, 8, true, IronPathDatabase.MIGRATION_7_8).use {
+            database ->
+            database.assertSingleRow("SELECT * FROM account_deletion_journal WHERE id = 1") {
+                assertEquals("pending-operation", string("operationId"))
+                assertEquals("owner", string("accountId"))
+                assertEquals(7L, long("sessionEpoch"))
+                assertEquals(9L, long("profileGeneration"))
+                assertEquals("ACCOUNT_TOMBSTONED", string("stage"))
+                assertEquals(10_000L, long("createdAtEpochMillis"))
+                assertEquals("owner", string("expectedLocalOwnerUid"))
+                assertNull(nullableString("serviceBinding"))
+            }
+            database.assertSingleRow("SELECT * FROM account_backup_metadata WHERE id = 1") {
+                assertEquals("owner", string("ownerUid"))
+                assertEquals("installation", string("installationId"))
+                assertEquals(12L, long("localChangeRevision"))
+                assertEquals(10L, long("lastCompleteLocalRevision"))
+                assertEquals("backup", string("lastObservedRemoteBackupId"))
+                assertEquals(3L, long("lastObservedRemoteGeneration"))
+                assertEquals("digest", string("lastObservedRemoteDigest"))
+                assertEquals("source", string("lastObservedSourceInstallationId"))
+                assertEquals(100L, long("lastObservedRemoteCompletedAt"))
+                assertEquals(1, int("requiresLineageReviewAfterUndo"))
+                assertNull(nullableString("pendingSignOutUid"))
+                assertEquals(9L, long("profileGeneration"))
+            }
+            database.assertSingleRow("SELECT * FROM weekly_plans WHERE id = '$PLAN_ID'") {
+                assertEquals("Active", string("status"))
+            }
+            database.assertSingleRow("SELECT * FROM session_sets WHERE id = '$SESSION_SET_ID'") {
+                assertEquals(SESSION_EXERCISE_ID, string("sessionExerciseId"))
+                assertEquals(105.0, double("weightKg"), 0.0)
+            }
+            database.assertSingleRow("SELECT * FROM personal_records WHERE id = '$RECORD_ID'") {
+                assertEquals("Deadlift", string("exerciseName"))
+                assertEquals(180.5, double("weightKg"), 0.0)
+            }
+            database.assertLatestConstraintsAndIndexes()
+            val binding = "a".repeat(64)
+            database.execSQL(
+                "UPDATE account_deletion_journal SET serviceBinding = ? WHERE id = 1",
+                arrayOf(binding)
+            )
+            database.assertSingleRow(
+                "SELECT serviceBinding FROM account_deletion_journal WHERE id = 1"
+            ) {
+                assertEquals(binding, string("serviceBinding"))
+            }
+            assertThrows(SQLiteConstraintException::class.java) {
+                database.execSQL(
+                    "INSERT INTO account_deletion_journal SELECT * FROM account_deletion_journal WHERE id = 1"
+                )
+            }
+        }
+    }
+
+    @Test
+    @Throws(IOException::class)
+    fun migrate7To8_preservesCompletedUnclaimedDemoJournal() {
+        val name = "account-deletion-complete-migration-7.db"
+        helper.createDatabase(name, 7).apply {
+            execSQL(
+                "INSERT INTO account_deletion_journal (id, operationId, accountId, sessionEpoch, profileGeneration, stage, createdAtEpochMillis, expectedLocalOwnerUid) VALUES (1, 'complete-operation', 'demo-owner', 7, 0, 'COMPLETE', 10000, NULL)"
+            )
+            close()
+        }
+        helper.runMigrationsAndValidate(name, 8, true, IronPathDatabase.MIGRATION_7_8).use {
+            database ->
+            database.assertSingleRow("SELECT * FROM account_deletion_journal WHERE id = 1") {
+                assertEquals("complete-operation", string("operationId"))
+                assertEquals("demo-owner", string("accountId"))
+                assertEquals(7L, long("sessionEpoch"))
+                assertEquals(0L, long("profileGeneration"))
+                assertEquals("COMPLETE", string("stage"))
+                assertEquals(10_000L, long("createdAtEpochMillis"))
+                assertNull(nullableString("expectedLocalOwnerUid"))
+                assertNull(nullableString("serviceBinding"))
+            }
+        }
+    }
+
+    @Test
+    @Throws(IOException::class)
+    fun migrate8To9_preservesLegacyServiceJournalWithoutInventingReservationAuthority() {
+        val name = "reservation-v2-migration-8.db"
+        helper.createDatabase(name, 8).apply {
+            seedVersionOneData()
+            execSQL(
+                "INSERT INTO account_backup_metadata VALUES (1, 'owner', 'installation', 12, 10, 'backup', 3, 'digest', 'source', 100, 1, NULL, 9)"
+            )
+            execSQL(
+                "INSERT INTO account_deletion_journal (id, operationId, accountId, sessionEpoch, profileGeneration, stage, createdAtEpochMillis, expectedLocalOwnerUid, serviceBinding) VALUES (1, 'unknown-v1-operation', 'owner', 7, 9, 'PREPARED', 10000, 'owner', 'legacy-service')"
+            )
+            close()
+        }
+        helper.runMigrationsAndValidate(name, 9, true, IronPathDatabase.MIGRATION_8_9).use {
+            database ->
+            database.assertSingleRow("SELECT * FROM account_deletion_journal WHERE id = 1") {
+                assertEquals("unknown-v1-operation", string("operationId"))
+                assertEquals("owner", string("accountId"))
+                assertEquals("owner", string("expectedLocalOwnerUid"))
+                assertEquals("legacy-service", string("serviceBinding"))
+                assertEquals("PREPARED", string("stage"))
+                assertEquals(7L, long("sessionEpoch"))
+                assertEquals(9L, long("profileGeneration"))
+                assertEquals(10000L, long("createdAtEpochMillis"))
+                assertNull(nullableString("receiptSecret"))
+                assertNull(nullableString("subjectBinding"))
+                assertNull(nullableString("remoteState"))
+                assertNull(nullableString("installationId"))
+                assertEquals(0L, long("receiptVersion"))
+            }
+            database.assertSingleRow("SELECT * FROM account_backup_metadata WHERE id = 1") {
+                assertEquals("owner", string("ownerUid"))
+                assertEquals("installation", string("installationId"))
+                assertEquals(9L, long("profileGeneration"))
+                assertEquals(12L, long("localChangeRevision"))
+            }
+            database.assertSingleRow("SELECT * FROM weekly_plans WHERE id = '$PLAN_ID'") {
+                assertEquals("Active", string("status"))
+            }
+            database.assertSingleRow("SELECT * FROM session_sets WHERE id = '$SESSION_SET_ID'") {
+                assertEquals(105.0, double("weightKg"), 0.0)
+            }
+            database.assertLatestConstraintsAndIndexes()
+            assertEquals(0, database.rowCount("account_deletion_draft"))
+            database.execSQL(
+                "INSERT INTO account_deletion_draft VALUES (1, 'draft-operation', 'synthetic-secret', 'owner', 7, 9, 'owner', 'v2-binding', 'installation', 10000)"
+            )
+            assertThrows(SQLiteConstraintException::class.java) {
+                database.execSQL(
+                    "INSERT INTO account_deletion_draft SELECT * FROM account_deletion_draft WHERE id = 1"
+                )
+            }
+        }
+    }
+
+    @Test
+    @Throws(IOException::class)
     fun allMigrations_openLatestSchemaAndAllDaosRemainUsable() {
         helper.createDatabase(ALL_MIGRATIONS_DATABASE, 1).apply {
             seedVersionOneData()
@@ -458,7 +610,7 @@ class IronPathDatabaseMigrationTest {
         helper
             .runMigrationsAndValidate(
                 ALL_MIGRATIONS_DATABASE,
-                7,
+                9,
                 true,
                 IronPathDatabase.MIGRATION_1_2,
                 IronPathDatabase.MIGRATION_2_3,
@@ -466,8 +618,14 @@ class IronPathDatabaseMigrationTest {
                 IronPathDatabase.MIGRATION_4_5,
                 IronPathDatabase.MIGRATION_5_6,
                 IronPathDatabase.MIGRATION_6_7,
+                IronPathDatabase.MIGRATION_7_8,
+                IronPathDatabase.MIGRATION_8_9,
             )
-            .close()
+            .use { database ->
+                database.assertLatestConstraintsAndIndexes()
+                assertEquals(0, database.rowCount("account_deletion_journal"))
+                assertEquals(0, database.rowCount("account_deletion_draft"))
+            }
 
         val context = ApplicationProvider.getApplicationContext<Context>()
         val database =
@@ -478,7 +636,9 @@ class IronPathDatabaseMigrationTest {
                     IronPathDatabase.MIGRATION_3_4,
                     IronPathDatabase.MIGRATION_4_5,
                     IronPathDatabase.MIGRATION_5_6,
-                    IronPathDatabase.MIGRATION_6_7
+                    IronPathDatabase.MIGRATION_6_7,
+                    IronPathDatabase.MIGRATION_7_8,
+                    IronPathDatabase.MIGRATION_8_9
                 )
                 .build()
         try {
@@ -533,9 +693,59 @@ class IronPathDatabaseMigrationTest {
                     listOf(LOGGED_RECORD_ID, RECORD_ID),
                     database.recordDao().observeAllRecords().first().map { it.id },
                 )
+                assertEquals(0L, database.backupDao().getMetadata()?.profileGeneration)
+                assertNull(database.backupDao().getMetadata()?.ownerUid)
+                val journal =
+                    AccountDeletionJournal(
+                        operationId = "new-operation",
+                        accountId = "new-account",
+                        sessionEpoch = 1,
+                        profileGeneration = 0,
+                        stage = "PREPARED",
+                        createdAtEpochMillis = 10_000,
+                        expectedLocalOwnerUid = null,
+                        serviceBinding = "b".repeat(64),
+                    )
+                database.accountDeletionDao().save(journal)
+                assertEquals(journal, database.accountDeletionDao().getJournal())
             }
         } finally {
             database.close()
+        }
+    }
+
+    private fun SupportSQLiteDatabase.assertLatestConstraintsAndIndexes() {
+        assertForeignKey("logged_exercises", "workoutLogId", "workout_logs")
+        assertForeignKey("logged_sets", "loggedExerciseId", "logged_exercises")
+        assertIndex(
+            "logged_exercises",
+            "index_logged_exercises_workoutLogId",
+            unique = false,
+            columns = listOf("workoutLogId"),
+        )
+        assertIndex(
+            "logged_sets",
+            "index_logged_sets_loggedExerciseId",
+            unique = false,
+            columns = listOf("loggedExerciseId"),
+        )
+        assertIndex(
+            "personal_records",
+            "index_personal_records_normalizedExerciseName_achievedOn_weightKg",
+            unique = true,
+            columns = listOf("normalizedExerciseName", "achievedOn", "weightKg"),
+        )
+        assertThrows(SQLiteConstraintException::class.java) {
+            execSQL(
+                """
+                INSERT INTO personal_records
+                    (id, exerciseName, normalizedExerciseName, weightKg, achievedOn, note, sourceType,
+                     sourceWorkoutLogId, createdAt)
+                VALUES ('duplicate-after-migration', 'Deadlift', 'deadlift', 180.5, '2026-07-12', NULL,
+                        'Manual', NULL, 1699999500000)
+                """
+                    .trimIndent()
+            )
         }
     }
 

@@ -56,6 +56,34 @@ class AndroidBackupPolicyTest {
         )
     }
 
+    @Test
+    fun `authpreview legacy and cloud policies exclude all database files and sidecars`() {
+        val legacy = parse("app/src/authpreview/res/xml/backup_rules.xml").documentElement
+        assertEquals(EMPTY_SET, legacy.rules("include"))
+        assertEquals(ALL_DOMAIN_EXCLUSIONS, legacy.rules("exclude"))
+        val cloud =
+            parse("app/src/authpreview/res/xml/data_extraction_rules.xml")
+                .documentElement
+                .singleChild("cloud-backup")
+        assertEquals(EMPTY_SET, cloud.rules("include"))
+        assertEquals(ALL_DOMAIN_EXCLUSIONS, cloud.rules("exclude"))
+    }
+
+    @Test
+    fun `authpreview transfer allows only non-secret onboarding and excludes whole database domains`() {
+        val transfer =
+            parse("app/src/authpreview/res/xml/data_extraction_rules.xml")
+                .documentElement
+                .singleChild("device-transfer")
+        assertEquals(
+            setOf(BackupRule("sharedpref", "ironpath_onboarding.xml")),
+            transfer.rules("include")
+        )
+        // Android's include allowlist disables defaults for every other path/domain,
+        // including both database locations and any WAL/SHM/journal sidecar name.
+        assertEquals(EMPTY_SET, transfer.rules("exclude"))
+    }
+
     private fun parse(path: String) =
         DocumentBuilderFactory.newInstance()
             .apply { isNamespaceAware = true }

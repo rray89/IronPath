@@ -1,6 +1,7 @@
 import com.android.build.api.variant.HostTestBuilder
 import groovy.json.JsonSlurper
 import java.io.File
+import java.net.URI
 import java.util.Locale
 import javax.xml.XMLConstants
 import org.gradle.api.DefaultTask
@@ -60,7 +61,26 @@ abstract class GenerateAuthPreviewFirebaseConfig : DefaultTask() {
                         "The auth preview Firebase config is incomplete or targets another package."
                     )
                 }
-                resolved
+                val deletionEndpoint =
+                    (parsed["deletionServiceEndpoint"] as? String)?.trim().orEmpty()
+                if (deletionEndpoint.isNotEmpty()) {
+                    val uri = runCatching { URI(deletionEndpoint) }.getOrNull()
+                    if (
+                        uri == null ||
+                            uri.scheme != "https" ||
+                            uri.host.isNullOrBlank() ||
+                            uri.rawUserInfo != null ||
+                            uri.rawQuery != null ||
+                            uri.rawFragment != null ||
+                            !uri.rawPath.isNullOrEmpty() ||
+                            uri.port !in -1..65535
+                    ) {
+                        throw GradleException(
+                            "The auth preview deletion service endpoint is invalid."
+                        )
+                    }
+                }
+                resolved + ("deletionServiceEndpoint" to deletionEndpoint)
             }
         fun xmlEscape(value: String): String =
             value
@@ -76,6 +96,8 @@ abstract class GenerateAuthPreviewFirebaseConfig : DefaultTask() {
                 "auth_preview_firebase_api_key" to values["apiKey"].orEmpty(),
                 "auth_preview_firebase_project_id" to values["projectId"].orEmpty(),
                 "auth_preview_google_web_client_id" to values["webClientId"].orEmpty(),
+                "auth_preview_deletion_service_endpoint" to
+                    values["deletionServiceEndpoint"].orEmpty(),
             )
         val output = outputDirectory.get().file("values/auth_preview_firebase.xml").asFile
         output.parentFile.mkdirs()
@@ -479,8 +501,13 @@ if (project.hasProperty("enableCoverage")) {
 // The real REST adapter integration suite is a separate, explicit emulator-only JVM task.
 // Default unit tests never require a network service, Google account, or private project.
 tasks.withType<Test>().configureEach {
+    if (name == "testAuthpreviewUnitTest") {
+        dependsOn("processAuthpreviewMainManifest", "packageAuthpreviewResources")
+    }
     if (name != "firestoreTransportTest")
         filter.excludeTestsMatching("*FirestoreTransportEmulatorTest")
+    if (name != "deletionTransportTest")
+        filter.excludeTestsMatching("*DeletionTransportEmulatorTest")
 }
 
 tasks.register<Test>("firestoreTransportTest") {
@@ -489,5 +516,14 @@ tasks.register<Test>("firestoreTransportTest") {
     testClassesDirs = files(source.map { it.testClassesDirs })
     classpath = files(source.map { it.classpath })
     filter.includeTestsMatching("*FirestoreTransportEmulatorTest")
+    outputs.upToDateWhen { false }
+}
+
+tasks.register<Test>("deletionTransportTest") {
+    dependsOn("testAuthpreviewUnitTest")
+    val source = providers.provider { tasks.named<Test>("testAuthpreviewUnitTest").get() }
+    testClassesDirs = files(source.map { it.testClassesDirs })
+    classpath = files(source.map { it.classpath })
+    filter.includeTestsMatching("*DeletionTransportEmulatorTest")
     outputs.upToDateWhen { false }
 }

@@ -3,7 +3,8 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     function isOwner(uid) {
-      return request.auth != null && request.auth.uid == uid;
+      return request.auth != null && request.auth.uid == uid &&
+        !exists(/databases/$(database)/documents/accountDeletionTombstones/$(uid));
     }
 
     function validUserMetadata(data) {
@@ -397,6 +398,21 @@ service cloud.firestore {
               backupContentsAreDeletable(uid, backupId));
         }
       }
+    }
+
+    // These permanent fences and recovery receipts are server-owned. A deleted
+    // UID remains denied even if its old token is still valid or Auth is recreated.
+    match /accountDeletionTombstones/{uid} {
+      allow read, write: if false;
+    }
+    match /accountDeletionReceipts/{operationId} {
+      allow read, write: if false;
+    }
+    match /accountDeletionReservationQuotas/{uid} {
+      allow read, write: if false;
+    }
+    match /accountDeletionJobs/{operationId} {
+      allow read, write: if false;
     }
 
     match /{document=**} {

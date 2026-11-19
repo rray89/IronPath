@@ -6,6 +6,7 @@ import com.example.ironpath.data.local.entity.AccountBackupMetadata
 import com.example.ironpath.data.local.entity.RestoreUndoChunk
 import com.example.ironpath.data.local.entity.RestoreUndoMetadata
 import com.example.ironpath.data.local.requireWritesAllowed
+import com.example.ironpath.domain.account.AccountDeletionStage
 import com.example.ironpath.domain.account.AccountId
 import com.example.ironpath.domain.identity.IdProvider
 import javax.inject.Inject
@@ -515,18 +516,29 @@ constructor(
     suspend fun validateInstallation(): InstallationValidationResult =
         installationValidationMutex.withLock {
             var created = false
+            var terminalRecovery = false
             val metadata =
                 database.withTransaction {
-                    database.requireWritesAllowed()
+                    val journal = database.accountDeletionDao().getJournal()
+                    terminalRecovery =
+                        journal?.serviceBinding != null &&
+                            journal.stage in
+                                setOf(
+                                    AccountDeletionStage.COMPLETE.name,
+                                    AccountDeletionStage.CANCELLED.name,
+                                )
                     val backupDao = database.backupDao()
-                    if (backupDao.getMetadata() == null) {
-                        backupDao.insertMetadataIfAbsent(
-                            AccountBackupMetadata(installationId = idProvider.newId())
-                        )
-                        created = true
+                    if (!terminalRecovery) {
+                        database.requireWritesAllowed()
+                        if (backupDao.getMetadata() == null) {
+                            backupDao.insertMetadataIfAbsent(
+                                AccountBackupMetadata(installationId = idProvider.newId())
+                            )
+                            created = true
+                        }
                     }
-                    checkNotNull(backupDao.getMetadata())
-                }
+                    backupDao.getMetadata()
+                } ?: return@withLock InstallationValidationResult.Failed
             val observedInstallationId =
                 try {
                     sentinel.readInstallationId()
@@ -536,6 +548,9 @@ constructor(
             if (observedInstallationId == metadata.installationId) {
                 return@withLock InstallationValidationResult.Validated
             }
+            // A terminal service journal still forbids writes. Only verify its existing marker;
+            // never initialize or rotate ownership/lineage before exact terminal acknowledgment.
+            if (terminalRecovery) return@withLock InstallationValidationResult.Failed
             if (created) {
                 return@withLock if (writeSentinel(sentinel, metadata.installationId)) {
                     InstallationValidationResult.Initialized

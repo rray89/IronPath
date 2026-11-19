@@ -38,6 +38,9 @@ interface AccountGateway {
         AccountActionResult.Unavailable
 
     suspend fun retryAccountDeletion(): AccountActionResult = AccountActionResult.Unavailable
+
+    /** Explicitly request authoritative cancellation of an unactivated reservation. */
+    suspend fun cancelAccountDeletion(): AccountActionResult = AccountActionResult.Unavailable
 }
 
 sealed interface AccountState {

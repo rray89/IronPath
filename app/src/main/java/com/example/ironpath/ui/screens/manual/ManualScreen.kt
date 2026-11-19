@@ -20,6 +20,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.unit.dp
+import com.example.ironpath.ui.screens.accountbackup.ANDROID_TRAINING_BACKUP_POLICY
 
 @Composable
 fun ManualScreen(modifier: Modifier = Modifier) {
@@ -115,9 +116,7 @@ private val manualTopics =
         ManualTopic(
             title = "Backup, restore, and local-only behavior",
             guidance =
-                "Your durable workout data is saved locally in Room. IronPath cloud backup and " +
-                    "restore are not available in this version, and Android cloud backup is " +
-                    "turned off. On Android 12 and higher, Android device-to-device transfer can " +
-                    "copy your workout database when you set up a new phone.",
+                "Your durable workout data is saved locally in Room. " +
+                    ANDROID_TRAINING_BACKUP_POLICY,
         ),
     )

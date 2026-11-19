@@ -108,6 +108,7 @@ class AccountDeletionJourneyTest {
         composeRule.activityRule.scenario.recreate()
         waitForText("Finishing account deletion")
         composeRule.onNodeWithText("RETRY DELETION").assertIsDisplayed()
+        composeRule.onNodeWithText("CANCEL IF NOT STARTED").assertDoesNotExist()
         assertEquals(accountId, session.session?.id)
         assertEquals(
             listOf("pending-deletion-journey-log"),
