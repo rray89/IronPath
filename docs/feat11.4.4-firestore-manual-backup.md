@@ -117,8 +117,8 @@ Their code and PRs are not changed here; their live acceptance is not implied by
 
 ## First Usable Slice acceptance — pending
 
-This repair uses no device operations or live Firebase requests. Configured candidate builds reuse
-the owner's existing private local configuration; public CI uses none. Do not
+This repair uses no device operations or live Firebase requests. Automated checks and public CI use
+no private configuration. A configured candidate still requires the owner's controlled private build. Do not
 merge until BOSS accepts the configured candidate on the review device:
 
 1. With one local record and Google signed in, open Account & Backup. Verify cloud status Refresh
