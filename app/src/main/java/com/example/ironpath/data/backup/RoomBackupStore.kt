@@ -71,6 +71,24 @@ constructor(
             true
         }
 
+    override suspend fun associateForBackup(
+        captured: ManualBackupCapture,
+        accountId: AccountId,
+    ): Boolean =
+        database.withTransaction {
+            database.requireWritesAllowed()
+            val current = checkNotNull(database.backupDao().getMetadata())
+            if (
+                current.pendingSignOutUid != null ||
+                    !sameAuthority(current, captured, accountId) ||
+                    !sameContent(current, captured) ||
+                    database.sessionDao().getActiveSession()?.id != captured.activeSessionId
+            )
+                return@withTransaction false
+            database.backupDao().updateMetadata(current.copy(ownerUid = accountId.opaqueValue))
+            true
+        }
+
     override suspend fun recordBackup(
         captured: ManualBackupCapture,
         accountId: AccountId,

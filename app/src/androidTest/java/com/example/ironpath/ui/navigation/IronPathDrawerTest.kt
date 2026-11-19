@@ -43,7 +43,6 @@ class IronPathDrawerTest {
                 "LOCAL PROFILE",
                 "Stored on this device",
                 "Back up your training data",
-                "Manual",
                 "AI & Privacy",
                 "About IronPath",
             )
@@ -52,7 +51,6 @@ class IronPathDrawerTest {
         val verticalPositions =
             listOf(
                     composeRule.onNodeWithContentDescription("Account and Backup. Local only"),
-                    composeRule.onNodeWithText("Manual"),
                     composeRule.onNodeWithText("AI & Privacy"),
                     composeRule.onNodeWithText("About IronPath"),
                 )
@@ -68,12 +66,11 @@ class IronPathDrawerTest {
         val selectedRoutes = mutableListOf<String>()
         setDrawer(onDestinationSelected = selectedRoutes::add)
 
-        composeRule.onNodeWithText("Manual").performClick()
         composeRule.onNodeWithText("AI & Privacy").performClick()
         composeRule.onNodeWithText("About IronPath").performClick()
 
         assertEquals(
-            listOf(Route.MANUAL, Route.AI_PRIVACY, Route.ABOUT),
+            listOf(Route.AI_PRIVACY, Route.ABOUT),
             selectedRoutes,
         )
     }
@@ -108,7 +105,6 @@ class IronPathDrawerTest {
             .assert(SemanticsMatcher.expectValue(SemanticsProperties.Role, Role.Button))
             .performClick()
         assertEquals(listOf("account_backup"), selectedRoutes)
-        composeRule.onNodeWithText("Manual").assertHasClickAction().assertIsNotSelected()
         composeRule.onNodeWithText("AI & Privacy").assertHasClickAction().assertIsSelected()
         composeRule.onNodeWithText("About IronPath").assertHasClickAction().assertIsNotSelected()
     }
@@ -168,7 +164,7 @@ class IronPathDrawerTest {
     }
 
     private fun assertFinalDestinationReachable(selectedRoutes: List<String>) {
-        composeRule.onNodeWithText("Manual").performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithText("Manual").assertDoesNotExist()
         composeRule.onNodeWithText("AI & Privacy").performScrollTo().assertIsDisplayed()
         composeRule
             .onNodeWithText("About IronPath")

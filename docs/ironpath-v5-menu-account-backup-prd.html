@@ -719,10 +719,10 @@
 <p>The drawer contains:</p>
 <ol>
 <li>Account and backup header</li>
-<li><code>Manual</code></li>
 <li><code>AI &amp; Privacy</code></li>
 <li><code>About IronPath</code></li>
 </ol>
+<p>The Manual screen is retained for existing navigation state, with its drawer entry hidden.</p>
 <p><code>Settings</code> is not shown until IronPath has at least one real user setting worth managing. DevTools, debug provider controls, and test-data actions remain outside the production drawer.</p>
 <h3 id="account-header-states"><a class="heading-anchor" href="#account-header-states" aria-label="Link to Account header states">Account header states</a></h3>
 <p>Local-only:</p>
@@ -1209,7 +1209,7 @@ users/{uid}/backups/{backupId}/chunks/{chunkIndex}</code></pre>
 <h2 id="portfolio-demo-story"><a class="heading-anchor" href="#portfolio-demo-story" aria-label="Link to Portfolio demo story">Portfolio demo story</a></h2>
 <p>A strong V5 demo shows:</p>
 <ol>
-<li>Open the new drawer and Manual from an existing local workout state.</li>
+<li>Open the drawer from an existing local workout.</li>
 <li>Show the AI &amp; Privacy explanation and local-only account status.</li>
 <li>Sign in with Google and explicitly attach the seeded local data.</li>
 <li>Complete a Firestore backup and show the completion time and included counts.</li>
