@@ -12,7 +12,6 @@ import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertContentDescriptionContains
 import androidx.compose.ui.test.assertContentDescriptionEquals
 import androidx.compose.ui.test.assertHasClickAction
-import androidx.compose.ui.test.assertHasNoClickAction
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
@@ -57,6 +56,7 @@ import com.example.ironpath.domain.planner.PlanningEngineType
 import com.example.ironpath.domain.planner.PlanningGoal
 import com.example.ironpath.domain.planner.PlanningProviderMetadata
 import com.example.ironpath.domain.planner.RemotePlanningExperimentState
+import com.example.ironpath.domain.planner.RemotePlanningRoute
 import com.example.ironpath.domain.planner.TrainingExperience
 import com.example.ironpath.domain.planner.ValidatedPlanDraft
 import com.example.ironpath.domain.planner.WorkoutDraft
@@ -149,6 +149,8 @@ class SemanticsContractTest {
                     RemotePlanningExperimentState(
                         available = true,
                         enabled = true,
+                        optionId = RemotePlanningRoute.GEMINI.name,
+                        options = RemotePlanningRoute.entries.map { it.option },
                     ),
             )
         }
@@ -194,15 +196,27 @@ class SemanticsContractTest {
         composeRule
             .onNodeWithTag(TestTags.PLAN_INJURY_NOTES)
             .performScrollTo()
-            .assert(hasAccessibleLabel("Injury notes"))
+            .assertContentDescriptionEquals("Injury notes")
+            .assert(hasSetTextAction())
         composeRule
             .onNodeWithTag(TestTags.PLAN_PREFERENCES)
             .performScrollTo()
-            .assert(hasAccessibleLabel("Exercise preferences"))
+            .assertContentDescriptionEquals("Exercise preferences")
+            .assert(hasSetTextAction())
         composeRule
             .onNodeWithTag(TestTags.PLAN_DISLIKES)
             .performScrollTo()
-            .assert(hasAccessibleLabel("Exercise dislikes"))
+            .assertContentDescriptionEquals("Exercise dislikes")
+            .assert(hasSetTextAction())
+        RemotePlanningRoute.entries.forEach { route ->
+            composeRule
+                .onNodeWithTag("plan_remote_option_" + route.name)
+                .performScrollTo()
+                .assertIsDisplayed()
+                .assertIsSelectable()
+                .assert(SemanticsMatcher.expectValue(SemanticsProperties.Role, Role.RadioButton))
+        }
+
         composeRule
             .onNodeWithTag(TestTags.PLAN_REMOTE_AI_TOGGLE)
             .performScrollTo()
@@ -212,7 +226,7 @@ class SemanticsContractTest {
         composeRule
             .onNodeWithTag(TestTags.PLAN_REMOTE_AI_KEY)
             .performScrollTo()
-            .assert(hasAccessibleLabel("Gemini API key"))
+            .assert(hasAccessibleLabel("Provider API key"))
             .assert(SemanticsMatcher.keyIsDefined(SemanticsProperties.Password))
         composeRule
             .onNodeWithTag(TestTags.PLAN_GENERATE_AI)
@@ -397,13 +411,11 @@ class SemanticsContractTest {
     }
 
     @Test
-    fun readOnlyPlanRows_haveNoActionWhileRemoveControlIsLabeled() {
+    fun ruleReviewRows_exposeEditingAndLabeledRemoval() {
         setPlanReviewContent()
 
-        composeRule.onNodeWithTag(TestTags.planReviewDay(WORKOUT_ID)).assertHasNoClickAction()
-        composeRule
-            .onNodeWithTag(TestTags.planExercise(PLANNED_EXERCISE_ID))
-            .assertHasNoClickAction()
+        composeRule.onNodeWithTag(TestTags.planReviewDay(WORKOUT_ID)).assertHasClickAction()
+        composeRule.onNodeWithTag(TestTags.planExercise(PLANNED_EXERCISE_ID)).assertHasClickAction()
         composeRule
             .onNodeWithContentDescription("Remove Strength A on Monday")
             .assertContentDescriptionContains("Remove Strength A on Monday")
@@ -455,7 +467,7 @@ class SemanticsContractTest {
                         workout = workout,
                         exercises = listOf(plannedExercise),
                         canStart = false,
-                        hasActiveSession = true,
+                        hasActiveSession = false,
                     ),
                 onBack = {},
                 onStart = {},
@@ -464,6 +476,33 @@ class SemanticsContractTest {
 
         composeRule.onNodeWithText("START WORKOUT").assertIsNotEnabled()
         composeRule.onNodeWithContentDescription("Back").assertDoesNotExist()
+    }
+
+    @Test
+    fun workoutPreview_existingSessionExposesEnabledContinuationWithoutDuplicateBackAction() {
+        var continuationCalls = 0
+        setThemedContent {
+            WorkoutPreviewContent(
+                uiState =
+                    WorkoutPreviewUiState.Ready(
+                        workout = workout,
+                        exercises = listOf(plannedExercise),
+                        canStart = false,
+                        hasActiveSession = true,
+                    ),
+                onBack = {},
+                onStart = { continuationCalls++ },
+            )
+        }
+
+        composeRule
+            .onNodeWithText("CONTINUE ACTIVE WORKOUT")
+            .assertIsEnabled()
+            .assert(SemanticsMatcher.expectValue(SemanticsProperties.Role, Role.Button))
+            .performClick()
+        composeRule.onNodeWithText("START WORKOUT").assertDoesNotExist()
+        composeRule.onNodeWithContentDescription("Back").assertDoesNotExist()
+        composeRule.runOnIdle { assertEquals(1, continuationCalls) }
     }
 
     @Test

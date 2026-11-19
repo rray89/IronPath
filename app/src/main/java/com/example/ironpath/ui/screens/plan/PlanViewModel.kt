@@ -1,28 +1,42 @@
 package com.example.ironpath.ui.screens.plan
 
+import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.ironpath.data.local.entity.PlannedWorkout
+import com.example.ironpath.data.local.entity.WeeklyPlan
+import com.example.ironpath.data.repository.ActiveSessionBlocksPlanException
 import com.example.ironpath.data.repository.PlanRepository
+import com.example.ironpath.data.repository.RecordRepository
 import com.example.ironpath.data.repository.SessionRepository
 import com.example.ironpath.domain.account.ProfileGenerationToken
 import com.example.ironpath.domain.planner.AiPlanDraftReviewState
 import com.example.ironpath.domain.planner.AiPlanReviewEditor
+import com.example.ironpath.domain.planner.ExerciseCatalog
 import com.example.ironpath.domain.planner.ExerciseCatalogEntry
 import com.example.ironpath.domain.planner.ExerciseCatalogId
 import com.example.ironpath.domain.planner.ExerciseDraft
 import com.example.ironpath.domain.planner.GeneratedPlan
 import com.example.ironpath.domain.planner.PlanGenerator
 import com.example.ironpath.domain.planner.PlanningGoal
+import com.example.ironpath.domain.planner.RemotePlanningExperiment
+import com.example.ironpath.domain.planner.RuleBasedWorkoutTemplates
+import com.example.ironpath.domain.planner.RuleExerciseForm
+import com.example.ironpath.domain.planner.RuleExerciseRemoval
+import com.example.ironpath.domain.planner.RulePlanReviewEditor
 import com.example.ironpath.domain.planner.ValidatedPlanDraft
 import com.example.ironpath.domain.planner.ValidatedPlanDraftMapper
 import com.example.ironpath.domain.planner.findNextUpcomingWorkout
 import com.example.ironpath.domain.planner.findWorkoutScheduledToday
+import com.example.ironpath.domain.planner.nextPlanningWeekStart
 import com.example.ironpath.domain.time.TimeProvider
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -30,6 +44,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
@@ -45,9 +60,34 @@ constructor(
     private val aiPlanReviewEditor: AiPlanReviewEditor,
     private val validatedPlanDraftMapper: ValidatedPlanDraftMapper,
     private val profileGenerationToken: ProfileGenerationToken? = null,
+    private val savedStateHandle: SavedStateHandle,
+    private val rulePlanReviewEditor: RulePlanReviewEditor,
+    recordRepository: RecordRepository,
+    exerciseCatalog: ExerciseCatalog,
+    private val remotePlanningExperiment: RemotePlanningExperiment? = null,
 ) : ViewModel() {
 
+    private val templateExerciseNames =
+        RuleBasedWorkoutTemplates.allExerciseIds
+            .mapNotNull { exerciseCatalog.find(it)?.displayName }
+            .sorted()
+    val exerciseSuggestions =
+        recordRepository
+            .observeAllRecords()
+            .map { records ->
+                (templateExerciseNames + records.map { it.exerciseName }).distinct().sorted()
+            }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), templateExerciseNames)
+    private val _ruleUndo = MutableStateFlow<RuleExerciseRemoval?>(null)
+    val ruleUndo = _ruleUndo.asStateFlow()
+
     private var acceptInProgress = false
+    private var aiAcceptJob: Job? = null
+    private var reviewConfigurationRevision: Long? = null
+    private val setupSourceId =
+        savedStateHandle.getStateFlow<String?>("next_week_setup_source", null)
+    private val _saveState = MutableStateFlow(PlanSaveUiState())
+    val saveState = _saveState.asStateFlow()
 
     // -- Review state (in-memory, not yet saved) --
     private val _generatedPlan = MutableStateFlow<GeneratedPlan?>(null)
@@ -55,10 +95,27 @@ constructor(
 
     private val _aiReviewState = MutableStateFlow<AiPlanReviewUiState?>(null)
     val aiReviewState: StateFlow<AiPlanReviewUiState?> = _aiReviewState.asStateFlow()
-    private var mappedAiPlan: GeneratedPlan? = null
-    private var pendingAiReview: ValidatedPlanDraft? = null
+    private var mappedAiPlan: MappedAiPlan? = null
+    private var pendingAiReview: PendingAiReview? = null
 
     init {
+        remotePlanningExperiment?.let { experiment ->
+            var observedRevision = experiment.state.value.revision
+            viewModelScope.launch {
+                experiment.state.collect { state ->
+                    if (state.revision != observedRevision) {
+                        observedRevision = state.revision
+                        if (
+                            reviewConfigurationRevision != null &&
+                                reviewConfigurationRevision != state.revision
+                        ) {
+                            aiAcceptJob?.cancel()
+                            clearAiReview()
+                        }
+                    }
+                }
+            }
+        }
         profileGenerationToken?.let { token ->
             viewModelScope.launch { runCatching { token.initialize() } }
         }
@@ -68,56 +125,111 @@ constructor(
     private val activePlan = planRepository.observeActivePlan()
     private val activeSession = sessionRepository.observeActiveSession()
 
-    private val activeWorkouts =
-        activePlan.flatMapLatest { plan ->
-            if (plan != null) {
-                planRepository.observeWorkoutsForPlan(plan.id)
-            } else {
-                flowOf(emptyList())
+    private val persisted =
+        activePlan
+            .flatMapLatest { plan ->
+                val workouts =
+                    if (plan != null) planRepository.observeWorkoutsForPlan(plan.id)
+                    else flowOf(emptyList())
+                combine(workouts, activeSession) { items, session ->
+                    AcceptedPlanSnapshot(plan, items, session != null)
+                }
             }
-        }
+            .stateIn(viewModelScope, SharingStarted.Eagerly, null)
 
     val planUiState =
-        combine(activePlan, activeWorkouts, _generatedPlan, activeSession, _aiReviewState) {
-                plan,
-                workouts,
+        combine(persisted, _generatedPlan, _aiReviewState, setupSourceId) {
+                snapshot,
                 generated,
-                session,
-                aiReview ->
+                aiReview,
+                setupSource ->
                 when {
+                    snapshot == null -> PlanUiState.Loading
                     aiReview != null -> PlanUiState.AiReview(aiReview)
                     generated != null -> PlanUiState.Review(generated)
-                    plan != null -> {
+                    snapshot.plan == null || setupSource == snapshot.plan.id -> PlanUiState.Setup
+                    else -> {
                         val today = timeProvider.today()
-                        val todayWorkout = workouts.findWorkoutScheduledToday(today)
-                        val nextWorkout = todayWorkout ?: workouts.findNextUpcomingWorkout(today)
+                        val todayWorkout = snapshot.workouts.findWorkoutScheduledToday(today)
                         PlanUiState.Accepted(
-                            planned = workouts.size,
-                            completed = workouts.count { it.status.name == "Completed" },
-                            workouts = workouts,
+                            planned = snapshot.workouts.size,
+                            completed = snapshot.workouts.count { it.status.name == "Completed" },
+                            workouts = snapshot.workouts,
                             todayWorkout = todayWorkout,
-                            nextWorkout = nextWorkout,
-                            hasActiveSession = session != null,
+                            nextWorkout =
+                                todayWorkout ?: snapshot.workouts.findNextUpcomingWorkout(today),
+                            hasActiveSession = snapshot.hasActiveSession,
                         )
                     }
-                    else -> PlanUiState.Setup
                 }
             }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), PlanUiState.Loading)
 
-    fun generatePlan(goal: PlanningGoal, selectedDays: Set<Int>) {
-        if (selectedDays.isEmpty()) return
-        val generated = planGenerator.generate(goal, selectedDays)
+    /** Defers consuming the navigation request while loading or accepting a plan. */
+    fun beginNextWeekPlanning(): Boolean {
+        val snapshot = persisted.value ?: return false
+        if (acceptInProgress) return false
+        if (snapshot.hasActiveSession) {
+            _saveState.value =
+                PlanSaveUiState(error = "Finish the active workout before planning the next week.")
+            return true
+        }
+        if (
+            snapshot.plan != null &&
+                (snapshot.workouts.isEmpty() ||
+                    snapshot.workouts.any { it.status.name != "Completed" })
+        )
+            return true
+        backToSetup()
+        return true
+    }
+
+    fun targetWeekStart(): java.time.LocalDate =
+        nextPlanningWeekStart(
+            timeProvider.today(),
+            persisted.value?.plan?.endDate?.let {
+                runCatching { java.time.LocalDate.parse(it) }.getOrNull()
+            },
+        )
+
+    fun cancelPlanning(): Boolean {
+        if (acceptInProgress) return false
+        _ruleUndo.value = null
+        _generatedPlan.value = null
         clearAiReview()
+        savedStateHandle["next_week_setup_source"] = null
+        _saveState.value = PlanSaveUiState()
+        return true
+    }
+
+    fun generatePlan(goal: PlanningGoal, selectedDays: Set<Int>) {
+        if (selectedDays.isEmpty() || acceptInProgress) return
+        val generated = planGenerator.generate(goal, selectedDays, targetWeekStart())
+        _saveState.value = PlanSaveUiState()
+        clearAiReview()
+        _ruleUndo.value = null
         _generatedPlan.value = generated
     }
 
-    fun enterAiReview(validatedPlan: ValidatedPlanDraft): Boolean {
+    fun enterAiReview(
+        validatedPlan: ValidatedPlanDraft,
+        configurationRevision: Long? = null
+    ): Boolean {
+        if (
+            configurationRevision != null &&
+                configurationRevision != remotePlanningExperiment?.state?.value?.revision
+        )
+            return false
+        if (!matchesRemoteConfiguration(validatedPlan)) return false
         val current = _aiReviewState.value
         if (current?.sourceToken === validatedPlan) return true
-        if (pendingAiReview === validatedPlan) return true
+        if (pendingAiReview?.validatedPlan === validatedPlan) return true
         if (acceptInProgress) {
-            pendingAiReview = validatedPlan
+            pendingAiReview =
+                PendingAiReview(
+                    validatedPlan,
+                    configurationRevision ?: remotePlanningExperiment?.state?.value?.revision,
+                )
             return true
         }
 
@@ -125,8 +237,17 @@ constructor(
         return true
     }
 
+    private fun matchesRemoteConfiguration(validatedPlan: ValidatedPlanDraft): Boolean {
+        val revision =
+            validatedPlan.draft.providerMetadata.remoteConfigurationRevision ?: return true
+        return revision == remotePlanningExperiment?.state?.value?.revision
+    }
+
     private fun showAiReview(validatedPlan: ValidatedPlanDraft) {
+        if (!matchesRemoteConfiguration(validatedPlan)) return
+        reviewConfigurationRevision = remotePlanningExperiment?.state?.value?.revision
         val review = aiPlanReviewEditor.start(validatedPlan)
+        _ruleUndo.value = null
         _generatedPlan.value = null
         mappedAiPlan = null
         _aiReviewState.value =
@@ -148,15 +269,65 @@ constructor(
         replacement: ExerciseDraft,
     ) = editAiReview { aiPlanReviewEditor.replaceExercise(it, workoutDay, originalId, replacement) }
 
-    fun deleteWorkoutFromReview(workoutId: String) {
+    fun moveRuleWorkout(workoutId: String, day: Int) = editRulePlan {
+        rulePlanReviewEditor.moveWorkout(it, workoutId, day)
+    }
+
+    fun editRuleExercise(exerciseId: String, form: RuleExerciseForm) = editRulePlan {
+        rulePlanReviewEditor.editExercise(it, exerciseId, form)
+    }
+
+    fun addRuleExercise(workoutId: String, form: RuleExerciseForm) = editRulePlan {
+        rulePlanReviewEditor.addExercise(it, workoutId, form)
+    }
+
+    fun moveRuleExercise(workoutId: String, exerciseId: String, index: Int) = editRulePlan {
+        rulePlanReviewEditor.moveExercise(it, workoutId, exerciseId, index)
+    }
+
+    fun removeRuleExercise(exerciseId: String) {
+        if (acceptInProgress) return
         val current = _generatedPlan.value ?: return
-        val updatedWorkouts = current.workouts.filter { it.id != workoutId }
-        val updatedExercises = current.exercises.filter { it.plannedWorkoutId != workoutId }
-        _generatedPlan.value =
-            current.copy(workouts = updatedWorkouts, exercises = updatedExercises)
+        val removal = rulePlanReviewEditor.removeExercise(current, exerciseId) ?: return
+        _generatedPlan.value = removal.after
+        _ruleUndo.value = removal
+        _saveState.value = PlanSaveUiState()
+    }
+
+    fun undoRuleRemoval() {
+        if (acceptInProgress) return
+        val removal = _ruleUndo.value ?: return
+        if (_generatedPlan.value == removal.after) _generatedPlan.value = removal.before
+        _ruleUndo.value = null
+    }
+
+    fun expireRuleUndo(removal: RuleExerciseRemoval) {
+        if (_ruleUndo.value === removal) _ruleUndo.value = null
+    }
+
+    fun deleteWorkoutFromReview(workoutId: String) = editRulePlan { current ->
+        current.copy(
+            workouts = current.workouts.filterNot { it.id == workoutId },
+            exercises = current.exercises.filterNot { it.plannedWorkoutId == workoutId },
+        )
+    }
+
+    private fun editRulePlan(transform: (GeneratedPlan) -> GeneratedPlan) {
+        if (acceptInProgress) return
+        val current = _generatedPlan.value ?: return
+        val updated = transform(current)
+        if (updated == current) return
+        _ruleUndo.value = null
+        _saveState.value = PlanSaveUiState()
+        _generatedPlan.value = updated
     }
 
     fun backToSetup() {
+        if (acceptInProgress && aiAcceptJob?.isActive != true) return
+        aiAcceptJob?.cancel()
+        savedStateHandle["next_week_setup_source"] = persisted.value?.plan?.id
+        _saveState.value = PlanSaveUiState()
+        _ruleUndo.value = null
         _generatedPlan.value = null
         clearAiReview()
     }
@@ -171,7 +342,9 @@ constructor(
             return
         }
         val generated = _generatedPlan.value ?: return
+        if (generated.workouts.isEmpty()) return
         acceptInProgress = true
+        _saveState.value = PlanSaveUiState(isSaving = true)
         viewModelScope.launch {
             var saved = false
             try {
@@ -183,14 +356,22 @@ constructor(
                 )
                 saved = true
                 pendingAiReview = null
+                _ruleUndo.value = null
                 _generatedPlan.value = null
+                savedStateHandle["next_week_setup_source"] = null
                 onAccepted()
             } catch (cancellation: CancellationException) {
                 throw cancellation
-            } catch (_: Exception) {
-                // Keep the review available so the user can retry accepting the plan.
+            } catch (failure: Exception) {
+                _saveState.value =
+                    PlanSaveUiState(
+                        error =
+                            if (failure is ActiveSessionBlocksPlanException) failure.message
+                            else AI_SAVE_ERROR
+                    )
             } finally {
                 acceptInProgress = false
+                _saveState.value = _saveState.value.copy(isSaving = false)
                 if (!saved) showPendingAiReview()
             }
         }
@@ -201,39 +382,76 @@ constructor(
         onAccepted: () -> Unit,
     ) {
         if (!reviewState.canAccept) return
+        if (reviewConfigurationRevision != remotePlanningExperiment?.state?.value?.revision) {
+            clearAiReview()
+            return
+        }
         val expectedProfileGeneration = profileGenerationToken?.current()
         if (profileGenerationToken != null && expectedProfileGeneration == null) return
-        val validatedPlan =
-            (reviewState.review as? AiPlanDraftReviewState.Valid)?.validatedPlan ?: return
-        val generated =
-            mappedAiPlan ?: validatedPlanDraftMapper.map(validatedPlan).also { mappedAiPlan = it }
-        acceptInProgress = true
-        _aiReviewState.value = reviewState.copy(isAccepting = true, saveError = null)
-        viewModelScope.launch {
-            try {
-                planRepository.createPlan(
-                    plan = generated.plan,
-                    workouts = generated.workouts,
-                    exercises = generated.exercises,
-                    expectedProfileGeneration = expectedProfileGeneration,
-                )
-                pendingAiReview = null
-                clearAiReview()
-                onAccepted()
-            } catch (cancellation: CancellationException) {
-                throw cancellation
-            } catch (_: Exception) {
-                _aiReviewState.value =
-                    _aiReviewState.value?.copy(
-                        isAccepting = false,
-                        saveError = AI_SAVE_ERROR,
-                    )
-            } finally {
-                acceptInProgress = false
-                showPendingAiReview()
-                _aiReviewState.value = _aiReviewState.value?.copy(isAccepting = false)
-            }
+        val revalidatedReview = aiPlanReviewEditor.revalidate(reviewState.review)
+        val refreshedState = reviewState.copy(review = revalidatedReview, saveError = null)
+        _aiReviewState.value = refreshedState
+        val validatedPlan = (revalidatedReview as? AiPlanDraftReviewState.Valid)?.validatedPlan
+        if (validatedPlan == null) {
+            mappedAiPlan = null
+            return
         }
+        val generated =
+            mappedAiPlan
+                ?.takeIf {
+                    it.validatedPlan.draft == validatedPlan.draft &&
+                        it.validatedPlan.context == validatedPlan.context
+                }
+                ?.generated
+                ?: validatedPlanDraftMapper.map(validatedPlan).also {
+                    mappedAiPlan = MappedAiPlan(validatedPlan, it)
+                }
+        acceptInProgress = true
+        _aiReviewState.value = refreshedState.copy(isAccepting = true)
+        val expectedConfigurationRevision = reviewConfigurationRevision
+        aiAcceptJob =
+            viewModelScope.launch {
+                try {
+                    currentCoroutineContext().ensureActive()
+                    if (
+                        expectedConfigurationRevision !=
+                            remotePlanningExperiment?.state?.value?.revision
+                    ) {
+                        clearAiReview()
+                        return@launch
+                    }
+                    planRepository.createPlan(
+                        plan = generated.plan,
+                        workouts = generated.workouts,
+                        exercises = generated.exercises,
+                        expectedProfileGeneration = expectedProfileGeneration,
+                    )
+                    currentCoroutineContext().ensureActive()
+                    if (
+                        expectedConfigurationRevision !=
+                            remotePlanningExperiment?.state?.value?.revision
+                    )
+                        return@launch
+                    pendingAiReview = null
+                    clearAiReview()
+                    savedStateHandle["next_week_setup_source"] = null
+                    onAccepted()
+                } catch (cancellation: CancellationException) {
+                    throw cancellation
+                } catch (failure: Exception) {
+                    _aiReviewState.value =
+                        _aiReviewState.value?.copy(
+                            isAccepting = false,
+                            saveError =
+                                if (failure is ActiveSessionBlocksPlanException) failure.message
+                                else AI_SAVE_ERROR,
+                        )
+                } finally {
+                    acceptInProgress = false
+                    showPendingAiReview()
+                    _aiReviewState.value = _aiReviewState.value?.copy(isAccepting = false)
+                }
+            }
     }
 
     private fun editAiReview(transform: (AiPlanDraftReviewState) -> AiPlanDraftReviewState) {
@@ -252,6 +470,7 @@ constructor(
     }
 
     private fun clearAiReview() {
+        reviewConfigurationRevision = null
         _aiReviewState.value = null
         mappedAiPlan = null
         pendingAiReview = null
@@ -260,8 +479,20 @@ constructor(
     private fun showPendingAiReview() {
         val pending = pendingAiReview ?: return
         pendingAiReview = null
-        showAiReview(pending)
+        if (pending.configurationRevision != remotePlanningExperiment?.state?.value?.revision)
+            return
+        showAiReview(pending.validatedPlan)
     }
+
+    private data class PendingAiReview(
+        val validatedPlan: ValidatedPlanDraft,
+        val configurationRevision: Long?,
+    )
+
+    private data class MappedAiPlan(
+        val validatedPlan: ValidatedPlanDraft,
+        val generated: GeneratedPlan,
+    )
 
     private companion object {
         const val AI_SAVE_ERROR = "Could not save this plan. Try again."
@@ -297,3 +528,11 @@ sealed interface PlanUiState {
         val hasActiveSession: Boolean,
     ) : PlanUiState
 }
+
+private data class AcceptedPlanSnapshot(
+    val plan: WeeklyPlan?,
+    val workouts: List<PlannedWorkout>,
+    val hasActiveSession: Boolean
+)
+
+data class PlanSaveUiState(val isSaving: Boolean = false, val error: String? = null)

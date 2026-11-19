@@ -125,6 +125,13 @@ class ManualBackupJourneyTest {
         assertEquals(original, runBlocking { local.capture() })
         assertEquals(remoteBefore, latest(accountId))
 
+        // Opening the recreated destination starts a background coordinator refresh.
+        // Wait through its real read-only gate before an explicit command that intentionally
+        // refuses contention; keep the UI click and every data-preservation assertion.
+        runBlocking { backup.refreshStatus() }
+        waitForEnabledText("KEEP THIS DEVICE EMPTY")
+        assertEquals(original, runBlocking { local.capture() })
+        assertEquals(remoteBefore, latest(accountId))
         composeRule.onNodeWithText("KEEP THIS DEVICE EMPTY").performScrollTo().performClick()
         waitForDialogText("This device will stay empty.")
         val associated = runBlocking { local.capture() }
@@ -314,11 +321,7 @@ class ManualBackupJourneyTest {
         listOf(SHARED_RECORD_ID, LOCAL_RECORD_ID, CLOUD_RECORD_ID).forEach { id ->
             composeRule.onNodeWithTag(TestTags.record(id)).performScrollTo().assertIsDisplayed()
         }
-        composeRule
-            .onNode(
-                hasText("120 kg") and hasAnyAncestor(hasTestTag(TestTags.record(SHARED_RECORD_ID)))
-            )
-            .assertExists()
+        composeRule.onNodeWithTag(TestTags.record(SHARED_RECORD_ID)).assertTextContains("120 kg")
 
         applyPreRestoreLocalChange()
         val beforeRestore = runBlocking { local.capture() }

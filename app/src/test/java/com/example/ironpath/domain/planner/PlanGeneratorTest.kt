@@ -23,6 +23,19 @@ class PlanGeneratorTest {
         timeProvider.today().with(TemporalAdjusters.next(DayOfWeek.MONDAY))
 
     @Test
+    fun `explicit later target week is used by legacy generation`() {
+        val result =
+            generator.generate(
+                PlanningGoal.STRENGTH,
+                setOf(1, 7),
+                java.time.LocalDate.parse("2027-01-11")
+            )
+        assertEquals("2027-01-11", result.plan.startDate)
+        assertEquals("2027-01-17", result.plan.endDate)
+        assertEquals(listOf("2027-01-11", "2027-01-17"), result.workouts.map { it.scheduledDate })
+    }
+
+    @Test
     fun `generate uses injected date timestamp and stable ids`() {
         val timeProvider =
             FakeTimeProvider(

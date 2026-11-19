@@ -221,6 +221,115 @@ class HistoryViewModelTest {
         assertNull(viewModel.addRecordError.value)
     }
 
+    @Test
+    fun `edit saves same identity and cancellation never writes`() = runTest {
+        val original =
+            PersonalRecord(
+                "existing",
+                "Deadlift",
+                "deadlift",
+                180.5,
+                "2026-07-16",
+                createdAt = 123L
+            )
+        viewModel.showEditRecord(original)
+        assertEquals(original, viewModel.editingRecord.value)
+        viewModel.hideAddRecord()
+        coVerify(exactly = 0) { recordRepository.updateManualRecord(any(), any(), any()) }
+        viewModel.showEditRecord(original)
+        viewModel.saveRecord(draft) {}
+        coVerify(exactly = 1) { recordRepository.updateManualRecord("existing", draft, null) }
+        coVerify(exactly = 0) { recordRepository.insertRecord(any(), any()) }
+        assertFalse(viewModel.addRecordShown.value)
+    }
+
+    @Test
+    fun `logged record cannot open manual editor`() {
+        viewModel.showEditRecord(
+            PersonalRecord(
+                "logged",
+                "Deadlift",
+                "deadlift",
+                180.5,
+                "2026-07-16",
+                sourceType = RecordSource.Logged,
+                createdAt = 1L
+            )
+        )
+        assertFalse(viewModel.addRecordShown.value)
+        assertNull(viewModel.editingRecord.value)
+    }
+
+    @Test
+    fun `invalid or future draft cannot bypass form validation`() = runTest {
+        viewModel.showAddRecord()
+        for (invalid in
+            listOf(
+                draft.copy(exerciseName = " "),
+                draft.copy(weightKg = Double.NaN),
+                draft.copy(weightKg = 0.0),
+                draft.copy(achievedOn = "2027-01-01")
+            )) {
+            viewModel.saveRecord(invalid) {}
+            assertNotNull(viewModel.addRecordError.value)
+        }
+        coVerify(exactly = 0) { recordRepository.insertRecord(any(), any()) }
+    }
+
+    @Test
+    fun `delete error preserves editor and retry deletes only selected record`() = runTest {
+        val original =
+            PersonalRecord(
+                "existing",
+                "Deadlift",
+                "deadlift",
+                180.5,
+                "2026-07-16",
+                createdAt = 123L
+            )
+        viewModel.showEditRecord(original)
+        coEvery { recordRepository.deleteManualRecord("existing", null) } throws
+            IllegalStateException("failed")
+        viewModel.deleteEditingRecord()
+        assertEquals(original, viewModel.editingRecord.value)
+        assertEquals("Unable to delete record. Please try again.", viewModel.addRecordError.value)
+        coEvery { recordRepository.deleteManualRecord("existing", null) } returns Unit
+        viewModel.deleteEditingRecord()
+        assertFalse(viewModel.addRecordShown.value)
+        assertNull(viewModel.editingRecord.value)
+    }
+
+    @Test
+    fun `edit duplicate retains form and save serializes with delete and cancel`() = runTest {
+        val original =
+            PersonalRecord(
+                "existing",
+                "Deadlift",
+                "deadlift",
+                180.5,
+                "2026-07-16",
+                createdAt = 123L
+            )
+        viewModel.showEditRecord(original)
+        val release = CompletableDeferred<Unit>()
+        coEvery { recordRepository.updateManualRecord(any(), any(), any()) } coAnswers
+            {
+                release.await()
+                throw SQLiteConstraintException("duplicate")
+            }
+        viewModel.saveRecord(draft) {}
+        assertTrue(viewModel.isSavingRecord.value)
+        viewModel.deleteEditingRecord()
+        viewModel.hideAddRecord()
+        viewModel.saveRecord(draft) {}
+        release.complete(Unit)
+        coVerify(exactly = 1) { recordRepository.updateManualRecord(any(), any(), any()) }
+        coVerify(exactly = 0) { recordRepository.deleteManualRecord(any(), any()) }
+        assertTrue(viewModel.addRecordShown.value)
+        assertFalse(viewModel.isSavingRecord.value)
+        assertEquals(original, viewModel.editingRecord.value)
+    }
+
     // -- selectTab --
 
     @Test

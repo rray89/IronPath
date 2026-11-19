@@ -13,6 +13,30 @@ import org.junit.Test
 
 class WorkoutDateRulesTest {
 
+    @Test
+    fun `next full week crosses months and years and follows a future accepted week`() {
+        for ((today, expected) in
+            listOf(
+                "2026-12-31" to "2027-01-04",
+                "2026-08-30" to "2026-08-31",
+                "2026-08-31" to "2026-09-07",
+                "2026-01-31" to "2026-02-02"
+            )) {
+            val monday = nextPlanningWeekStart(LocalDate.parse(today))
+            assertEquals(expected, monday.toString())
+            assertEquals(java.time.DayOfWeek.MONDAY, monday.dayOfWeek)
+            assertEquals(java.time.DayOfWeek.SUNDAY, monday.plusDays(6).dayOfWeek)
+        }
+        assertEquals(
+            LocalDate.parse("2027-01-11"),
+            nextPlanningWeekStart(LocalDate.parse("2026-12-31"), LocalDate.parse("2027-01-10"))
+        )
+        assertEquals(
+            LocalDate.parse("2027-01-04"),
+            nextPlanningWeekStart(LocalDate.parse("2026-12-31"), LocalDate.parse("2026-12-20"))
+        )
+    }
+
     private fun workout(
         id: String,
         scheduledDate: String,
