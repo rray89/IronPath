@@ -34,6 +34,8 @@ internal fun CloudManualBackupOverview(
     onBackup: () -> Unit,
     onRefresh: () -> Unit,
     onSync: () -> Unit,
+    onRestore: () -> Unit = {},
+    onUndo: () -> Unit = {},
 ) {
     val failure = manual.cloudFailureReason()
     Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
@@ -76,6 +78,26 @@ internal fun CloudManualBackupOverview(
         ) {
             Text("BACK UP NOW")
         }
+        Button(
+            onClick = onRestore,
+            enabled =
+                backupAvailable && manual.latest != null && !manual.busy && !manual.signOutBusy,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text("PREVIEW WHOLE-BACKUP RESTORE")
+        }
+        Text(
+            "Restore replaces all included training data with the latest complete cloud backup after review and a long press. Exactly one local undo is kept. Restore and undo never change the cloud backup.",
+            style = MaterialTheme.typography.bodyMedium
+        )
+        if (manual.undoAvailable)
+            Button(
+                onClick = onUndo,
+                enabled = backupAvailable && !manual.busy && !manual.signOutBusy,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("PREVIEW ONE UNDO")
+            }
         TextButton(
             onClick = onRefresh,
             enabled = !manual.busy && !manual.signOutBusy,
