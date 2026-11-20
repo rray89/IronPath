@@ -180,8 +180,11 @@ internal fun ManualBackupReviewScreen(
         if (demoStorage) DemoBackupNotice()
         else
             AccountSection(
-                "MANUAL CLOUD BACKUP",
-                "Only confirming this preview uploads included training data to your Google account's IronPath backup."
+                if (review is ManualReview.Sync) "MANUAL CLOUD SYNC" else "MANUAL CLOUD BACKUP",
+                if (review is ManualReview.Sync)
+                    "The latest complete backup was downloaded for this comparison. Confirming publishes the merged result when needed, then applies it to this device. Cancel leaves local and cloud data unchanged."
+                else
+                    "Only confirming this preview uploads included training data to your Google account's IronPath backup."
             )
         when (review) {
             is ManualReview.Backup -> {

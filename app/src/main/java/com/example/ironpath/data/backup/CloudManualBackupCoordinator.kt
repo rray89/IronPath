@@ -11,7 +11,7 @@ import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.sync.Mutex
 
-/** The live first slice supports backup and inspection only. Other operations stay unavailable. */
+/** Explicit live backup and sync. Restore, undo and deletion remain unavailable. */
 @Singleton
 class CloudManualBackupCoordinator
 internal constructor(
@@ -40,6 +40,7 @@ internal constructor(
     private var epoch: Long? = null
     private var observation: RemoteBackupInspection? = null
     private var pending: Pending? = null
+    private var pendingSync: PendingSync? = null
     private var manualWriteNeedsInspection = false
 
     private data class Pending(
@@ -48,6 +49,14 @@ internal constructor(
         val observed: RemoteBackupInspection,
         val preview: BackupPreview,
         val snapshot: EncodedBackupSnapshot
+    )
+
+    private data class PendingSync(
+        val account: AccountId,
+        val captured: ManualBackupCapture,
+        val remote: RemoteBackupArtifact,
+        val preview: SyncPreview,
+        val merge: SyncMergeAnalysis,
     )
 
     override suspend fun refreshStatus() {
@@ -80,6 +89,7 @@ internal constructor(
     override suspend fun previewBackup(): BackupPreviewResult =
         locked(BackupPreviewResult.Unavailable, { BackupPreviewResult.Failed(it) }) {
             pending = null
+            pendingSync = null
             status.value = BackupStatus.Preparing
             val account = account()
             val captured = capture(account)
@@ -88,13 +98,15 @@ internal constructor(
             val complete = (observed as? RemoteBackupInspection.Complete)?.backup
             // Durable ownership comes from explicit confirmation before upload. A fresh unclaimed
             // profile must never adopt existing cloud data merely because its digest matches.
-            // An owned profile can explicitly recover its own installation's uncertain receipt.
+            // An owned profile can recover an exact-content receipt. A newer same-installation
+            // snapshot may be a merge that never reached Room, so source alone is not consent.
             if (
                 complete != null &&
                     (captured.metadata.ownerUid == null ||
                         (complete.generation > captured.metadata.lastObservedRemoteGeneration &&
                             (complete.summary.sourceInstallationId !=
-                                captured.metadata.installationId)))
+                                captured.metadata.installationId ||
+                                complete.contentDigest != snapshot.contentDigest)))
             )
                 fail(BackupFailureReason.ConcurrentRemoteChange)
             val total = snapshot.entityCounts.values.sumOf { it.toLong() }
@@ -212,9 +224,155 @@ internal constructor(
             BackupActionResult.Completed
         }
 
+    override suspend fun previewSync(): SyncPreviewResult =
+        locked(SyncPreviewResult.Unavailable, { SyncPreviewResult.Failed(it) }) {
+            pending = null
+            pendingSync = null
+            status.value = BackupStatus.Preparing
+            val account = account()
+            val captured = capture(account)
+            if (captured.activeSessionId != null) fail(BackupFailureReason.ActiveSessionPresent)
+            val read = remote.latest(account)
+            requireSession(account)
+            val complete =
+                when (read) {
+                    is RemoteBackupRead.Complete -> read.backup
+                    is RemoteBackupRead.Failed -> fail(read.reason)
+                    is RemoteBackupRead.Absent -> {
+                        val absent = RemoteBackupInspection.Absent(read.generation)
+                        observation = absent
+                        update(captured, absent)
+                        return@locked SyncPreviewResult.Unavailable
+                    }
+                }
+            val merge =
+                ManualSyncMerger.analyze(
+                    captured.baseline?.validatedBundle(),
+                    BackupBundleValidator.validate(captured.bundle).bundle,
+                    complete.validatedBundle(),
+                )
+            if (merge.localResult == null && merge.cloudResult == null)
+                fail(BackupFailureReason.InvalidSnapshot)
+            // Validate encoded size before offering either outcome as confirmable.
+            fun fits(bundle: BackupBundle?) =
+                bundle != null && runCatching { codec.encode(bundle) }.isSuccess
+            val localFits = fits(merge.localResult)
+            val cloudFits = fits(merge.cloudResult)
+            if (!localFits && !cloudFits) fail(BackupFailureReason.InvalidSnapshot)
+            val preview =
+                SyncPreview(
+                    ids.newId(),
+                    captured.metadata.localChangeRevision,
+                    complete.generation,
+                    merge.localChanges,
+                    merge.cloudChanges,
+                    merge.conflicts,
+                    localFits,
+                    cloudFits,
+                )
+            pendingSync = PendingSync(account, captured, complete, preview, merge)
+            observation = RemoteBackupInspection.Complete(RemoteBackupMetadata.from(complete))
+            latestSummary.value = complete.summary
+            status.value = BackupStatus.ReviewRequired
+            SyncPreviewResult.Ready(preview)
+        }
+
+    override suspend fun confirmSync(
+        previewId: String,
+        resolution: SyncConflictResolution?,
+    ): BackupActionResult =
+        locked(BackupActionResult.Unavailable, { BackupActionResult.Failed(it) }) {
+            val request =
+                pendingSync?.takeIf { it.preview.id == previewId }
+                    ?: fail(BackupFailureReason.StalePreview)
+            if (request.preview.conflicts.values.any { it > 0 } && resolution == null)
+                fail(BackupFailureReason.ConflictChoiceRequired)
+            val keepCloud = resolution == SyncConflictResolution.KeepCloud
+            val merged = if (keepCloud) request.merge.cloudResult else request.merge.localResult
+            if (
+                merged == null ||
+                    !(if (keepCloud) request.preview.canKeepCloud else request.preview.canKeepLocal)
+            )
+                fail(BackupFailureReason.InvalidSnapshot)
+            val snapshot = codec.encode(merged)
+            pendingSync = null
+            val current = capture(account())
+            requireSession(request.account)
+            if (current != request.captured) fail(BackupFailureReason.StalePreview)
+            if (current.activeSessionId != null) fail(BackupFailureReason.ActiveSessionPresent)
+            Math.addExact(current.metadata.localChangeRevision, 1)
+            val observed = inspect(request.account)
+            if (
+                observed !=
+                    RemoteBackupInspection.Complete(RemoteBackupMetadata.from(request.remote))
+            )
+                fail(BackupFailureReason.StalePreview)
+            // Remote inspection can suspend while local records change; Room checks again after
+            // publication too, but reject known changes before any cloud mutation.
+            if (capture(request.account) != current) fail(BackupFailureReason.StalePreview)
+            requireSession(request.account)
+            status.value = BackupStatus.BackingUp
+            manualWriteNeedsInspection = true
+            val completed =
+                if (snapshot.contentDigest == request.remote.snapshot.contentDigest) {
+                    when (
+                        val retention =
+                            remote.retryRetention(
+                                request.account,
+                                request.remote.generation,
+                                request.remote.summary.backupId
+                            )
+                    ) {
+                        RemoteBackupRetention.Completed -> Unit
+                        is RemoteBackupRetention.Failed -> fail(retention.reason)
+                    }
+                    request.remote
+                } else {
+                    val expected = Math.addExact(request.remote.generation, 1)
+                    val published =
+                        when (
+                            val result =
+                                remote.publish(
+                                    request.account,
+                                    request.remote.generation,
+                                    current.metadata.installationId,
+                                    snapshot
+                                )
+                        ) {
+                            is RemoteBackupPublish.Completed -> result.backup
+                            is RemoteBackupPublish.Failed -> fail(result.reason)
+                        }
+                    published.validatedBundle()
+                    if (
+                        published.generation != expected ||
+                            published.snapshot != snapshot ||
+                            published.summary.sourceInstallationId !=
+                                current.metadata.installationId
+                    )
+                        fail(BackupFailureReason.InvalidSnapshot)
+                    published
+                }
+            requireSession(request.account)
+            // No distributed transaction is possible. The old baseline survives every failed
+            // local apply; a fresh three-way review preserves intervening offline edits.
+            observation = RemoteBackupInspection.Complete(RemoteBackupMetadata.from(completed))
+            latestSummary.value = completed.summary
+            if (!local.applySync(current, request.account, completed))
+                fail(BackupFailureReason.StalePreview)
+            manualWriteNeedsInspection = false
+            update(local.capture(), observation!!)
+            BackupActionResult.Completed
+        }
+
+    private suspend fun requireSession(expected: AccountId) {
+        if (sessions.readSession()?.id != expected)
+            fail(BackupFailureReason.ReauthenticationRequired)
+    }
+
     override suspend fun discardPreview(previewId: String) {
         locked(Unit, { Unit }, wait = true) {
             if (pending?.preview?.id == previewId) pending = null
+            if (pendingSync?.preview?.id == previewId) pendingSync = null
         }
     }
 
@@ -281,6 +439,7 @@ internal constructor(
         manualWriteNeedsInspection = false
         latestSummary.value = null
         pending = null
+        pendingSync = null
         status.value = BackupStatus.LocalOnly
     }
 
@@ -302,6 +461,7 @@ internal constructor(
                 withContext(dispatcher) { block() }
             } catch (cancelled: CancellationException) {
                 pending = null
+                pendingSync = null
                 status.value = BackupStatus.NeedsAttention(BackupFailureReason.ServiceUnavailable)
                 throw cancelled
             } catch (error: Exception) {

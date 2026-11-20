@@ -48,7 +48,7 @@ internal fun AuthPreviewAccountBackupScreen(
             is AccountState.SignOutPending -> state.profile
             else -> null
         }
-    if (manual.review is ManualReview.Backup) {
+    if (manual.review is ManualReview.Backup || manual.review is ManualReview.Sync) {
         ManualBackupReviewScreen(
             manual,
             manualActions,
@@ -129,15 +129,21 @@ internal fun AuthPreviewAccountBackupScreen(
         AccountSection(
             "CLOUD BACKUP",
             if (signInAvailable)
-                "Training data stays local until you review and confirm a manual cloud backup."
+                "Training data stays local until you review and confirm a manual cloud backup or sync."
             else
                 "Cloud backup is unavailable until private Firebase preview configuration is supplied."
         )
         if (state is AccountState.SignedIn || state is AccountState.AwaitingDataChoice) {
-            CloudManualBackupOverview(manual, signInAvailable, manualActions.previewBackup, onRetry)
+            CloudManualBackupOverview(
+                manual,
+                signInAvailable,
+                manualActions.previewBackup,
+                onRetry,
+                manualActions.previewSync
+            )
         }
         Text(
-            "Cloud restore, manual sync and account deletion are not available in this preview.",
+            "Whole-backup restore, undo and account deletion are not available in this preview.",
             style = MaterialTheme.typography.bodyMedium
         )
         if (state !is AccountState.SignedIn && state !is AccountState.AwaitingDataChoice) {

@@ -33,6 +33,69 @@ class CloudManualBackupOverviewTest {
     private var refreshes = 0
     private var ui by mutableStateOf(ManualBackupUiState())
     private lateinit var scrollState: ScrollState
+    private var syncs = 0
+
+    @Test
+    fun cloudConflictReviewRequiresChoiceAndSupportsCancelAtLargeFont() {
+        val ui =
+            mutableStateOf(
+                ManualBackupUiState(
+                    review =
+                        ManualReview.Sync(
+                            SyncPreview(
+                                "sync",
+                                1,
+                                2,
+                                mapOf("PersonalRecord" to 2),
+                                mapOf("PersonalRecord" to 2),
+                                mapOf("PersonalRecord" to 1)
+                            )
+                        )
+                )
+            )
+        var cancelled = 0
+        composeRule.setContent {
+            DeviceConfigurationOverride(
+                DeviceConfigurationOverride.ForcedSize(DpSize(320.dp, 640.dp)) then
+                    DeviceConfigurationOverride.FontScale(2f)
+            ) {
+                IronPathTheme {
+                    Surface {
+                        ManualBackupReviewScreen(
+                            ui.value,
+                            ManualBackupActions(
+                                selectResolution = { ui.value = ui.value.copy(resolution = it) },
+                                confirm = { syncs++ },
+                            ),
+                            { cancelled++ },
+                            demoStorage = false
+                        )
+                    }
+                }
+            }
+        }
+        composeRule.onNodeWithText("MANUAL CLOUD SYNC").assertExists()
+        composeRule.onNodeWithText("CONFIRM MANUAL SYNC").performScrollTo().assertIsNotEnabled()
+        composeRule
+            .onNodeWithText("Merge and keep local conflict versions")
+            .performScrollTo()
+            .assertIsNotSelected()
+            .performClick()
+        composeRule.onNodeWithText("Merge and keep local conflict versions").assertIsSelected()
+        composeRule
+            .onNodeWithText("Overwrite this device from cloud")
+            .performScrollTo()
+            .assertIsNotSelected()
+            .performClick()
+        composeRule.onNodeWithText("Overwrite this device from cloud").assertIsSelected()
+        composeRule.onNodeWithText("Merge and keep local conflict versions").assertIsNotSelected()
+        composeRule.onNodeWithText("CONFIRM MANUAL SYNC").performScrollTo().assertIsEnabled()
+        composeRule.onNodeWithText("BACK TO ACCOUNT & BACKUP").performScrollTo().performClick()
+        composeRule.runOnIdle {
+            assertEquals(1, cancelled)
+            assertEquals(0, syncs)
+        }
+    }
 
     @Test
     fun explicitActionsRemainReachableAtTwoHundredPercentPortrait() =
@@ -53,6 +116,7 @@ class CloudManualBackupOverviewTest {
             )
         )
         composeRule.onNodeWithText("BACK UP NOW").performScrollTo().assertIsNotEnabled()
+        composeRule.onNodeWithText("REVIEW MANUAL SYNC").performScrollTo().assertIsNotEnabled()
         composeRule.onNodeWithText("REFRESH BACKUP STATUS").performScrollTo().assertIsNotEnabled()
         composeRule
             .onNodeWithText("Manual operation in progress")
@@ -210,12 +274,13 @@ class CloudManualBackupOverviewTest {
             .onNodeWithText("LATEST COMPLETE CLOUD BACKUP")
             .performScrollTo()
             .assertIsDisplayed()
-        composeRule.onNodeWithText("REVIEW MANUAL SYNC").assertDoesNotExist()
+        composeRule.onNodeWithText("REVIEW MANUAL SYNC").performScrollTo().performClick()
         composeRule.onNodeWithText("BACK UP NOW").performScrollTo().performClick()
         composeRule.onNodeWithText("REFRESH BACKUP STATUS").performScrollTo().performClick()
         composeRule.runOnIdle {
             assertEquals(1, backups)
             assertEquals(1, refreshes)
+            assertEquals(1, syncs)
         }
     }
 
@@ -243,7 +308,7 @@ class CloudManualBackupOverviewTest {
         assertTextColorAndNoOverflow(DENIED, Error)
         composeRule
             .onNodeWithText(
-                "Check that you are using the intended account. After cloud access is restored, refresh backup status, then open a fresh backup preview.",
+                "Check that you are using the intended account. After cloud access is restored, refresh backup status, then open a fresh preview.",
                 useUnmergedTree = true
             )
             .performScrollTo()
@@ -313,7 +378,13 @@ class CloudManualBackupOverviewTest {
                     Surface {
                         scrollState = rememberScrollState()
                         Column(Modifier.verticalScroll(scrollState).padding(24.dp)) {
-                            CloudManualBackupOverview(ui, true, { backups++ }, onRefresh)
+                            CloudManualBackupOverview(
+                                ui,
+                                true,
+                                { backups++ },
+                                onRefresh,
+                                { syncs++ }
+                            )
                         }
                     }
                 }
