@@ -2,11 +2,14 @@ package com.example.ironpath.ui.screens.history
 
 import androidx.compose.ui.semantics.ProgressBarRangeInfo
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.hasProgressBarRangeInfo
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
+import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import com.example.ironpath.data.local.entity.LoggedExercise
 import com.example.ironpath.data.local.entity.LoggedSet
 import com.example.ironpath.data.local.entity.WorkoutLog
@@ -42,10 +45,11 @@ class WorkoutLogDetailScreenTest {
     }
 
     @Test
-    fun readySnapshot_ordersSets_andNeverOffersRecordMutationActions() {
+    fun readySnapshot_ordersSets_andOffersEligibleRecordActions() {
         val second = loggedSet(id = "set-2", number = 2, reps = 8, weightKg = 62.5)
         val first = loggedSet(id = "set-1", number = 1, reps = 10, weightKg = 60.0)
-        setContent(readyState(sets = listOf(second, first)))
+        var saved: String? = null
+        setContent(readyState(sets = listOf(second, first)), onSaveRecord = { saved = it })
 
         composeRule.onNodeWithText("Push A").assertIsDisplayed()
         composeRule.onNodeWithText("Bench Press").assertIsDisplayed()
@@ -55,7 +59,8 @@ class WorkoutLogDetailScreenTest {
         val firstY = composeRule.onNodeWithText("SET 1").fetchSemanticsNode().positionInRoot.y
         val secondY = composeRule.onNodeWithText("SET 2").fetchSemanticsNode().positionInRoot.y
         assertTrue(firstY < secondY)
-        composeRule.onNodeWithText("SAVE RECORD").assertDoesNotExist()
+        composeRule.onNodeWithTag("save_record_set-2").performScrollTo().performClick()
+        assertEquals("set-2", saved)
         composeRule.onNodeWithText("SAVED").assertDoesNotExist()
     }
 
@@ -81,15 +86,38 @@ class WorkoutLogDetailScreenTest {
         composeRule.onNodeWithText("SAVE RECORD").assertDoesNotExist()
     }
 
+    @Test
+    fun savedAndIncompleteSets_doNotOfferEnabledSave() {
+        setContent(
+            readyState(
+                    sets =
+                        listOf(loggedSet("set-1", 1, 10, 60.0), loggedSet("blank", 2, null, 60.0))
+                )
+                .copy(savedSetIds = setOf("set-1"))
+        )
+        composeRule.onNodeWithTag("save_record_set-1").performScrollTo().assertIsNotEnabled()
+        composeRule.onNodeWithText("SAVED").assertIsDisplayed()
+        composeRule.onNodeWithTag("save_record_blank").assertDoesNotExist()
+    }
+
+    @Test
+    fun sourceDetail_keepsSnapshotReadOnly() {
+        setContent(readyState().copy(readOnly = true))
+        composeRule.onNodeWithText("10 reps · 60 kg").assertIsDisplayed()
+        composeRule.onNodeWithText("SAVE RECORD").assertDoesNotExist()
+    }
+
     private fun setContent(
         state: WorkoutLogDetailUiState,
         onBack: () -> Unit = {},
+        onSaveRecord: (String) -> Unit = {},
     ) {
         composeRule.setContent {
             IronPathTheme {
                 WorkoutLogDetailContent(
                     uiState = state,
                     onBack = onBack,
+                    onSaveRecord = onSaveRecord,
                     zoneId = ZoneOffset.UTC,
                 )
             }

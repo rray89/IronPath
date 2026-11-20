@@ -166,6 +166,9 @@ fun IronPathNavHost(
             DrawerAwareDestination(drawerOpen, onCloseDrawer) {
                 HistoryScreen(
                     onOpenLog = { logId -> navController.navigate(Route.workoutLogDetail(logId)) },
+                    onOpenRecordSource = { logId ->
+                        navController.navigate(Route.workoutLogDetail(logId, recordSource = true))
+                    },
                     modifier = Modifier.padding(innerPadding),
                 )
             }
@@ -202,7 +205,14 @@ fun IronPathNavHost(
         }
         composable(
             route = Route.WORKOUT_LOG_DETAIL,
-            arguments = listOf(navArgument(Route.WORKOUT_LOG_ID_ARG) { type = NavType.StringType }),
+            arguments =
+                listOf(
+                    navArgument(Route.WORKOUT_LOG_ID_ARG) { type = NavType.StringType },
+                    navArgument(Route.RECORD_SOURCE_ARG) {
+                        type = NavType.BoolType
+                        defaultValue = false
+                    },
+                ),
         ) {
             WorkoutLogDetailScreen(
                 onBack = { navController.popBackStack() },

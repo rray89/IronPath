@@ -28,6 +28,12 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
@@ -37,6 +43,7 @@ import com.example.ironpath.data.local.entity.LoggedSet
 import com.example.ironpath.data.local.entity.WorkoutLog
 import com.example.ironpath.data.repository.LoggedExerciseDetail
 import com.example.ironpath.data.repository.WorkoutLogDetail
+import com.example.ironpath.data.repository.recordCandidates
 import com.example.ironpath.ui.components.GreenGradientButton
 import com.example.ironpath.ui.theme.IronPathTheme
 import com.example.ironpath.ui.theme.SurfaceContainerHigh
@@ -54,6 +61,8 @@ fun WorkoutLogDetailScreen(
 
     WorkoutLogDetailContent(
         uiState = uiState,
+        onSaveRecord = viewModel::saveSetAsRecord,
+        onRetry = viewModel::loadDetail,
         onBack = onBack,
         zoneId = viewModel.zoneId,
         modifier = modifier,
@@ -66,6 +75,8 @@ internal fun WorkoutLogDetailContent(
     onBack: () -> Unit,
     zoneId: ZoneId,
     modifier: Modifier = Modifier,
+    onSaveRecord: (String) -> Unit = {},
+    onRetry: () -> Unit = {},
 ) {
     when (uiState) {
         WorkoutLogDetailUiState.Loading -> {
@@ -74,9 +85,15 @@ internal fun WorkoutLogDetailContent(
             }
         }
         WorkoutLogDetailUiState.NotFound -> WorkoutLogDetailNotFound(onBack, modifier)
+        WorkoutLogDetailUiState.Failed ->
+            Column(modifier.padding(24.dp)) {
+                Text("Unable to load workout. Please try again.")
+                GreenGradientButton(text = "Try again", onClick = onRetry)
+            }
         is WorkoutLogDetailUiState.Ready ->
             WorkoutLogDetailReady(
                 state = uiState,
+                onSaveRecord = onSaveRecord,
                 zoneId = zoneId,
                 modifier = modifier,
             )
@@ -122,6 +139,7 @@ private fun WorkoutLogDetailNotFound(
 @Composable
 private fun WorkoutLogDetailReady(
     state: WorkoutLogDetailUiState.Ready,
+    onSaveRecord: (String) -> Unit,
     zoneId: ZoneId,
     modifier: Modifier = Modifier,
 ) {
@@ -153,6 +171,14 @@ private fun WorkoutLogDetailReady(
 
         Spacer(Modifier.height(18.dp))
 
+        state.recordMessage?.let { message ->
+            Text(
+                message,
+                modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },
+                color = MaterialTheme.colorScheme.onSurface
+            )
+            Spacer(Modifier.height(12.dp))
+        }
         if (detail.exercises.isEmpty()) {
             Text(
                 text = "No exercise snapshot was saved for this log.",
@@ -164,6 +190,12 @@ private fun WorkoutLogDetailReady(
                 LoggedExerciseRow(
                     index = index + 1,
                     detail = exerciseDetail,
+                    eligibleSetIds =
+                        if (state.readOnly) emptySet()
+                        else detail.recordCandidates(zoneId).map { it.setId }.toSet(),
+                    savedSetIds = state.savedSetIds,
+                    saving = state.saving,
+                    onSaveRecord = onSaveRecord,
                 )
                 Spacer(Modifier.height(10.dp))
             }
@@ -213,6 +245,10 @@ private fun WorkoutLogSummary(
 private fun LoggedExerciseRow(
     index: Int,
     detail: LoggedExerciseDetail,
+    eligibleSetIds: Set<String>,
+    savedSetIds: Set<String>,
+    saving: Boolean,
+    onSaveRecord: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Column(
@@ -269,6 +305,22 @@ private fun LoggedExerciseRow(
                     LoggedSetRow(
                         set = set,
                     )
+                    if (set.id in eligibleSetIds) {
+                        val saved = set.id in savedSetIds
+                        GreenGradientButton(
+                            text = if (saved) "Saved" else if (saving) "Saving" else "Save Record",
+                            enabled = !saved && !saving,
+                            onClick = { onSaveRecord(set.id) },
+                            modifier =
+                                Modifier.testTag("save_record_${set.id}").semantics {
+                                    contentDescription =
+                                        "${detail.exercise.name}, set ${set.setNumber}, record"
+                                    stateDescription =
+                                        if (saved) "Saved"
+                                        else if (saving) "Saving" else "Not saved"
+                                },
+                        )
+                    }
                     Spacer(Modifier.height(8.dp))
                 }
         }
