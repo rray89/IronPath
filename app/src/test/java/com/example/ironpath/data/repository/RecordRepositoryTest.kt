@@ -101,7 +101,7 @@ class RecordRepositoryTest {
     fun `edit normalizes current manual row preserving identity and metadata`() = runTest {
         coEvery { recordDao.getRecordById(record.id) } returns record
         coEvery { recordDao.updateRecord(any()) } returns Unit
-        repository.updateManualRecord(record.id, editedDraft)
+        repository.updateManualRecord(record, editedDraft)
         coVerify {
             recordDao.updateRecord(
                 record.copy(
@@ -119,7 +119,7 @@ class RecordRepositoryTest {
     fun `unchanged edit excludes own identity and needs no revision`() = runTest {
         coEvery { recordDao.getRecordById(record.id) } returns record
         repository.updateManualRecord(
-            record.id,
+            record,
             ValidatedRecordDraft(
                 record.exerciseName,
                 record.normalizedExerciseName,
@@ -136,11 +136,26 @@ class RecordRepositoryTest {
     fun `missing and logged target cannot be mutated`() = runTest {
         for (target in listOf(null, record.copy(sourceType = RecordSource.Logged))) {
             coEvery { recordDao.getRecordById(record.id) } returns target
-            assertTrue(
-                runCatching { repository.updateManualRecord(record.id, editedDraft) }.isFailure
-            )
-            assertTrue(runCatching { repository.deleteManualRecord(record.id) }.isFailure)
+            assertTrue(runCatching { repository.updateManualRecord(record, editedDraft) }.isFailure)
+            assertTrue(runCatching { repository.deleteManualRecord(record) }.isFailure)
         }
+        coVerify(exactly = 0) { backupChangeTracker.markIncludedDataChanged() }
+    }
+
+    @Test
+    fun `replaced record cannot be overwritten or deleted by a stale editor`() = runTest {
+        val restored = record.copy(weightKg = 110.0, note = "Restored")
+        coEvery { recordDao.getRecordById(record.id) } returns restored
+        coEvery { recordDao.updateRecord(any()) } returns Unit
+        coEvery { recordDao.deleteRecord(record.id) } returns Unit
+
+        val edit = runCatching { repository.updateManualRecord(record, editedDraft) }
+        val delete = runCatching { repository.deleteManualRecord(record) }
+
+        assertTrue(edit.exceptionOrNull() is StaleRecordException)
+        assertTrue(delete.exceptionOrNull() is StaleRecordException)
+        coVerify(exactly = 0) { recordDao.updateRecord(any()) }
+        coVerify(exactly = 0) { recordDao.deleteRecord(any()) }
         coVerify(exactly = 0) { backupChangeTracker.markIncludedDataChanged() }
     }
 
@@ -148,7 +163,7 @@ class RecordRepositoryTest {
     fun `confirmed delete targets one manual id and marks included data`() = runTest {
         coEvery { recordDao.getRecordById(record.id) } returns record
         coEvery { recordDao.deleteRecord(record.id) } returns Unit
-        repository.deleteManualRecord(record.id)
+        repository.deleteManualRecord(record)
         coVerify(exactly = 1) { recordDao.deleteRecord(record.id) }
         coVerify(exactly = 1) { backupChangeTracker.markIncludedDataChanged() }
     }
