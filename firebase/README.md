@@ -9,7 +9,7 @@ Google account or service credential, and stores no live project identifiers or 
 Requirements: Node 22, JDK 21, and the repository Gradle wrapper.
 
 ```bash
-npm ci --prefix firebase
+npm ci --ignore-scripts --prefix firebase
 ./gradlew firebaseRulesTest
 npm run test:transport --prefix firebase
 ```
