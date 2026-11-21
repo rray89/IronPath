@@ -1,5 +1,6 @@
 package com.example.ironpath.ui.screens.plan
 
+import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.viewModelScope
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.example.ironpath.data.backup.BackupChangeTracker
@@ -186,10 +187,13 @@ class AiPlanAcceptanceRoomTest {
                             database,
                             PerformanceTracer(),
                             tracker,
+                            timeProvider = clock,
+                            idProvider = SequenceIdProvider("session"),
                         ),
                     timeProvider = clock,
                     aiPlanReviewEditor = AiPlanReviewEditor(validator, eligibility),
                     validatedPlanDraftMapper = ValidatedPlanDraftMapper(mapper),
+                    savedStateHandle = SavedStateHandle(),
                 )
             }
         try {
