@@ -3,10 +3,15 @@ package com.example.ironpath.domain.planner
 import javax.inject.Inject
 import kotlin.time.TimeSource
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 
 sealed interface RemotePlanningTransportResult {
-    data class Success(val proposal: OnDevicePlanProposal) : RemotePlanningTransportResult
+    data class Success(val proposal: OnDevicePlanProposal, val usage: PlanningTokenUsage? = null) :
+        RemotePlanningTransportResult
 
     data object ProviderFailure : RemotePlanningTransportResult
 }
@@ -15,6 +20,7 @@ interface RemotePlanningTransport {
     suspend fun generate(
         apiKey: String,
         prompt: OnDeviceModelPrompt,
+        optionId: String = "GEMINI",
     ): RemotePlanningTransportResult
 }
 
@@ -52,10 +58,21 @@ internal constructor(
         }
         return try {
             withTimeoutOrNull(timeoutMillis) {
-                generateWithinBudget(
-                    request = request,
-                    apiKey = experimentSnapshot.apiKey,
-                )
+                coroutineScope {
+                    val invalidation = launch {
+                        experiment.state.first { it != experimentSnapshot }
+                        this@coroutineScope.cancel("Remote configuration changed")
+                    }
+                    try {
+                        generateWithinBudget(request, experimentSnapshot).also {
+                            if (experiment.state.value != experimentSnapshot) {
+                                throw CancellationException("Remote configuration changed")
+                            }
+                        }
+                    } finally {
+                        invalidation.cancel()
+                    }
+                }
             } ?: PlanningResult.Failure(PlanningFailure.Timeout)
         } catch (cancellation: CancellationException) {
             throw cancellation
@@ -66,14 +83,28 @@ internal constructor(
 
     private suspend fun generateWithinBudget(
         request: PlanningRequest,
-        apiKey: String,
+        configuration: RemotePlanningExperimentState,
     ): PlanningResult {
+        val route =
+            RemotePlanningRoute.entries.firstOrNull { it.name == configuration.optionId }
+                ?: return providerFailure()
+        val minimalRequest =
+            request.copy(
+                intake =
+                    request.intake.copy(
+                        injuryNotes = "",
+                        exercisePreferences = "",
+                        exerciseDislikes = "",
+                        recentTraining = RecentTrainingSummary.EMPTY,
+                    )
+            )
         val startedAt = TimeSource.Monotonic.markNow()
         return when (
             val transportResult =
                 transport.generate(
-                    apiKey = apiKey,
-                    prompt = promptBuilder.build(request, type),
+                    apiKey = configuration.apiKey,
+                    prompt = promptBuilder.build(minimalRequest, type),
+                    optionId = configuration.optionId,
                 )
         ) {
             RemotePlanningTransportResult.ProviderFailure -> providerFailure()
@@ -95,7 +126,15 @@ internal constructor(
                         when (
                             val validation =
                                 planValidator.validate(
-                                    mapping.draft,
+                                    mapping.draft.copy(
+                                        providerMetadata =
+                                            mapping.draft.providerMetadata.copy(
+                                                sourceLabel = route.option.label,
+                                                remoteConfigurationRevision =
+                                                    configuration.revision,
+                                                tokenUsage = transportResult.usage,
+                                            )
+                                    ),
                                     request.validationContext(type),
                                 )
                         ) {

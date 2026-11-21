@@ -30,14 +30,16 @@ The selection order depends on the build and runtime capability:
 
 The on-device adapter uses ML Kit GenAI and Gemini Nano through AICore on supported
 devices. Unsupported devices continue through the provider chain. The debug-only
-Gemini experiment accepts a developer key in process memory so hosted output can be
-compared locally; its transport, configuration, UI, and provider binding are absent
-from release builds.
+remote experiment supports fixed Gemini, DeepSeek and OpenRouter routes with a
+developer key in process memory. Its transports, selector UI and provider binding
+are absent from release and authpreview. The comparison candidate awaits final
+product and live-provider validation.
 
 Every provider receives a bounded request and must return catalog IDs rather than
 free-form exercise names. `PlanValidator` checks dates, selected days, equipment,
-movement limits, volume, progression, and catalog membership. One repair attempt is
-allowed before deterministic fallback, and invalid drafts are never persisted.
+movement limits, volume, progression, and catalog membership. The on-device path allows one repair attempt before deterministic fallback; remote
+experiments make only one paid attempt with no automatic repair. Final acceptance
+revalidates against the current clock, and invalid drafts are never persisted.
 
 See the [V4 AI Planning PRD](docs/ironpath-v4-ai-planning-prd.md),
 [on-device provider notes](docs/on-device-ai-spike.md), and
