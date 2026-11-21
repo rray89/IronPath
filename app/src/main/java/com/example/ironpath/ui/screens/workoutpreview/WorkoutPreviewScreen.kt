@@ -38,6 +38,7 @@ import com.example.ironpath.data.local.entity.PlannedExercise
 import com.example.ironpath.data.local.entity.PlannedWorkout
 import com.example.ironpath.data.local.entity.WorkoutStatus
 import com.example.ironpath.ui.components.GreenGradientButton
+import com.example.ironpath.ui.screens.WorkoutStartUiState
 import com.example.ironpath.ui.screens.home.dayOfWeekAbbrev
 import com.example.ironpath.ui.testing.TestTags
 import com.example.ironpath.ui.theme.IronPathTheme
@@ -55,9 +56,11 @@ fun WorkoutPreviewScreen(
     viewModel: WorkoutPreviewViewModel = hiltViewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val startState by viewModel.startState.collectAsStateWithLifecycle()
 
     WorkoutPreviewContent(
         uiState = uiState,
+        startState = startState,
         onBack = onBack,
         onStart = { viewModel.startWorkout(onStarted) },
         modifier = modifier,
@@ -70,6 +73,7 @@ internal fun WorkoutPreviewContent(
     onBack: () -> Unit,
     onStart: () -> Unit,
     modifier: Modifier = Modifier,
+    startState: WorkoutStartUiState = WorkoutStartUiState(),
 ) {
     when (uiState) {
         WorkoutPreviewUiState.Loading -> {
@@ -84,6 +88,7 @@ internal fun WorkoutPreviewContent(
         is WorkoutPreviewUiState.Ready ->
             WorkoutPreviewReady(
                 state = uiState,
+                startState = startState,
                 onStart = onStart,
                 modifier = modifier,
             )
@@ -129,6 +134,7 @@ private fun WorkoutPreviewNotFound(
 @Composable
 private fun WorkoutPreviewReady(
     state: WorkoutPreviewUiState.Ready,
+    startState: WorkoutStartUiState,
     onStart: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -157,10 +163,18 @@ private fun WorkoutPreviewReady(
         Spacer(Modifier.height(24.dp))
 
         GreenGradientButton(
-            text = "Start Workout",
+            text =
+                when {
+                    startState.isStarting -> "Starting Workout…"
+                    state.hasActiveSession || startState.hasExistingSession ->
+                        "Continue Active Workout"
+                    else -> "Start Workout"
+                },
             onClick = onStart,
             modifier = Modifier.heightIn(min = 48.dp),
-            enabled = state.canStart,
+            enabled =
+                !startState.isStarting &&
+                    (state.canStart || state.hasActiveSession || startState.hasExistingSession),
             trailingIcon = {
                 Icon(
                     imageVector = Icons.Default.PlayArrow,
@@ -172,9 +186,13 @@ private fun WorkoutPreviewReady(
         )
         Spacer(Modifier.height(20.dp))
 
-        if (state.hasActiveSession) {
+        startState.error?.let { error ->
+            Text(text = error, color = MaterialTheme.colorScheme.error)
+            Spacer(Modifier.height(20.dp))
+        }
+        if (state.hasActiveSession || startState.hasExistingSession) {
             Text(
-                text = "Finish the active session before starting this workout.",
+                text = "Your active workout was kept. Continue it before starting another workout.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )

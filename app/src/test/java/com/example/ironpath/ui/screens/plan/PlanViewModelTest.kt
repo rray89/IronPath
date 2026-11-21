@@ -80,7 +80,7 @@ class PlanViewModelTest {
     }
 
     private fun setupReview(plan: GeneratedPlan) {
-        every { planGenerator.generate(any(), any()) } returns plan
+        every { planGenerator.generate(any(), any(), any()) } returns plan
         viewModel.generatePlan(PlanningGoal.STRENGTH, setOf(1))
     }
 
@@ -103,6 +103,7 @@ class PlanViewModelTest {
                 timeProvider,
                 mockk(relaxed = true),
                 mockk(relaxed = true),
+                savedStateHandle = androidx.lifecycle.SavedStateHandle(),
             )
     }
 
@@ -114,13 +115,44 @@ class PlanViewModelTest {
     }
 
     @Test
+    fun `back to setup preserves saved week while opening setup`() = runTest {
+        val old =
+            WeeklyPlan(id = "old", startDate = "2026-07-13", endDate = "2026-07-19", createdAt = 1L)
+        every { planRepository.observeActivePlan() } returns flowOf(old)
+        every { planRepository.observeWorkoutsForPlan("old") } returns
+            flowOf(
+                listOf(
+                    makeWorkout("old-workout", 1, planId = "old", status = WorkoutStatus.Completed)
+                )
+            )
+        val vm =
+            PlanViewModel(
+                planRepository,
+                planGenerator,
+                sessionRepository,
+                timeProvider,
+                mockk(relaxed = true),
+                mockk(relaxed = true),
+                savedStateHandle = androidx.lifecycle.SavedStateHandle(),
+            )
+        vm.planUiState.test {
+            awaitState(PlanUiState.Accepted::class.java)
+            vm.backToSetup()
+            mainDispatcherRule.testDispatcher.scheduler.runCurrent()
+            assertEquals(PlanUiState.Setup, vm.planUiState.value)
+            coVerify(exactly = 0) { planRepository.createPlan(any(), any(), any(), any()) }
+            cancelAndIgnoreRemainingEvents()
+        }
+    }
+
+    @Test
     fun `generatePlan sets generatedPlan returned by PlanGenerator`() = runTest {
         val expected =
             makeGeneratedPlan(
                 workouts = listOf(makeWorkout("w1", 1)),
                 exercises = listOf(makeExercise("ex1", "w1")),
             )
-        every { planGenerator.generate(PlanningGoal.STRENGTH, setOf(1)) } returns expected
+        every { planGenerator.generate(PlanningGoal.STRENGTH, setOf(1), any()) } returns expected
 
         viewModel.generatePlan(PlanningGoal.STRENGTH, setOf(1))
 
@@ -136,7 +168,7 @@ class PlanViewModelTest {
 
     @Test
     fun `generatePlan does not query edit-only exercise suggestions`() = runTest {
-        every { planGenerator.generate(any(), any()) } returns
+        every { planGenerator.generate(any(), any(), any()) } returns
             makeGeneratedPlan(listOf(makeWorkout("w1", 1)), emptyList())
 
         viewModel.generatePlan(PlanningGoal.STRENGTH, setOf(1))
@@ -173,6 +205,7 @@ class PlanViewModelTest {
                 timeProvider,
                 mockk(relaxed = true),
                 mockk(relaxed = true),
+                savedStateHandle = androidx.lifecycle.SavedStateHandle(),
             )
 
         viewModel.planUiState.test {
@@ -216,6 +249,7 @@ class PlanViewModelTest {
                 timeProvider,
                 mockk(relaxed = true),
                 mockk(relaxed = true),
+                savedStateHandle = androidx.lifecycle.SavedStateHandle(),
             )
 
         viewModel.planUiState.test {

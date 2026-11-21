@@ -8,7 +8,6 @@ import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
-import org.junit.Assert.fail
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -21,7 +20,7 @@ class SessionDaoTest {
         get() = databaseRule.database.sessionDao()
 
     @Test
-    fun startNewSession_replacesExistingSession_andCascadesOldChildren() = runBlocking {
+    fun startNewSession_rejectsReplacement_andPreservesOldChildren() = runBlocking {
         val previousSession = TestData.session(id = "session-previous")
         val previousExercise =
             TestData.sessionExercise(
@@ -53,31 +52,14 @@ class SessionDaoTest {
                 name = "Bench Press",
             )
 
-        dao.startNewSession(replacementSession, listOf(replacementExercise))
-
-        assertEquals(replacementSession, dao.getActiveSession())
-        assertTrue(dao.getExercisesForSession(previousSession.id).isEmpty())
-        assertTrue(dao.getSetsForExercises(listOf(previousExercise.id)).isEmpty())
-        assertEquals(
-            listOf(replacementExercise),
-            dao.getExercisesForSession(replacementSession.id),
-        )
-    }
-
-    @Test
-    fun startPlannedSession_rejectsAWorkoutRemovedBeforeSessionCreation() = runBlocking {
-        val current = TestData.session(id = "current-session", workoutId = "current-workout")
-        dao.startNewSession(current, emptyList())
-        val stale = TestData.session(id = "stale-session", workoutId = "deleted-workout")
-
-        try {
-            dao.startPlannedSession(stale, emptyList())
-            fail("Expected a removed planned workout to reject session creation")
-        } catch (expected: IllegalStateException) {
-            assertEquals("Planned workout deleted-workout no longer exists", expected.message)
-        }
-
-        assertEquals(current, dao.getActiveSession())
+        val failure =
+            runCatching { dao.startNewSession(replacementSession, listOf(replacementExercise)) }
+                .exceptionOrNull()
+        assertTrue(failure is IllegalStateException)
+        assertEquals(previousSession, dao.getActiveSession())
+        assertEquals(listOf(previousExercise), dao.getExercisesForSession(previousSession.id))
+        assertEquals(listOf(previousSet), dao.getSetsForExercises(listOf(previousExercise.id)))
+        assertTrue(dao.getExercisesForSession(replacementSession.id).isEmpty())
     }
 
     @Test

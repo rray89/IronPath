@@ -62,12 +62,16 @@ class ManualBackupRoomTest {
                 database,
                 PerformanceTracer(),
                 store,
+                com.example.ironpath.testutil.MutableTimeProvider(
+                    java.time.Instant.parse("2026-07-13T19:00:00Z"),
+                    java.time.ZoneId.of("UTC")
+                ),
+                SequenceIdProvider("start"),
             )
         assertTrue(
             failureOf {
-                sessions.startSession(
-                    TestData.session(id = "stale-session"),
-                    emptyList(),
+                sessions.startPlannedWorkout(
+                    "stale-workout",
                     staleCapture.metadata.profileGeneration,
                 )
             }

@@ -298,6 +298,11 @@ class SessionRepositoryIntegrationTest {
             database,
             PerformanceTracer(),
             RoomBackupStore(database, SequenceIdProvider("session-repository")),
+            com.example.ironpath.testutil.MutableTimeProvider(
+                java.time.Instant.parse("2026-07-13T19:00:00Z"),
+                java.time.ZoneId.of("UTC")
+            ),
+            SequenceIdProvider("start"),
         )
 
     private suspend fun seedPlan(database: IronPathDatabase) {

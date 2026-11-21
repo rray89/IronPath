@@ -349,6 +349,47 @@ class PlannerIntakeViewModelTest {
         )
     }
 
+    @Test
+    fun `AI and validated fallback receive the same app selected later week`() = runTest {
+        val target = java.time.LocalDate.parse("2027-01-11")
+        val received = mutableListOf<PlanningRequest>()
+        fun engine(kind: PlanningEngineType) =
+            object : PlanningEngine {
+                override val type = kind
+
+                override suspend fun generate(request: PlanningRequest): PlanningResult {
+                    received += request
+                    val base = (validResult(setOf(1), kind) as PlanningResult.Success).draft
+                    return PlanningResult.Success(
+                        base.copy(
+                            targetWeekStart = request.targetWeekStart,
+                            workouts =
+                                base.workouts.map {
+                                    it.copy(scheduledDate = request.targetWeekStart)
+                                }
+                        )
+                    )
+                }
+            }
+        val model =
+            createViewModelWithEngines(
+                engines =
+                    listOf(
+                            engine(PlanningEngineType.DEBUG_FAKE_AI),
+                            engine(PlanningEngineType.RULE_BASED)
+                        )
+                        .associateBy { it.type }
+            )
+        model.toggleDay(1)
+        model.generateWithAi(target)
+        runCurrent()
+        assertTrue(model.aiGenerationState.value is AiGenerationUiState.Validated)
+        model.generateWithRuleBasedFallback(target)
+        runCurrent()
+        assertTrue(model.aiGenerationState.value is AiGenerationUiState.Validated)
+        assertEquals(listOf(target, target), received.map { it.targetWeekStart })
+    }
+
     private fun createViewModel(
         handle: SavedStateHandle = SavedStateHandle(),
         engine: PlanningEngine,
