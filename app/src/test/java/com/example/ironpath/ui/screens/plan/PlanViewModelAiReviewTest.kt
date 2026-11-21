@@ -83,6 +83,7 @@ class PlanViewModelAiReviewTest {
     private fun createViewModel(
         profileToken: ProfileGenerationToken? = null,
         remoteState: MutableStateFlow<RemotePlanningExperimentState>? = null,
+        handle: androidx.lifecycle.SavedStateHandle = androidx.lifecycle.SavedStateHandle(),
     ): PlanViewModel {
         val sessionRepository = mockk<SessionRepository>(relaxed = true)
         every { sessionRepository.observeActiveSession() } returns flowOf(null)
@@ -99,9 +100,98 @@ class PlanViewModelAiReviewTest {
             validatedPlanDraftMapper =
                 ValidatedPlanDraftMapper(PlanEntityMapper(FakeIdProvider(), timeProvider, catalog)),
             profileGenerationToken = profileToken,
+            savedStateHandle = handle,
             remotePlanningExperiment = experiment,
         )
     }
+
+    @Test
+    fun `next week AI review keeps target and setup intent when fresh validation fails`() =
+        runTest {
+            val old =
+                com.example.ironpath.data.local.entity.WeeklyPlan(
+                    "old",
+                    startDate = "2026-07-13",
+                    endDate = "2026-07-19",
+                    createdAt = 1,
+                )
+            every { planRepository.observeActivePlan() } returns flowOf(old)
+            every { planRepository.observeWorkoutsForPlan("old") } returns
+                flowOf(
+                    listOf(
+                        com.example.ironpath.data.local.entity.PlannedWorkout(
+                            "completed",
+                            "old",
+                            1,
+                            "2026-07-13",
+                            "Old workout",
+                            com.example.ironpath.data.local.entity.WorkoutStatus.Completed,
+                        )
+                    )
+                )
+            val handle = androidx.lifecycle.SavedStateHandle()
+            viewModel = createViewModel(handle = handle)
+            runCurrent()
+            assertTrue(viewModel.beginNextWeekPlanning())
+            assertEquals(java.time.LocalDate.parse("2026-07-20"), viewModel.targetWeekStart())
+            viewModel.enterAiReview(validatedToken())
+            timeProvider.advanceBy(Duration.ofDays(5))
+            viewModel.acceptPlan {}
+            runCurrent()
+            assertEquals("old", handle.get<String>("next_week_setup_source"))
+            assertTrue(
+                viewModel.aiReviewState.value!!.review.violations.any {
+                    it.code == PlanViolationCode.WORKOUT_IN_PAST
+                }
+            )
+            coVerify(exactly = 0) { planRepository.createPlan(any(), any(), any(), any()) }
+        }
+
+    @Test
+    fun `next week AI acceptance clears setup intent and reports active session rejection`() =
+        runTest {
+            val handle =
+                androidx.lifecycle.SavedStateHandle(mapOf("next_week_setup_source" to "old"))
+            viewModel = createViewModel(handle = handle)
+            viewModel.enterAiReview(validatedToken())
+            coEvery { planRepository.createPlan(any(), any(), any(), any()) } throws
+                com.example.ironpath.data.repository.ActiveSessionBlocksPlanException()
+            var callbacks = 0
+            viewModel.acceptPlan { callbacks++ }
+            runCurrent()
+            assertEquals("old", handle.get<String>("next_week_setup_source"))
+            assertEquals(
+                "Finish the active workout before accepting a new plan.",
+                viewModel.aiReviewState.value!!.saveError
+            )
+            assertEquals(0, callbacks)
+            coEvery { planRepository.createPlan(any(), any(), any(), any()) } returns Unit
+            viewModel.acceptPlan { callbacks++ }
+            runCurrent()
+            assertNull(handle.get<String>("next_week_setup_source"))
+            assertEquals(1, callbacks)
+        }
+
+    @Test
+    fun `back to next week setup cancels a suspended AI save and ignores its late return`() =
+        runTest {
+            viewModel.enterAiReview(validatedToken())
+            val started = CompletableDeferred<Unit>()
+            coEvery { planRepository.createPlan(any(), any(), any(), any()) } coAnswers
+                {
+                    started.complete(Unit)
+                    try {
+                        CompletableDeferred<Unit>().await()
+                    } catch (_: CancellationException) {}
+                }
+            var callbacks = 0
+            viewModel.acceptPlan { callbacks++ }
+            started.await()
+            viewModel.backToSetup()
+            runCurrent()
+            assertNull(viewModel.aiReviewState.value)
+            assertEquals(0, callbacks)
+        }
 
     @Test
     fun `AI acceptance waits for captured profile generation and forwards it to the write gate`() =

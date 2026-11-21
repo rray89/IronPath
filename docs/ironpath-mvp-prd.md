@@ -261,3 +261,31 @@ Design direction:
 
 ## Build principle
 Build the smallest version that looks intentional, works end-to-end, and tells a strong portfolio story.
+
+
+## Training and weekly lifecycle clarification (B–C candidate)
+
+Status: implementation candidate; final combined product acceptance remains pending.
+This clarification supersedes the optional automatic completion rule above.
+
+- Starting a workout creates one recoverable session with all planned exercises and
+  default sets, or preserves the previously valid data. Repeated or concurrent
+  starts never discard an existing training session.
+- When a session already exists, preserve it and guide the user to continue it.
+  Starting another workout does not silently delete or automatically finish it.
+- Preview and Active show busy and recoverable failure feedback for a start action.
+  Only an upcoming workout scheduled today in the active accepted plan can start.
+- After completing the week, Home and Plan offer **Plan Next Week**, opening Setup
+  for the next full Monday–Sunday week. The new week is later than both today and
+  the previous accepted week.
+- Setup, generation and review keep the old accepted week and history intact.
+  Canceling returns to the accepted week without archiving it.
+- Accepting the new plan archives the old plan and saves the complete replacement
+  atomically, leaving one Active plan. An active training session blocks replacement,
+  including if that session started after review opened.
+- Completed logs and personal records remain unchanged. Reopening the app displays
+  the newly accepted plan. AI review retains its V4 validation/catalog path; the
+  legacy rule-based review remains a separate path.
+
+BOSS has moved user testing to the final combined candidate. Automated validation
+and independent code review do not count as that product acceptance.

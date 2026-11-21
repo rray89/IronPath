@@ -30,6 +30,57 @@ class RoomBackupStoreTest {
     @get:Rule val fileDatabaseRule = FileBackedRoomTestDatabaseRule()
 
     @Test
+    fun pendingSignOutRejectsRestoreAndUndoWithoutChangingTheirDurableState() = runBlocking {
+        val store = RoomBackupStore(databaseRule.database, SequenceIdProvider("installation"))
+        val account = AccountId("owner")
+        val target =
+            remoteArtifact(
+                    bundleWithPlan(1, TestData.plan(id = "target")),
+                    backupId = "target",
+                    generation = 1,
+                    sourceInstallationId = "other"
+                )
+                .toValidatedRestore("owner")
+        assertTrue(store.restore(store.capture(), account, target, null))
+        val metadata = store.capture().metadata
+        databaseRule.database.backupDao().updateMetadata(metadata.copy(pendingSignOutUid = "owner"))
+        val before = store.capture()
+        val slot = checkNotNull(store.captureUndo(account, before.metadata.installationId))
+        assertFalse(store.restore(before, account, target, null))
+        assertFalse(store.undo(before, account, slot))
+        assertEquals(before, store.capture())
+        assertEquals(slot, store.captureUndo(account, before.metadata.installationId))
+    }
+
+    @Test
+    fun restoreRejectsArtifactForAnotherAccountWithoutChangingGraphOrUndo() = runBlocking {
+        val store = RoomBackupStore(databaseRule.database, SequenceIdProvider("installation"))
+        val account = AccountId("owner")
+        val first =
+            remoteArtifact(
+                bundleWithPlan(1, TestData.plan(id = "first")),
+                backupId = "first",
+                generation = 1,
+                sourceInstallationId = "other"
+            )
+        assertTrue(store.restore(store.capture(), account, first.toValidatedRestore("owner"), null))
+        val before = store.capture()
+        val slot = store.captureUndo(account, before.metadata.installationId)
+        val foreign =
+            remoteArtifact(
+                bundleWithPlan(2, TestData.plan(id = "foreign")),
+                backupId = "foreign",
+                generation = 2,
+                sourceInstallationId = "other"
+            )
+        assertFalse(
+            store.restore(before, account, foreign.toValidatedRestore("another-owner"), null)
+        )
+        assertEquals(before, store.capture())
+        assertEquals(slot, store.captureUndo(account, before.metadata.installationId))
+    }
+
+    @Test
     fun export_readsOneConsistentIncludedGraphAndExcludesTheActiveSession() = runBlocking {
         val database = databaseRule.database
         val plan = TestData.plan()
@@ -530,6 +581,11 @@ class RoomBackupStoreTest {
                 database,
                 PerformanceTracer(),
                 store,
+                com.example.ironpath.testutil.MutableTimeProvider(
+                    java.time.Instant.parse("2026-07-13T19:00:00Z"),
+                    java.time.ZoneId.of("UTC")
+                ),
+                SequenceIdProvider("start"),
             )
         val plan = TestData.plan()
         val workout = TestData.workout()
@@ -541,10 +597,12 @@ class RoomBackupStoreTest {
         recordRepository.insertRecord(TestData.record())
         assertEquals(2L, checkNotNull(database.backupDao().getMetadata()).localChangeRevision)
 
-        val session = TestData.session()
-        val sessionExercise = TestData.sessionExercise()
-        sessionRepository.startSession(session, listOf(sessionExercise))
-        sessionRepository.completeSession(session.id, TestData.log())
+        sessionRepository.startPlannedWorkout(workout.id)
+        assertEquals(2L, checkNotNull(database.backupDao().getMetadata()).localChangeRevision)
+        sessionRepository.completeSession(
+            checkNotNull(database.sessionDao().getActiveSession()).id,
+            TestData.log()
+        )
 
         assertEquals(3L, checkNotNull(database.backupDao().getMetadata()).localChangeRevision)
     }

@@ -33,6 +33,177 @@ class CloudManualBackupOverviewTest {
     private var refreshes = 0
     private var ui by mutableStateOf(ManualBackupUiState())
     private lateinit var scrollState: ScrollState
+    private var syncs = 0
+    private var restores = 0
+    private var undos = 0
+
+    @Test
+    fun cloudRestoreHasAccurateSourceCopyUncheckedDiscardAndHoldConfirmationAtLargeFont() {
+        val ui =
+            mutableStateOf(
+                ManualBackupUiState(
+                    review =
+                        ManualReview.Restore(
+                            RestorePreview(
+                                "restore",
+                                RemoteBackupSummary(
+                                    "cloud",
+                                    1000,
+                                    "other",
+                                    mapOf("PersonalRecord" to 2)
+                                ),
+                                "Another device",
+                                mapOf("PersonalRecord" to BackupCategoryImpact(1, 1, 1)),
+                                true,
+                                "Leg day",
+                                emptySet()
+                            )
+                        )
+                )
+            )
+        var holds = 0
+        var hints = 0
+        composeRule.setContent {
+            DeviceConfigurationOverride(
+                DeviceConfigurationOverride.ForcedSize(DpSize(320.dp, 640.dp)) then
+                    DeviceConfigurationOverride.FontScale(2f)
+            ) {
+                IronPathTheme {
+                    Surface {
+                        ManualBackupReviewScreen(
+                            ui.value,
+                            ManualBackupActions(
+                                confirmActiveWorkoutDiscard = {
+                                    ui.value = ui.value.copy(activeWorkoutDiscardConfirmed = it)
+                                },
+                                holdGuidance = { hints++ },
+                                confirm = { holds++ }
+                            ),
+                            {},
+                            demoStorage = false
+                        )
+                    }
+                }
+            }
+        }
+        composeRule.onNodeWithText("LATEST COMPLETE CLOUD BACKUP").assertExists()
+        composeRule.onNodeWithText("LATEST COMPLETE DEMO BACKUP").assertDoesNotExist()
+        composeRule
+            .onNodeWithText("Backup source: Another device")
+            .performScrollTo()
+            .assertIsDisplayed()
+        composeRule
+            .onNodeWithText("Added: 1 · Updated: 1 · Replaced: 1")
+            .performScrollTo()
+            .assertIsDisplayed()
+        composeRule
+            .onNodeWithText("PRESS AND HOLD TO RESTORE")
+            .performScrollTo()
+            .assertIsNotEnabled()
+        composeRule
+            .onNodeWithText("I understand this active workout will be discarded")
+            .performScrollTo()
+            .assertIsOff()
+            .performClick()
+        composeRule
+            .onNodeWithText("PRESS AND HOLD TO RESTORE")
+            .performScrollTo()
+            .assertIsEnabled()
+            .performClick()
+        composeRule.runOnIdle {
+            assertEquals(1, hints)
+            assertEquals(0, holds)
+        }
+        composeRule.onNodeWithText("PRESS AND HOLD TO RESTORE").performTouchInput { longClick() }
+        composeRule.runOnIdle { assertEquals(1, holds) }
+    }
+
+    @Test
+    fun cloudUndoIsLocalOnlyAndActiveWorkoutBlocksTheHold() {
+        composeRule.setContent {
+            IronPathTheme {
+                Surface {
+                    ManualBackupReviewScreen(
+                        ManualBackupUiState(
+                            review = ManualReview.Undo(UndoPreview("undo", emptyMap(), true))
+                        ),
+                        ManualBackupActions(),
+                        {},
+                        demoStorage = false
+                    )
+                }
+            }
+        }
+        composeRule.onNodeWithText("ONE LOCAL UNDO").assertExists()
+        composeRule.onNodeWithText("PRESS AND HOLD TO UNDO").performScrollTo().assertIsNotEnabled()
+        composeRule
+            .onNodeWithText(
+                "Only confirming this preview uploads included training data to your Google account's IronPath backup."
+            )
+            .assertDoesNotExist()
+    }
+
+    @Test
+    fun cloudConflictReviewRequiresChoiceAndSupportsCancelAtLargeFont() {
+        val ui =
+            mutableStateOf(
+                ManualBackupUiState(
+                    review =
+                        ManualReview.Sync(
+                            SyncPreview(
+                                "sync",
+                                1,
+                                2,
+                                mapOf("PersonalRecord" to 2),
+                                mapOf("PersonalRecord" to 2),
+                                mapOf("PersonalRecord" to 1)
+                            )
+                        )
+                )
+            )
+        var cancelled = 0
+        composeRule.setContent {
+            DeviceConfigurationOverride(
+                DeviceConfigurationOverride.ForcedSize(DpSize(320.dp, 640.dp)) then
+                    DeviceConfigurationOverride.FontScale(2f)
+            ) {
+                IronPathTheme {
+                    Surface {
+                        ManualBackupReviewScreen(
+                            ui.value,
+                            ManualBackupActions(
+                                selectResolution = { ui.value = ui.value.copy(resolution = it) },
+                                confirm = { syncs++ },
+                            ),
+                            { cancelled++ },
+                            demoStorage = false
+                        )
+                    }
+                }
+            }
+        }
+        composeRule.onNodeWithText("MANUAL CLOUD SYNC").assertExists()
+        composeRule.onNodeWithText("CONFIRM MANUAL SYNC").performScrollTo().assertIsNotEnabled()
+        composeRule
+            .onNodeWithText("Merge and keep local conflict versions")
+            .performScrollTo()
+            .assertIsNotSelected()
+            .performClick()
+        composeRule.onNodeWithText("Merge and keep local conflict versions").assertIsSelected()
+        composeRule
+            .onNodeWithText("Overwrite this device from cloud")
+            .performScrollTo()
+            .assertIsNotSelected()
+            .performClick()
+        composeRule.onNodeWithText("Overwrite this device from cloud").assertIsSelected()
+        composeRule.onNodeWithText("Merge and keep local conflict versions").assertIsNotSelected()
+        composeRule.onNodeWithText("CONFIRM MANUAL SYNC").performScrollTo().assertIsEnabled()
+        composeRule.onNodeWithText("BACK TO ACCOUNT & BACKUP").performScrollTo().performClick()
+        composeRule.runOnIdle {
+            assertEquals(1, cancelled)
+            assertEquals(0, syncs)
+        }
+    }
 
     @Test
     fun explicitActionsRemainReachableAtTwoHundredPercentPortrait() =
@@ -53,6 +224,7 @@ class CloudManualBackupOverviewTest {
             )
         )
         composeRule.onNodeWithText("BACK UP NOW").performScrollTo().assertIsNotEnabled()
+        composeRule.onNodeWithText("REVIEW MANUAL SYNC").performScrollTo().assertIsNotEnabled()
         composeRule.onNodeWithText("REFRESH BACKUP STATUS").performScrollTo().assertIsNotEnabled()
         composeRule
             .onNodeWithText("Manual operation in progress")
@@ -196,6 +368,7 @@ class CloudManualBackupOverviewTest {
         setOverview(
             ManualBackupUiState(
                 status = BackupStatus.UpToDate(1000),
+                undoAvailable = true,
                 latest =
                     RemoteBackupSummary(
                         "complete",
@@ -210,12 +383,17 @@ class CloudManualBackupOverviewTest {
             .onNodeWithText("LATEST COMPLETE CLOUD BACKUP")
             .performScrollTo()
             .assertIsDisplayed()
-        composeRule.onNodeWithText("REVIEW MANUAL SYNC").assertDoesNotExist()
+        composeRule.onNodeWithText("REVIEW MANUAL SYNC").performScrollTo().performClick()
         composeRule.onNodeWithText("BACK UP NOW").performScrollTo().performClick()
+        composeRule.onNodeWithText("PREVIEW WHOLE-BACKUP RESTORE").performScrollTo().performClick()
+        composeRule.onNodeWithText("PREVIEW ONE UNDO").performScrollTo().performClick()
         composeRule.onNodeWithText("REFRESH BACKUP STATUS").performScrollTo().performClick()
         composeRule.runOnIdle {
             assertEquals(1, backups)
             assertEquals(1, refreshes)
+            assertEquals(1, syncs)
+            assertEquals(1, restores)
+            assertEquals(1, undos)
         }
     }
 
@@ -243,7 +421,7 @@ class CloudManualBackupOverviewTest {
         assertTextColorAndNoOverflow(DENIED, Error)
         composeRule
             .onNodeWithText(
-                "Check that you are using the intended account. After cloud access is restored, refresh backup status, then open a fresh backup preview.",
+                "Check that you are using the intended account. After cloud access is restored, refresh backup status, then open a fresh preview.",
                 useUnmergedTree = true
             )
             .performScrollTo()
@@ -313,7 +491,15 @@ class CloudManualBackupOverviewTest {
                     Surface {
                         scrollState = rememberScrollState()
                         Column(Modifier.verticalScroll(scrollState).padding(24.dp)) {
-                            CloudManualBackupOverview(ui, true, { backups++ }, onRefresh)
+                            CloudManualBackupOverview(
+                                ui,
+                                true,
+                                { backups++ },
+                                onRefresh,
+                                { syncs++ },
+                                { restores++ },
+                                { undos++ },
+                            )
                         }
                     }
                 }

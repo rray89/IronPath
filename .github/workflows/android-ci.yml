@@ -4,7 +4,8 @@ on:
   push:
     branches: [main]
   pull_request:
-    branches: [main]
+    # Run the restore candidate against its open manual sync dependency.
+    branches: [main, codex/feat11.4.5-cloud-sync]
 
 concurrency:
   group: android-ci-${{ github.event.pull_request.number || github.ref }}
