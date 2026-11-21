@@ -33,13 +33,16 @@ internal fun CloudManualBackupOverview(
     backupAvailable: Boolean,
     onBackup: () -> Unit,
     onRefresh: () -> Unit,
+    onSync: () -> Unit,
+    onRestore: () -> Unit = {},
+    onUndo: () -> Unit = {},
 ) {
     val failure = manual.cloudFailureReason()
     Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
         AccountSection(
             backupStatusLabel(manual.status),
             if (manual.status == BackupStatus.ReviewRequired)
-                "Review is required before replacing a cloud backup. Open a fresh manual preview. A backup from another device cannot be replaced here."
+                "Review manual sync to compare local and cloud changes before choosing what to keep."
             else
                 "Refresh checks the latest complete backup. Signing in and app startup never upload training data.",
             modifier = Modifier.semantics { stateDescription = backupStatusLabel(manual.status) },
@@ -58,12 +61,43 @@ internal fun CloudManualBackupOverview(
             )
         }
         Button(
+            onClick = onSync,
+            enabled = backupAvailable && !manual.busy && !manual.signOutBusy,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text("REVIEW MANUAL SYNC")
+        }
+        Text(
+            "Review manual sync downloads the latest complete backup to compare changes. Only confirming the preview can merge, upload, or change training data on this device.",
+            style = MaterialTheme.typography.bodyMedium
+        )
+        Button(
             onClick = onBackup,
             enabled = backupAvailable && !manual.busy && !manual.signOutBusy,
             modifier = Modifier.fillMaxWidth()
         ) {
             Text("BACK UP NOW")
         }
+        Button(
+            onClick = onRestore,
+            enabled =
+                backupAvailable && manual.latest != null && !manual.busy && !manual.signOutBusy,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text("PREVIEW WHOLE-BACKUP RESTORE")
+        }
+        Text(
+            "Restore replaces all included training data with the latest complete cloud backup after review and a long press. Exactly one local undo is kept. Restore and undo never change the cloud backup.",
+            style = MaterialTheme.typography.bodyMedium
+        )
+        if (manual.undoAvailable)
+            Button(
+                onClick = onUndo,
+                enabled = backupAvailable && !manual.busy && !manual.signOutBusy,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("PREVIEW ONE UNDO")
+            }
         TextButton(
             onClick = onRefresh,
             enabled = !manual.busy && !manual.signOutBusy,

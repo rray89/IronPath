@@ -105,7 +105,7 @@ class SecondaryScreensTest {
                 "Starting and completing a workout" to
                     "Start a planned workout, log sets, and complete it when finished.",
                 "History and personal records" to
-                    "Completed workouts appear in History. Personal records are added separately.",
+                    "Completed workouts appear in History. Save a completed weighted set as a record, or add one manually. Tap a manual record to edit or delete it; tap a logged record to view its source workout.",
                 "AI planning and validation" to
                     "AI suggestions are validated before they can become a plan.",
                 "On-device availability and rule-based fallback" to
