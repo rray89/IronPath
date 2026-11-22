@@ -227,3 +227,25 @@ Same as v1: build the smallest version that looks intentional, works end-to-end,
 ## Records restoration candidate — 3.1 / feat8.1
 
 The restoration candidate restores the manual-record edit and confirmed-delete contract above using the current profile write fence and atomic included-data revision. Unchanged saves are accepted without changing revision. Logged records remain read-only, including when their source is unavailable. Technical verification and independent review do not represent product acceptance; BOSS reviews the final combined candidate. No schema change or completed-log mutation is introduced.
+
+
+## V2 3.2 / 3.3 restoration candidate
+
+The combined reliability candidate restores pre-accept rule review: a day picker moves
+a workout to an empty day or swaps it with the occupied day in the same week while
+keeping UUIDs, titles and exercise ownership. Name, sets, reps and weight use the V2
+free-text rules above, including duplicate names, 1–20 sets, 1–100 reps and finite
+non-negative kg. Cancel leaves the draft unchanged. Suggestions use the existing
+template pool and record names.
+
+Exercise removal has one Undo for the latest removal, including restoration of the
+last exercise's workout day and original order. Undo expires when its snackbar is
+dismissed or another draft change occurs; it never reverts unrelated later edits.
+Drag handles reorder within one workout and also expose Move up/Move down through
+accessibility actions and a labeled reorder menu. Empty plans cannot be accepted.
+Accepted plans and active sessions remain read-only; AI-assisted drafts retain the
+separate V4 catalog/validator policy. No Room schema change is introduced.
+
+This is an unmerged technical candidate. Combined automated evidence and the final
+BOSS product walkthrough belong to the integration PR; historical PR17/18 delivery
+does not establish acceptance of the restored candidate.

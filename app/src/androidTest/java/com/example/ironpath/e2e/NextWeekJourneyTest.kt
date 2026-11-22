@@ -2,7 +2,6 @@ package com.example.ironpath.e2e
 
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
-import androidx.test.espresso.Espresso.pressBack
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.example.ironpath.MainActivity
@@ -148,7 +147,10 @@ class NextWeekJourneyTest {
         composeRule.onNodeWithTag(TestTags.PLAN_GENERATE).performScrollTo().performClick()
         waitForText("WEEKLY PLAN")
         assertPreserved(database, true)
-        pressBack()
+        composeRule.onNodeWithText("REVIEW YOUR WEEK").assertIsDisplayed()
+        // Exercise the production BackHandler through its Activity dispatcher. Espresso's
+        // root-focus prerequisite blocks on API 36 even after this draft is composed.
+        composeRule.runOnIdle { composeRule.activity.onBackPressedDispatcher.onBackPressed() }
         waitForText("Primary Goal")
         composeRule.onNodeWithText("Cancel Planning").performClick()
         waitForText("PLAN NEXT WEEK")

@@ -1,6 +1,5 @@
 package com.example.ironpath.ui.screens.plan
 
-import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.viewModelScope
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.example.ironpath.data.backup.BackupChangeTracker
@@ -67,6 +66,52 @@ class AiPlanAcceptanceRoomTest {
     private val previousPlan = TestData.plan()
     private val previousWorkout = TestData.workout()
     private val previousExercise = TestData.plannedExercise()
+
+    @Test
+    fun activeSessionBlocksAiAcceptanceWithoutChangingEitherPersistedGraph() = runBlocking {
+        seedPreviousPlan()
+        val session = TestData.session()
+        databaseRule.database.sessionDao().insertSession(session)
+        withViewModel { viewModel ->
+            withContext(Dispatchers.Main.immediate) {
+                viewModel.enterAiReview(validatedToken())
+                viewModel.acceptPlan {}
+            }
+            awaitAcceptanceFinished(viewModel)
+            assertEquals(
+                "Finish the active workout before accepting a new plan.",
+                viewModel.aiReviewState.value!!.saveError
+            )
+            assertPreviousGraphUnchanged()
+            assertEquals(session, databaseRule.database.sessionDao().getActiveSession())
+        }
+    }
+
+    @Test
+    fun changedRemoteConfigurationPreventsOldNextWeekDraftFromWritingRoom() = runBlocking {
+        seedPreviousPlan()
+        val state =
+            kotlinx.coroutines.flow.MutableStateFlow(
+                com.example.ironpath.domain.planner.RemotePlanningExperimentState(revision = 1)
+            )
+        val experiment =
+            object : com.example.ironpath.domain.planner.RemotePlanningExperiment {
+                override val state = state
+
+                override fun setEnabled(enabled: Boolean) = Unit
+
+                override fun setApiKey(apiKey: String) = Unit
+            }
+        withViewModel(experiment = experiment) { viewModel ->
+            withContext(Dispatchers.Main.immediate) {
+                assertTrue(viewModel.enterAiReview(validatedToken(), 1))
+                state.value = state.value.copy(revision = 2)
+                viewModel.acceptPlan {}
+                assertNull(viewModel.aiReviewState.value)
+            }
+            assertPreviousGraphUnchanged()
+        }
+    }
 
     @Test
     fun expiredDraftCannotArchivePreviousPlanOrInsertAnyDraftRows() = runBlocking {
@@ -170,6 +215,7 @@ class AiPlanAcceptanceRoomTest {
 
     private suspend fun withViewModel(
         tracker: BackupChangeTracker = BackupChangeTracker {},
+        experiment: com.example.ironpath.domain.planner.RemotePlanningExperiment? = null,
         block: suspend (PlanViewModel) -> Unit,
     ) {
         val database = databaseRule.database
@@ -187,13 +233,25 @@ class AiPlanAcceptanceRoomTest {
                             database,
                             PerformanceTracer(),
                             tracker,
-                            timeProvider = clock,
-                            idProvider = SequenceIdProvider("session"),
+                            clock,
+                            SequenceIdProvider("ai-session"),
                         ),
+                    rulePlanReviewEditor =
+                        com.example.ironpath.domain.planner.RulePlanReviewEditor(
+                            SequenceIdProvider("rule-review")
+                        ),
+                    recordRepository =
+                        com.example.ironpath.data.repository.RecordRepository(
+                            database.recordDao(),
+                            database,
+                            tracker
+                        ),
+                    exerciseCatalog = catalog,
+                    savedStateHandle = androidx.lifecycle.SavedStateHandle(),
+                    remotePlanningExperiment = experiment,
                     timeProvider = clock,
                     aiPlanReviewEditor = AiPlanReviewEditor(validator, eligibility),
                     validatedPlanDraftMapper = ValidatedPlanDraftMapper(mapper),
-                    savedStateHandle = SavedStateHandle(),
                 )
             }
         try {

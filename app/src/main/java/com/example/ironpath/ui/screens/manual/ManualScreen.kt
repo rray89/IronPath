@@ -92,7 +92,7 @@ private val manualTopics =
         ManualTopic(
             title = "Reviewing and accepting a plan",
             guidance =
-                "Review each workout before accepting it. Accepted plans are saved on this device.",
+                "Review each workout before accepting it. Rule drafts allow day moves/swaps and exercise editing, removal with Undo, and drag ordering. AI drafts use catalog edits and final validation. Accepted plans are saved on this device and stay read-only.",
         ),
         ManualTopic(
             title = "Starting and completing a workout",

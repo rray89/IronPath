@@ -6,7 +6,6 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.test.assertHasClickAction
-import androidx.compose.ui.test.assertHasNoClickAction
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
@@ -550,19 +549,23 @@ class PlanScreenTest {
     }
 
     @Test
-    fun review_isStaticAndOmitsForbiddenEditingControls() {
+    fun review_preservesPrescriptionAndExposesV2EditingControls() {
         setPlanContent(PlanUiState.Review(generated))
-
         composeRule.onNodeWithTag(TestTags.workout(mondayWorkout.id)).assertIsDisplayed()
         composeRule.onNodeWithText("Upper Body", substring = true).assertIsDisplayed()
         composeRule.onNodeWithText("Bench Press").assertIsDisplayed()
         composeRule.onNodeWithText("3×10 · 20kg").assertIsDisplayed()
-        composeRule.onNodeWithTag(TestTags.planReviewDay(mondayWorkout.id)).assertHasNoClickAction()
-        composeRule.onNodeWithTag(TestTags.planExercise(mondayExercise.id)).assertHasNoClickAction()
-        composeRule.onNodeWithText("ADD EXERCISE").assertDoesNotExist()
-        composeRule.onNodeWithContentDescription("Remove exercise").assertDoesNotExist()
-        composeRule.onNodeWithContentDescription("Move up").assertDoesNotExist()
-        composeRule.onNodeWithContentDescription("Move down").assertDoesNotExist()
+        composeRule.onNodeWithTag(TestTags.planReviewDay(mondayWorkout.id)).assertHasClickAction()
+        composeRule.onNodeWithTag(TestTags.planExercise(mondayExercise.id)).assertHasClickAction()
+        composeRule
+            .onNodeWithContentDescription("Add exercise to Upper Body")
+            .assertHasClickAction()
+        composeRule
+            .onNodeWithContentDescription("Remove Bench Press from Upper Body")
+            .assertHasClickAction()
+        composeRule
+            .onNodeWithContentDescription("Reorder Bench Press in Upper Body")
+            .assertHasClickAction()
     }
 
     @Test

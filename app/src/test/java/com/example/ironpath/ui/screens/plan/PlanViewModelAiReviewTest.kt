@@ -23,9 +23,11 @@ import com.example.ironpath.domain.planner.PlanValidationResult
 import com.example.ironpath.domain.planner.PlanValidator
 import com.example.ironpath.domain.planner.PlanViolationCode
 import com.example.ironpath.domain.planner.PlanningEngineType
+import com.example.ironpath.domain.planner.PlanningGoal
 import com.example.ironpath.domain.planner.PlanningProviderMetadata
 import com.example.ironpath.domain.planner.RemotePlanningExperiment
 import com.example.ironpath.domain.planner.RemotePlanningExperimentState
+import com.example.ironpath.domain.planner.RuleBasedPlanFactory
 import com.example.ironpath.domain.planner.TrainingExperience
 import com.example.ironpath.domain.planner.ValidatedPlanDraft
 import com.example.ironpath.domain.planner.ValidatedPlanDraftMapper
@@ -93,16 +95,42 @@ class PlanViewModelAiReviewTest {
             }
         return PlanViewModel(
             planRepository = planRepository,
-            planGenerator = mockk<PlanGenerator>(relaxed = true),
+            planGenerator =
+                PlanGenerator(
+                    timeProvider,
+                    RuleBasedPlanFactory(catalog),
+                    PlanEntityMapper(FakeIdProvider(), timeProvider, catalog)
+                ),
             sessionRepository = sessionRepository,
             timeProvider = timeProvider,
             aiPlanReviewEditor = AiPlanReviewEditor(validator, eligibilityPolicy),
             validatedPlanDraftMapper =
                 ValidatedPlanDraftMapper(PlanEntityMapper(FakeIdProvider(), timeProvider, catalog)),
             profileGenerationToken = profileToken,
+            rulePlanReviewEditor =
+                com.example.ironpath.domain.planner.RulePlanReviewEditor(
+                    com.example.ironpath.testutil.FakeIdProvider()
+                ),
+            recordRepository = mockk(relaxed = true),
+            exerciseCatalog = com.example.ironpath.domain.planner.DefaultExerciseCatalog(),
             savedStateHandle = handle,
             remotePlanningExperiment = experiment,
         )
+    }
+
+    @Test
+    fun `late AI result preserves a rule draft and its Undo`() = runTest {
+        viewModel.generatePlan(PlanningGoal.STRENGTH, setOf(1))
+        val exercise = viewModel.generatedPlan.value!!.exercises.first()
+        viewModel.removeRuleExercise(exercise.id)
+        val edited = viewModel.generatedPlan.value
+        val undo = viewModel.ruleUndo.value
+        assertNotNull(undo)
+
+        assertFalse(viewModel.enterAiReview(validatedToken()))
+        assertSame(edited, viewModel.generatedPlan.value)
+        assertSame(undo, viewModel.ruleUndo.value)
+        assertNull(viewModel.aiReviewState.value)
     }
 
     @Test

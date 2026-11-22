@@ -103,6 +103,12 @@ class PlanViewModelTest {
                 timeProvider,
                 mockk(relaxed = true),
                 mockk(relaxed = true),
+                rulePlanReviewEditor =
+                    com.example.ironpath.domain.planner.RulePlanReviewEditor(
+                        com.example.ironpath.testutil.FakeIdProvider()
+                    ),
+                recordRepository = mockk(relaxed = true),
+                exerciseCatalog = com.example.ironpath.domain.planner.DefaultExerciseCatalog(),
                 savedStateHandle = androidx.lifecycle.SavedStateHandle(),
             )
     }
@@ -112,6 +118,121 @@ class PlanViewModelTest {
         var item = awaitItem()
         while (!clazz.isInstance(item)) item = awaitItem()
         @Suppress("UNCHECKED_CAST") return item as T
+    }
+
+    @Test
+    fun `rule changes preserve identity and edited graph is the acceptance payload`() = runTest {
+        val workout = makeWorkout("draft", 1, scheduledDate = "2026-04-13")
+        val exercise = makeExercise("first", workout.id)
+        val second = makeExercise("second", workout.id, 1)
+        val initial =
+            makeGeneratedPlan(listOf(workout), listOf(exercise, second)).let {
+                it.copy(plan = it.plan.copy(startDate = "2026-04-13", endDate = "2026-04-19"))
+            }
+        setupReview(initial)
+        viewModel.moveRuleWorkout(workout.id, 7)
+        viewModel.editRuleExercise(
+            exercise.id,
+            com.example.ironpath.domain.planner.RuleExerciseForm(" Custom ", "20", "100", "0.5")
+        )
+        viewModel.moveRuleExercise(workout.id, second.id, 0)
+        val edited = viewModel.generatedPlan.value!!
+        assertEquals("2026-04-19", edited.workouts.single().scheduledDate)
+        assertEquals(exercise.id, edited.exercises.find { it.id == exercise.id }!!.id)
+        assertEquals("Custom", edited.exercises.find { it.id == exercise.id }!!.name)
+        assertEquals(
+            listOf(second.id, exercise.id),
+            edited.exercises.sortedBy { it.orderIndex }.map { it.id }
+        )
+        viewModel.acceptPlan {}
+        coVerify(exactly = 1) {
+            planRepository.createPlan(edited.plan, edited.workouts, edited.exercises, null)
+        }
+        viewModel.editRuleExercise(
+            exercise.id,
+            com.example.ironpath.domain.planner.RuleExerciseForm("Ignored", "1", "1", "0")
+        )
+        assertNull(viewModel.generatedPlan.value)
+    }
+
+    @Test
+    fun `last exercise removal blocks empty acceptance and undo restores once`() = runTest {
+        val workout = makeWorkout("draft", 1)
+        val exercise = makeExercise("last", workout.id)
+        val initial = makeGeneratedPlan(listOf(workout), listOf(exercise))
+        setupReview(initial)
+        viewModel.removeRuleExercise(exercise.id)
+        assertTrue(viewModel.generatedPlan.value!!.workouts.isEmpty())
+        viewModel.acceptPlan {}
+        coVerify(exactly = 0) { planRepository.createPlan(any(), any(), any(), any()) }
+        viewModel.undoRuleRemoval()
+        assertEquals(initial, viewModel.generatedPlan.value)
+        assertNull(viewModel.ruleUndo.value)
+        viewModel.undoRuleRemoval()
+        assertEquals(initial, viewModel.generatedPlan.value)
+    }
+
+    @Test
+    fun `only latest removal is undoable and another edit clears its snapshot`() = runTest {
+        val workout = makeWorkout("draft", 1)
+        val first = makeExercise("first", workout.id)
+        val second = makeExercise("second", workout.id, 1)
+        setupReview(makeGeneratedPlan(listOf(workout), listOf(first, second)))
+        viewModel.removeRuleExercise(first.id)
+        val afterFirst = viewModel.generatedPlan.value
+        val firstRemoval = viewModel.ruleUndo.value!!
+        viewModel.removeRuleExercise(second.id)
+        viewModel.expireRuleUndo(firstRemoval)
+        assertNotNull(viewModel.ruleUndo.value)
+        viewModel.undoRuleRemoval()
+        assertEquals(afterFirst, viewModel.generatedPlan.value)
+        viewModel.removeRuleExercise(second.id)
+        viewModel.addRuleExercise(
+            workout.id,
+            com.example.ironpath.domain.planner.RuleExerciseForm("Missing workout", "1", "1", "0")
+        )
+        assertNotNull(viewModel.ruleUndo.value)
+        viewModel.undoRuleRemoval()
+        viewModel.removeRuleExercise(second.id)
+        viewModel.backToSetup()
+        viewModel.undoRuleRemoval()
+        assertNull(viewModel.generatedPlan.value)
+        assertNull(viewModel.ruleUndo.value)
+        setupReview(makeGeneratedPlan(listOf(workout), listOf(first, second)))
+        viewModel.removeRuleExercise(first.id)
+        viewModel.editRuleExercise(
+            second.id,
+            com.example.ironpath.domain.planner.RuleExerciseForm("Edited", "1", "1", "0")
+        )
+        assertNull(viewModel.ruleUndo.value)
+        val edited = viewModel.generatedPlan.value
+        viewModel.undoRuleRemoval()
+        assertEquals(edited, viewModel.generatedPlan.value)
+    }
+
+    @Test
+    fun `busy acceptance freezes all rule draft commands`() = runTest {
+        val workout = makeWorkout("draft", 1)
+        val first = makeExercise("first", workout.id)
+        val second = makeExercise("second", workout.id, 1)
+        val initial = makeGeneratedPlan(listOf(workout), listOf(first, second))
+        setupReview(initial)
+        val release = CompletableDeferred<Unit>()
+        coEvery { planRepository.createPlan(any(), any(), any(), any()) } coAnswers
+            {
+                release.await()
+            }
+        viewModel.acceptPlan {}
+        val form = com.example.ironpath.domain.planner.RuleExerciseForm("Ignored", "1", "1", "0")
+        viewModel.moveRuleWorkout(workout.id, 2)
+        viewModel.editRuleExercise(first.id, form)
+        viewModel.addRuleExercise(workout.id, form)
+        viewModel.removeRuleExercise(first.id)
+        viewModel.moveRuleExercise(workout.id, second.id, 0)
+        viewModel.deleteWorkoutFromReview(workout.id)
+        assertEquals(initial, viewModel.generatedPlan.value)
+        assertNull(viewModel.ruleUndo.value)
+        release.complete(Unit)
     }
 
     @Test
@@ -133,6 +254,12 @@ class PlanViewModelTest {
                 timeProvider,
                 mockk(relaxed = true),
                 mockk(relaxed = true),
+                rulePlanReviewEditor =
+                    com.example.ironpath.domain.planner.RulePlanReviewEditor(
+                        com.example.ironpath.testutil.FakeIdProvider()
+                    ),
+                recordRepository = mockk(relaxed = true),
+                exerciseCatalog = com.example.ironpath.domain.planner.DefaultExerciseCatalog(),
                 savedStateHandle = androidx.lifecycle.SavedStateHandle(),
             )
         vm.planUiState.test {
@@ -205,6 +332,12 @@ class PlanViewModelTest {
                 timeProvider,
                 mockk(relaxed = true),
                 mockk(relaxed = true),
+                rulePlanReviewEditor =
+                    com.example.ironpath.domain.planner.RulePlanReviewEditor(
+                        com.example.ironpath.testutil.FakeIdProvider()
+                    ),
+                recordRepository = mockk(relaxed = true),
+                exerciseCatalog = com.example.ironpath.domain.planner.DefaultExerciseCatalog(),
                 savedStateHandle = androidx.lifecycle.SavedStateHandle(),
             )
 
@@ -249,6 +382,12 @@ class PlanViewModelTest {
                 timeProvider,
                 mockk(relaxed = true),
                 mockk(relaxed = true),
+                rulePlanReviewEditor =
+                    com.example.ironpath.domain.planner.RulePlanReviewEditor(
+                        com.example.ironpath.testutil.FakeIdProvider()
+                    ),
+                recordRepository = mockk(relaxed = true),
+                exerciseCatalog = com.example.ironpath.domain.planner.DefaultExerciseCatalog(),
                 savedStateHandle = androidx.lifecycle.SavedStateHandle(),
             )
 
