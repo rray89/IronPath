@@ -180,6 +180,8 @@ constructor(
                     snapshot.workouts.any { it.status.name != "Completed" })
         )
             return true
+        // Re-entering the same week leaves its rule draft and any save feedback intact.
+        if (_generatedPlan.value?.plan?.startDate == targetWeekStart().toString()) return true
         backToSetup()
         return true
     }
@@ -220,7 +222,7 @@ constructor(
                 configurationRevision != remotePlanningExperiment?.state?.value?.revision
         )
             return false
-        if (!matchesRemoteConfiguration(validatedPlan)) return false
+        if (_generatedPlan.value != null || !matchesRemoteConfiguration(validatedPlan)) return false
         val current = _aiReviewState.value
         if (current?.sourceToken === validatedPlan) return true
         if (pendingAiReview?.validatedPlan === validatedPlan) return true

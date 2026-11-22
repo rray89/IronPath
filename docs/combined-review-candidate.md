@@ -28,7 +28,7 @@ destructive session replacement.
 V2 restoration uses immutable draft transformations and the existing plan acceptance
 transaction. Day moves/swaps preserve identity and date/order; free-text form edits
 validate V2 ranges, removals retain one Undo, and handles support both drag and
-accessible reorder actions. An empty rule draft cannot be accepted. No schema,
+accessible reorder actions. Choosing the rule planner discards outstanding AI generation. A late AI result cannot replace a rule draft. Reopening Plan Next Week for the same week preserves rule edits and any save error so the user can retry. An empty rule draft cannot be accepted. No schema,
 post-accept editor, Active exercise editor or AI free-text policy is added.
 
 ## Combined acceptance walkthrough

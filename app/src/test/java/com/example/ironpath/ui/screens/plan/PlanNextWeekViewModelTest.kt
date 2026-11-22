@@ -61,6 +61,26 @@ class PlanNextWeekViewModelTest {
     }
 
     @Test
+    fun `reentering next week preserves the current rule edits and failed save feedback`() =
+        runTest {
+            val model = vm()
+            mainDispatcherRule.testDispatcher.scheduler.runCurrent()
+            assertTrue(model.beginNextWeekPlanning())
+            model.generatePlan(PlanningGoal.STRENGTH, setOf(1))
+            val workout = model.generatedPlan.value!!.workouts.single()
+            model.moveRuleWorkout(workout.id, 3)
+            val edited = model.generatedPlan.value
+            coEvery { plans.createPlan(any(), any(), any(), any()) } throws IllegalStateException()
+            model.acceptPlan {}
+            val error = model.saveState.value.error
+            assertNotNull(error)
+
+            assertTrue(model.beginNextWeekPlanning())
+            assertEquals(edited, model.generatedPlan.value)
+            assertEquals(error, model.saveState.value.error)
+        }
+
+    @Test
     fun `setup intent survives fresh view model and cancel never replaces old week`() = runTest {
         val handle = SavedStateHandle()
         val first = vm(handle)

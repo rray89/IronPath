@@ -143,7 +143,10 @@ fun PlanScreen(
         onInjuryNotesChanged = intakeViewModel::setInjuryNotes,
         onPreferencesChanged = intakeViewModel::setExercisePreferences,
         onDislikesChanged = intakeViewModel::setExerciseDislikes,
-        onGenerate = { viewModel.generatePlan(intakeState.goal, intakeState.selectedDays) },
+        onGenerate = {
+            intakeViewModel.discardGeneration()
+            viewModel.generatePlan(intakeState.goal, intakeState.selectedDays)
+        },
         onGenerateWithAi = { intakeViewModel.generateWithAi(viewModel.targetWeekStart()) },
         onCancelAiGeneration = intakeViewModel::cancelGeneration,
         onClearAiResult = intakeViewModel::clearGeneratedDraft,

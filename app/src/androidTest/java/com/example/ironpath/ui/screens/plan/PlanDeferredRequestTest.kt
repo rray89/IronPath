@@ -28,7 +28,7 @@ class PlanDeferredRequestTest {
     @get:Rule(order = 1) val composeRule = createComposeRule()
 
     @Test
-    fun failedRuleSaveReleasesDeferredNextWeekRequestExactlyOnce() {
+    fun failedRuleSaveConsumesDeferredRequestOnceAndPreservesRetry() {
         val db = databaseRule.database
         val old = TestData.plan()
         val oldWorkout =
@@ -60,7 +60,7 @@ class PlanDeferredRequestTest {
 
                 override fun setApiKey(apiKey: String) = Unit
             }
-        val handle = SavedStateHandle()
+        val handle = SavedStateHandle(mapOf("next_week_setup_source" to old.id))
         val pair = runBlocking {
             withContext(Dispatchers.Main.immediate) {
                 val mapper = PlanEntityMapper(ids, clock, catalog)
@@ -137,9 +137,15 @@ class PlanDeferredRequestTest {
             assertTrue(requested)
             finish.complete(Unit)
             composeRule.waitUntil(5_000) {
-                composeRule.onAllNodesWithText("Primary Goal").fetchSemanticsNodes().isNotEmpty()
+                consumed == 1 &&
+                    composeRule
+                        .onAllNodesWithText("Could not save this plan. Try again.")
+                        .fetchSemanticsNodes()
+                        .isNotEmpty()
             }
-            composeRule.onNodeWithText("Primary Goal").assertIsDisplayed()
+            composeRule.onNodeWithText("Could not save this plan. Try again.").assertIsDisplayed()
+            composeRule.onNodeWithText("WEEKLY PLAN").assertExists()
+            composeRule.onNodeWithText("ACCEPT PLAN").assertIsEnabled()
             composeRule.runOnIdle {
                 assertEquals(1, consumed)
                 assertFalse(requested)
