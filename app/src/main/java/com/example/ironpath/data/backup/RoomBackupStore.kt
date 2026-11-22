@@ -227,6 +227,7 @@ constructor(
     ): Boolean {
         val bundle = artifact.bundle
         val lineage = artifact.lineage
+        if (lineage.ownerUid != accountId.opaqueValue) return false
         val validated = BackupBundleValidator.validate(bundle)
         // Build the complete bounded undo record before opening the mutation transaction. A
         // snapshot that cannot be represented safely must fail without touching Room.
@@ -597,7 +598,8 @@ constructor(
         accountId: AccountId,
     ): Boolean {
         if (
-            current != captured.metadata ||
+            current.pendingSignOutUid != null ||
+                current != captured.metadata ||
                 current.profileGeneration != captured.metadata.profileGeneration ||
                 current.installationId != captured.metadata.installationId ||
                 (current.ownerUid != null && current.ownerUid != accountId.opaqueValue)

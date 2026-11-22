@@ -12,6 +12,8 @@ import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.flow.Flow
 
+internal class StaleRecordException : IllegalStateException()
+
 @Singleton
 class RecordRepository
 @Inject
@@ -32,15 +34,14 @@ constructor(
         }
 
     suspend fun updateManualRecord(
-        id: String,
+        original: PersonalRecord,
         draft: ValidatedRecordDraft,
         expectedProfileGeneration: Long? = null
     ) =
         database.withProfileWrite(expectedProfileGeneration) {
-            val current = requireNotNull(recordDao.getRecordById(id)) { "Record no longer exists" }
-            require(current.sourceType == RecordSource.Manual) { "Logged records are read-only" }
+            requireCurrentManualRecord(original)
             val updated =
-                current.copy(
+                original.copy(
                     exerciseName = draft.exerciseName.trim(),
                     normalizedExerciseName = draft.exerciseName.trim().lowercase(),
                     weightKg = draft.weightKg,
@@ -48,19 +49,26 @@ constructor(
                     note = draft.note,
                 )
             // Room's unique index excludes this row naturally on an in-place update.
-            if (updated != current) {
+            if (updated != original) {
                 recordDao.updateRecord(updated)
                 backupChangeTracker.markIncludedDataChanged()
             }
         }
 
-    suspend fun deleteManualRecord(id: String, expectedProfileGeneration: Long? = null) =
+    suspend fun deleteManualRecord(
+        original: PersonalRecord,
+        expectedProfileGeneration: Long? = null
+    ) =
         database.withProfileWrite(expectedProfileGeneration) {
-            val current = requireNotNull(recordDao.getRecordById(id)) { "Record no longer exists" }
-            require(current.sourceType == RecordSource.Manual) { "Logged records are read-only" }
-            recordDao.deleteRecord(id)
+            requireCurrentManualRecord(original)
+            recordDao.deleteRecord(original.id)
             backupChangeTracker.markIncludedDataChanged()
         }
+
+    private suspend fun requireCurrentManualRecord(original: PersonalRecord) {
+        require(original.sourceType == RecordSource.Manual) { "Logged records are read-only" }
+        if (recordDao.getRecordById(original.id) != original) throw StaleRecordException()
+    }
 
     suspend fun getLoggedRecordsForWorkoutLog(logId: String): List<PersonalRecord> =
         recordDao.getLoggedRecordsForWorkoutLog(logId)

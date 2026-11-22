@@ -83,7 +83,7 @@ class RecordMutationRoomTest {
 
     @Test
     fun editPreservesUuidAndMetadata_normalizesExcludesSelfAndDeleteLeavesLog() = runBlocking {
-        repository.updateManualRecord(original.id, draft, 4L)
+        repository.updateManualRecord(original, draft, 4L)
         val updated = dao.getRecordById(original.id)!!
         assertEquals(original.id, updated.id)
         assertEquals(original.createdAt, updated.createdAt)
@@ -91,9 +91,9 @@ class RecordMutationRoomTest {
         assertEquals("Bench Press", updated.exerciseName)
         assertEquals(RecordSource.Manual, updated.sourceType)
         assertEquals(1L, revision())
-        repository.updateManualRecord(original.id, draft, 4L)
+        repository.updateManualRecord(updated, draft, 4L)
         assertEquals(1L, revision())
-        repository.deleteManualRecord(original.id, 4L)
+        repository.deleteManualRecord(updated, 4L)
         assertNull(dao.getRecordById(original.id))
         assertEquals(2L, revision())
         assertNotNull(db.historyDao().getLogById("log"))
@@ -101,10 +101,23 @@ class RecordMutationRoomTest {
     }
 
     @Test
+    fun staleEditorCannotReplaceOrDeleteRestoredRecord() = runBlocking {
+        val restored = original.copy(weightKg = 120.0, note = "Restored")
+        dao.updateRecord(restored)
+        val before = revision()
+        val update = runCatching { repository.updateManualRecord(original, draft, 4L) }
+        val delete = runCatching { repository.deleteManualRecord(original, 4L) }
+        assertTrue(update.exceptionOrNull() is StaleRecordException)
+        assertTrue(delete.exceptionOrNull() is StaleRecordException)
+        assertEquals(restored, dao.getRecordById(original.id))
+        assertEquals(before, revision())
+    }
+
+    @Test
     fun duplicateUpdatePreservesBothRowsAndRevisionAcrossSourceTypes() = runBlocking {
         val logged = save()
         val failure =
-            runCatching { repository.updateManualRecord(original.id, draft, 4L) }.exceptionOrNull()
+            runCatching { repository.updateManualRecord(original, draft, 4L) }.exceptionOrNull()
         assertTrue(failure is SQLiteConstraintException)
         assertEquals(original, dao.getRecordById(original.id))
         assertEquals(logged, dao.getRecordById(logged.id))
@@ -139,7 +152,7 @@ class RecordMutationRoomTest {
 
     @Test
     fun manualDuplicateBlocksDerivedInsertWithoutChangingProvenance() = runBlocking {
-        repository.updateManualRecord(original.id, draft, 4L)
+        repository.updateManualRecord(original, draft, 4L)
         val manual = dao.getRecordById(original.id)
         assertTrue(runCatching { save() }.exceptionOrNull() is SQLiteConstraintException)
         assertEquals(manual, dao.getRecordById(original.id))
@@ -150,8 +163,8 @@ class RecordMutationRoomTest {
     @Test
     fun missingSourceAndLoggedMutationAreRejected() = runBlocking {
         val logged = save()
-        assertTrue(runCatching { repository.updateManualRecord(logged.id, draft, 4L) }.isFailure)
-        assertTrue(runCatching { repository.deleteManualRecord(logged.id, 4L) }.isFailure)
+        assertTrue(runCatching { repository.updateManualRecord(logged, draft, 4L) }.isFailure)
+        assertTrue(runCatching { repository.deleteManualRecord(logged, 4L) }.isFailure)
         db.openHelper.writableDatabase.execSQL("DELETE FROM workout_logs WHERE id = 'log'")
         assertTrue(runCatching { save(id = "missing") }.isFailure)
         assertEquals(1L, revision())
@@ -162,8 +175,8 @@ class RecordMutationRoomTest {
     fun allMutationsHonorProfileAndDeletionBarrier() = runBlocking {
         val actions: List<suspend (Long) -> Unit> =
             listOf(
-                { repository.updateManualRecord(original.id, draft, it) },
-                { repository.deleteManualRecord(original.id, it) },
+                { repository.updateManualRecord(original, draft, it) },
+                { repository.deleteManualRecord(original, it) },
                 {
                     save(generation = it)
                     Unit
@@ -197,9 +210,9 @@ class RecordMutationRoomTest {
         db.openHelper.writableDatabase.execSQL(
             "CREATE TRIGGER fail_revision BEFORE UPDATE ON account_backup_metadata BEGIN SELECT RAISE(ABORT, 'revision failed'); END"
         )
-        assertTrue(runCatching { repository.updateManualRecord(original.id, draft, 4L) }.isFailure)
+        assertTrue(runCatching { repository.updateManualRecord(original, draft, 4L) }.isFailure)
         assertEquals(original, dao.getRecordById(original.id))
-        assertTrue(runCatching { repository.deleteManualRecord(original.id, 4L) }.isFailure)
+        assertTrue(runCatching { repository.deleteManualRecord(original, 4L) }.isFailure)
         assertEquals(original, dao.getRecordById(original.id))
         assertTrue(runCatching { save() }.isFailure)
         assertEquals(listOf(original), dao.observeAllRecords().first())

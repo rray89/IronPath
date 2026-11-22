@@ -8,6 +8,7 @@ import com.example.ironpath.data.local.entity.RecordSource
 import com.example.ironpath.data.repository.HistoryRepository
 import com.example.ironpath.data.repository.PlanRepository
 import com.example.ironpath.data.repository.RecordRepository
+import com.example.ironpath.data.repository.StaleRecordException
 import com.example.ironpath.domain.account.ProfileGenerationToken
 import com.example.ironpath.domain.identity.IdProvider
 import com.example.ironpath.domain.time.TimeProvider
@@ -133,7 +134,7 @@ constructor(
             return
         }
         val validDraft = (validation as RecordDraftResult.Valid).draft
-        val editingId = _editingRecord.value?.id
+        val original = _editingRecord.value
         val expectedProfileGeneration = profileGenerationToken?.current()
         if (profileGenerationToken != null && expectedProfileGeneration == null) {
             _addRecordError.value = "Profile is not ready. Please try again."
@@ -144,9 +145,9 @@ constructor(
         viewModelScope.launch {
             try {
                 try {
-                    if (editingId != null) {
+                    if (original != null) {
                         recordRepository.updateManualRecord(
-                            editingId,
+                            original,
                             validDraft,
                             expectedProfileGeneration
                         )
@@ -165,6 +166,9 @@ constructor(
                     }
                 } catch (cancellation: CancellationException) {
                     throw cancellation
+                } catch (_: StaleRecordException) {
+                    _addRecordError.value = STALE_RECORD_MESSAGE
+                    return@launch
                 } catch (_: SQLiteConstraintException) {
                     _addRecordError.value =
                         "A record with this exercise, date, and weight already exists."
@@ -183,7 +187,7 @@ constructor(
     }
 
     fun deleteEditingRecord() {
-        val id = _editingRecord.value?.id ?: return
+        val original = _editingRecord.value ?: return
         if (_isSavingRecord.value) return
         val generation = profileGenerationToken?.current()
         if (profileGenerationToken != null && generation == null) {
@@ -194,11 +198,13 @@ constructor(
         _addRecordError.value = null
         viewModelScope.launch {
             try {
-                recordRepository.deleteManualRecord(id, generation)
+                recordRepository.deleteManualRecord(original, generation)
                 _addRecordShown.value = false
                 _editingRecord.value = null
             } catch (cancellation: CancellationException) {
                 throw cancellation
+            } catch (_: StaleRecordException) {
+                _addRecordError.value = STALE_RECORD_MESSAGE
             } catch (_: Exception) {
                 _addRecordError.value = "Unable to delete record. Please try again."
             } finally {
@@ -207,6 +213,9 @@ constructor(
         }
     }
 }
+
+private const val STALE_RECORD_MESSAGE =
+    "This record changed or was removed. Tap Cancel to return to the current Records list."
 
 enum class HistoryTab {
     Logs,

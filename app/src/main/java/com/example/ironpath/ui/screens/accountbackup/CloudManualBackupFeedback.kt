@@ -19,7 +19,7 @@ internal fun ManualBackupUiState.cloudFailureReason(): BackupFailureReason? {
 internal fun cloudFailureRecovery(reason: BackupFailureReason): String? =
     when (reason) {
         BackupFailureReason.PermissionDenied ->
-            "Check that you are using the intended account. After cloud access is restored, refresh backup status, then open a fresh backup preview."
+            "Check that you are using the intended account. After cloud access is restored, refresh backup status, then open a fresh preview."
         BackupFailureReason.Offline ->
             "An interrupted request may have reached the cloud. When connected, refresh to check the latest complete backup, then open a fresh preview to retry."
         BackupFailureReason.ServiceUnavailable,

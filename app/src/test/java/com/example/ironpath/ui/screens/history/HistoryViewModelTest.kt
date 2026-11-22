@@ -6,6 +6,7 @@ import com.example.ironpath.data.local.entity.RecordSource
 import com.example.ironpath.data.repository.HistoryRepository
 import com.example.ironpath.data.repository.PlanRepository
 import com.example.ironpath.data.repository.RecordRepository
+import com.example.ironpath.data.repository.StaleRecordException
 import com.example.ironpath.domain.validation.ValidatedRecordDraft
 import com.example.ironpath.testutil.FakeIdProvider
 import com.example.ironpath.testutil.FakeTimeProvider
@@ -238,9 +239,30 @@ class HistoryViewModelTest {
         coVerify(exactly = 0) { recordRepository.updateManualRecord(any(), any(), any()) }
         viewModel.showEditRecord(original)
         viewModel.saveRecord(draft) {}
-        coVerify(exactly = 1) { recordRepository.updateManualRecord("existing", draft, null) }
+        coVerify(exactly = 1) { recordRepository.updateManualRecord(original, draft, null) }
         coVerify(exactly = 0) { recordRepository.insertRecord(any(), any()) }
         assertFalse(viewModel.addRecordShown.value)
+    }
+
+    @Test
+    fun `stale edit or delete explains how to recover without writing`() = runTest {
+        val original = PersonalRecord("id", "Squat", "squat", 80.0, "2026-07-16", createdAt = 1L)
+        viewModel.showEditRecord(original)
+        coEvery { recordRepository.updateManualRecord(original, any(), any()) } throws
+            StaleRecordException()
+        coEvery { recordRepository.deleteManualRecord(original, any()) } throws
+            StaleRecordException()
+        val message =
+            "This record changed or was removed. Tap Cancel to return to the current Records list."
+
+        viewModel.saveRecord(draft) { error("stale record saved") }
+        assertEquals(message, viewModel.addRecordError.value)
+        viewModel.clearAddRecordError()
+        viewModel.deleteEditingRecord()
+        assertEquals(message, viewModel.addRecordError.value)
+        assertTrue(viewModel.addRecordShown.value)
+        viewModel.hideAddRecord()
+        assertNull(viewModel.editingRecord.value)
     }
 
     @Test
@@ -288,12 +310,12 @@ class HistoryViewModelTest {
                 createdAt = 123L
             )
         viewModel.showEditRecord(original)
-        coEvery { recordRepository.deleteManualRecord("existing", null) } throws
+        coEvery { recordRepository.deleteManualRecord(original, null) } throws
             IllegalStateException("failed")
         viewModel.deleteEditingRecord()
         assertEquals(original, viewModel.editingRecord.value)
         assertEquals("Unable to delete record. Please try again.", viewModel.addRecordError.value)
-        coEvery { recordRepository.deleteManualRecord("existing", null) } returns Unit
+        coEvery { recordRepository.deleteManualRecord(original, null) } returns Unit
         viewModel.deleteEditingRecord()
         assertFalse(viewModel.addRecordShown.value)
         assertNull(viewModel.editingRecord.value)
