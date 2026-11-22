@@ -9,6 +9,7 @@ import com.example.ironpath.data.local.entity.WorkoutStatus
 import com.example.ironpath.data.repository.PlanRepository
 import com.example.ironpath.data.repository.SessionRepository
 import com.example.ironpath.domain.session.StartPlannedWorkoutUseCase
+import com.example.ironpath.domain.session.StartWorkoutResult
 import com.example.ironpath.testutil.FakeTimeProvider
 import com.example.ironpath.ui.navigation.Route
 import com.example.ironpath.util.MainDispatcherRule
@@ -86,10 +87,11 @@ class WorkoutPreviewViewModelTest {
         planRepository = mockk(relaxed = true)
         sessionRepository = mockk(relaxed = true)
         startPlannedWorkout = mockk(relaxed = true)
+        coEvery { startPlannedWorkout(any(), any()) } returns StartWorkoutResult.Started("session1")
 
         every { planRepository.observeExercisesForWorkout("workout1") } returns exercisesFlow
         every { sessionRepository.observeActiveSession() } returns activeSessionFlow
-        coEvery { startPlannedWorkout.invoke(any()) } returns Unit
+        coEvery { startPlannedWorkout.invoke(any()) } returns StartWorkoutResult.Started("session1")
     }
 
     @Test
@@ -232,7 +234,7 @@ class WorkoutPreviewViewModelTest {
                 viewModel.startWorkout { callbackInvoked = true }
                 advanceUntilIdle()
 
-                coVerify(exactly = 1) { startPlannedWorkout(todayWorkout) }
+                coVerify(exactly = 1) { startPlannedWorkout(todayWorkout.id) }
                 assertTrue(callbackInvoked)
                 cancelAndIgnoreRemainingEvents()
             }
@@ -269,7 +271,11 @@ class WorkoutPreviewViewModelTest {
         val todayWorkout = workout()
         val startCanComplete = CompletableDeferred<Unit>()
         coEvery { planRepository.getWorkoutById("workout1") } returns todayWorkout
-        coEvery { startPlannedWorkout.invoke(any()) } coAnswers { startCanComplete.await() }
+        coEvery { startPlannedWorkout.invoke(any()) } coAnswers
+            {
+                startCanComplete.await()
+                StartWorkoutResult.Started("session1")
+            }
         val viewModel =
             WorkoutPreviewViewModel(
                 savedStateHandle = savedStateHandle("workout1"),
@@ -286,12 +292,67 @@ class WorkoutPreviewViewModelTest {
             viewModel.startWorkout {}
             runCurrent()
 
-            coVerify(exactly = 1) { startPlannedWorkout(todayWorkout) }
+            coVerify(exactly = 1) { startPlannedWorkout(todayWorkout.id) }
+            assertTrue(viewModel.startState.value.isStarting)
 
             startCanComplete.complete(Unit)
             advanceUntilIdle()
             cancelAndIgnoreRemainingEvents()
         }
+    }
+
+    @Test
+    fun `existing result offers continuation without reporting a newly started workout`() =
+        runTest {
+            coEvery { planRepository.getWorkoutById("workout1") } returns workout()
+            coEvery { startPlannedWorkout(any(), any()) } returns
+                StartWorkoutResult.ExistingSession("old")
+            val vm =
+                WorkoutPreviewViewModel(
+                    savedStateHandle("workout1"),
+                    planRepository,
+                    sessionRepository,
+                    startPlannedWorkout,
+                    timeProvider
+                )
+            advanceUntilIdle()
+            var navigations = 0
+            vm.startWorkout { navigations++ }
+            advanceUntilIdle()
+            assertTrue(vm.startState.value.hasExistingSession)
+            assertEquals(0, navigations)
+            vm.startWorkout { navigations++ }
+            assertEquals(1, navigations)
+            coVerify(exactly = 1) { startPlannedWorkout(any(), any()) }
+        }
+
+    @Test
+    fun `failure and stale source keep preview with actionable feedback and retry`() = runTest {
+        coEvery { planRepository.getWorkoutById("workout1") } returns workout()
+        val vm =
+            WorkoutPreviewViewModel(
+                savedStateHandle("workout1"),
+                planRepository,
+                sessionRepository,
+                startPlannedWorkout,
+                timeProvider
+            )
+        advanceUntilIdle()
+        var navigations = 0
+        coEvery { startPlannedWorkout(any(), any()) } throws IllegalStateException("write blocked")
+        vm.startWorkout { navigations++ }
+        advanceUntilIdle()
+        assertTrue(vm.startState.value.error!!.contains("Could not start"))
+        coEvery { startPlannedWorkout(any(), any()) } returns StartWorkoutResult.NotStartable
+        vm.startWorkout { navigations++ }
+        advanceUntilIdle()
+        assertTrue(vm.startState.value.error!!.contains("no longer available"))
+        assertEquals(0, navigations)
+        coEvery { startPlannedWorkout(any(), any()) } returns StartWorkoutResult.Started("new")
+        vm.startWorkout { navigations++ }
+        advanceUntilIdle()
+        assertEquals(1, navigations)
+        assertEquals(null, vm.startState.value.error)
     }
 
     @Test

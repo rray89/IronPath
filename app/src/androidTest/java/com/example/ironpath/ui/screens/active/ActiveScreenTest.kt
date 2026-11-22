@@ -7,6 +7,7 @@ import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertHasClickAction
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.junit4.createComposeRule
@@ -20,6 +21,7 @@ import com.example.ironpath.data.local.entity.ActiveSession
 import com.example.ironpath.data.local.entity.PlannedWorkout
 import com.example.ironpath.data.local.entity.SessionExercise
 import com.example.ironpath.data.local.entity.SessionSet
+import com.example.ironpath.ui.screens.WorkoutStartUiState
 import com.example.ironpath.ui.testing.TestTags
 import com.example.ironpath.ui.theme.IronPathTheme
 import org.junit.Assert.assertEquals
@@ -212,8 +214,34 @@ class ActiveScreenTest {
         }
     }
 
+    @Test
+    fun startBusyStateDisablesDuplicateAction() {
+        setContent(
+            ActiveUiState.ReadyToStart(workout),
+            startState = WorkoutStartUiState(isStarting = true)
+        )
+        composeRule.onNodeWithText("STARTING WORKOUT…").assertIsNotEnabled()
+    }
+
+    @Test
+    fun startFailureAndExistingSessionFeedbackAreVisible() {
+        setContent(
+            ActiveUiState.InSession(session, listOf(squat), emptyList()),
+            startState =
+                WorkoutStartUiState(
+                    error = "Reopen Active and try again.",
+                    hasExistingSession = true
+                )
+        )
+        composeRule.onNodeWithText("Reopen Active and try again.").assertIsDisplayed()
+        composeRule
+            .onNodeWithText("Continue your existing workout. Your progress was kept.")
+            .assertIsDisplayed()
+    }
+
     private fun setContent(
         state: ActiveUiState,
+        startState: WorkoutStartUiState = WorkoutStartUiState(),
         nowMillis: () -> Long = { 1L },
         onNavigateToPlan: () -> Unit = {},
         onStartSession: (PlannedWorkout) -> Unit = {},
@@ -226,6 +254,7 @@ class ActiveScreenTest {
                 Surface {
                     ActiveContent(
                         uiState = state,
+                        startState = startState,
                         elapsedSeconds = 65,
                         nowMillis = nowMillis,
                         onNavigateToPlan = onNavigateToPlan,

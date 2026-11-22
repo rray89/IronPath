@@ -12,6 +12,7 @@ import com.example.ironpath.data.local.entity.WorkoutStatus
 import com.example.ironpath.data.repository.PlanRepository
 import com.example.ironpath.data.repository.SessionRepository
 import com.example.ironpath.domain.session.StartPlannedWorkoutUseCase
+import com.example.ironpath.domain.session.StartWorkoutResult
 import com.example.ironpath.testutil.FakeIdProvider
 import com.example.ironpath.testutil.FakeTimeProvider
 import com.example.ironpath.util.MainDispatcherRule
@@ -125,6 +126,7 @@ class ActiveViewModelTest {
         sessionRepository = mockk(relaxed = true)
         planRepository = mockk(relaxed = true)
         startPlannedWorkout = mockk(relaxed = true)
+        coEvery { startPlannedWorkout(any(), any()) } returns StartWorkoutResult.Started("session1")
 
         every { sessionRepository.observeActiveSession() } returns activeSessionFlow
         every { sessionRepository.observeExercisesForSession(any()) } returns flowOf(emptyList())
@@ -258,8 +260,42 @@ class ActiveViewModelTest {
 
         viewModel.startSession(workout)
 
-        coVerify(exactly = 1) { startPlannedWorkout(workout) }
+        coVerify(exactly = 1) { startPlannedWorkout(workout.id) }
     }
+
+    @Test
+    fun `start ignores duplicate taps exposes busy and preserves existing result`() =
+        runTestCancelling {
+            val gate = CompletableDeferred<Unit>()
+            coEvery { startPlannedWorkout(any(), any()) } coAnswers
+                {
+                    gate.await()
+                    StartWorkoutResult.ExistingSession("old")
+                }
+            viewModel.startSession(makeWorkout())
+            assertTrue(viewModel.startState.value.isStarting)
+            viewModel.startSession(makeWorkout())
+            coVerify(exactly = 1) { startPlannedWorkout(any(), any()) }
+            gate.complete(Unit)
+            mainDispatcherRule.testDispatcher.scheduler.runCurrent()
+            assertFalse(viewModel.startState.value.isStarting)
+            assertTrue(viewModel.startState.value.hasExistingSession)
+        }
+
+    @Test
+    fun `start failure and stale source show recoverable feedback then allow retry`() =
+        runTestCancelling {
+            coEvery { startPlannedWorkout(any(), any()) } throws IllegalStateException("failed")
+            viewModel.startSession(makeWorkout())
+            assertTrue(viewModel.startState.value.error!!.contains("Could not start"))
+            coEvery { startPlannedWorkout(any(), any()) } returns StartWorkoutResult.NotStartable
+            viewModel.startSession(makeWorkout())
+            assertTrue(viewModel.startState.value.error!!.contains("no longer available"))
+            coEvery { startPlannedWorkout(any(), any()) } returns StartWorkoutResult.Started("new")
+            viewModel.startSession(makeWorkout())
+            assertEquals(null, viewModel.startState.value.error)
+            assertFalse(viewModel.startState.value.isStarting)
+        }
 
     // -- updateSet --
 

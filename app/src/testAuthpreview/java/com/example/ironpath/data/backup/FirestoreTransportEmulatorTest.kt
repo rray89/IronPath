@@ -9,6 +9,7 @@ import com.example.ironpath.domain.identity.IdProvider
 import com.example.ironpath.domain.time.TimeProvider
 import com.sun.net.httpserver.HttpServer
 import io.mockk.coEvery
+import io.mockk.coVerify
 import io.mockk.mockk
 import java.net.HttpURLConnection
 import java.net.InetSocketAddress
@@ -27,6 +28,348 @@ import org.junit.Test
 
 /** Run only through firestoreTransportTest inside demo-ironpath's Firestore emulator. */
 class FirestoreTransportEmulatorTest {
+    @Test
+    fun actualCloudRestoreAndLocalUndoNeverChangePublishedDocuments() = runBlocking {
+        val owner = "restore-${UUID.randomUUID()}"
+        val account = AccountId(owner)
+        val remote = store(owner)
+        val completed =
+            remote.publish(account, 0, "cloud-installation", snapshot())
+                as RemoteBackupPublish.Completed
+        val cloud = completed.backup
+        val underlying = client(owner)
+        val paths =
+            listOf("users/$owner", "users/$owner/backups/${cloud.summary.backupId}") +
+                cloud.snapshot.chunks.map {
+                    "users/$owner/backups/${cloud.summary.backupId}/chunks/${it.index.toString().padStart(3, '0')}"
+                }
+        val documents = paths.map { underlying.get(it) }
+        assertTrue(documents.all { it != null })
+        val original =
+            ManualBackupCapture(
+                AccountBackupMetadata(
+                    installationId = "local-installation",
+                    localChangeRevision = 1
+                ),
+                BackupSnapshotCodec().decode(snapshot(60.0)),
+                null,
+                null
+            )
+        var captured = original
+        var slot: ManualBackupUndoCapture? = null
+        val local = mockk<ManualBackupLocalStore>()
+        coEvery { local.capture() } answers { captured }
+        coEvery { local.captureUndo(account, "local-installation") } answers { slot }
+        coEvery { local.restore(any(), account, any(), null) } coAnswers
+            {
+                val artifact = thirdArg<ValidatedRestoreArtifact>()
+                slot =
+                    ManualBackupUndoCapture(
+                        "slot",
+                        owner,
+                        "local-installation",
+                        captured.metadata,
+                        captured.bundle,
+                        captured.baseline
+                    )
+                captured =
+                    captured.copy(
+                        metadata =
+                            captured.metadata.copy(
+                                ownerUid = owner,
+                                localChangeRevision = 2,
+                                lastCompleteLocalRevision = 2,
+                                lastObservedRemoteGeneration = cloud.generation
+                            ),
+                        bundle = artifact.bundle.copy(localChangeRevision = 2),
+                        baseline = cloud
+                    )
+                true
+            }
+        coEvery { local.undo(any(), account, any()) } coAnswers
+            {
+                captured =
+                    original.copy(
+                        metadata =
+                            original.metadata.copy(
+                                localChangeRevision = 3,
+                                requiresLineageReviewAfterUndo = true
+                            ),
+                        bundle = original.bundle.copy(localChangeRevision = 3)
+                    )
+                slot = null
+                true
+            }
+        val session = mockk<AccountSessionAdapter>()
+        coEvery { session.readSession() } returns AccountProfile(account, "Synthetic restore", "")
+        val guardedRemote =
+            object : RemoteBackupStore by remote {
+                override suspend fun publish(
+                    accountId: AccountId,
+                    expectedGeneration: Long,
+                    sourceInstallationId: String,
+                    snapshot: EncodedBackupSnapshot
+                ): RemoteBackupPublish = error("Restore cannot upload")
+
+                override suspend fun retryRetention(
+                    accountId: AccountId,
+                    expectedGeneration: Long,
+                    latestBackupId: String
+                ): RemoteBackupRetention = error("Restore cannot delete cloud data")
+            }
+        val subject =
+            CloudManualBackupCoordinator(
+                local,
+                guardedRemote,
+                session,
+                object : InstallationGuard {
+                    override suspend fun validate() = InstallationValidationResult.Validated
+                },
+                IdProvider { UUID.randomUUID().toString() },
+                AccountSessionOperationGate()
+            )
+        val preview = (subject.previewRestore() as RestorePreviewResult.Ready).preview
+        assertEquals("Another device", preview.sourceDescription)
+        assertEquals(cloud.summary, preview.latest)
+        assertEquals(BackupCategoryImpact(0, 1, 0), preview.impact["PersonalRecord"])
+        assertEquals(BackupActionResult.Completed, subject.confirmRestore(preview.id))
+        assertEquals(50.0, captured.bundle.personalRecords.single().weightKg, 0.0)
+        val undo = (subject.previewUndo() as UndoPreviewResult.Ready).preview
+        assertEquals(BackupActionResult.Completed, subject.confirmUndo(undo.id))
+        assertEquals(60.0, captured.bundle.personalRecords.single().weightKg, 0.0)
+        assertEquals(BackupStatus.LocalChanges, subject.status.value)
+        assertEquals(documents, paths.map { underlying.get(it) })
+        assertEquals(RemoteBackupRead.Complete(cloud), remote.latest(account))
+        coVerify(exactly = 1) { local.restore(any(), account, any(), null) }
+        coVerify(exactly = 1) { local.undo(any(), account, any()) }
+    }
+
+    @Test
+    fun syncPreviewCancelAndConfirmedOneSidedMergeWorkWithBeginDenied() = runBlocking {
+        assertExplicitSyncWithBeginDenied(null)
+    }
+
+    @Test
+    fun syncKeepsLocalConflictVersionsOnlyAfterExplicitChoiceWithBeginDenied() = runBlocking {
+        assertExplicitSyncWithBeginDenied(SyncConflictResolution.KeepLocal)
+    }
+
+    @Test
+    fun syncKeepsCloudConflictVersionsOnlyAfterExplicitChoiceWithBeginDenied() = runBlocking {
+        assertExplicitSyncWithBeginDenied(SyncConflictResolution.KeepCloud)
+    }
+
+    @Test
+    fun deniedSyncCommitPreservesLocalDataAndAllowsFreshExplicitRetry() = runBlocking {
+        assertExplicitSyncWithBeginDenied(
+            SyncConflictResolution.KeepLocal,
+            BackupFailureReason.PermissionDenied
+        )
+    }
+
+    @Test
+    fun lostSyncReceiptPreservesLocalDataAndRecoversThroughFreshReview() = runBlocking {
+        assertExplicitSyncWithBeginDenied(
+            SyncConflictResolution.KeepLocal,
+            BackupFailureReason.Offline
+        )
+    }
+
+    private suspend fun assertExplicitSyncWithBeginDenied(
+        choice: SyncConflictResolution?,
+        failure: BackupFailureReason? = null
+    ) {
+        val owner = "sync-${UUID.randomUUID()}"
+        val account = AccountId(owner)
+        val codec = BackupSnapshotCodec()
+        DeniedBeginProxy().use { proxy ->
+            val transport = client(owner, proxy.endpoint)
+            val local = LocalFixture(snapshot())
+            var subject = coordinator(owner, local, transport)
+            val backup = (subject.previewBackup() as BackupPreviewResult.Ready).preview
+            assertEquals(BackupActionResult.Completed, subject.confirmBackup(backup.id))
+            val base = local.value.bundle
+            val original = base.personalRecords.single()
+            val localBundle =
+                base.copy(
+                    localChangeRevision = 2,
+                    personalRecords =
+                        listOf(
+                            original.copy(weightKg = 60.0),
+                            original.copy(
+                                id = "local-only",
+                                exerciseName = "Press",
+                                normalizedExerciseName = "press"
+                            )
+                        )
+                )
+            local.value =
+                local.value.copy(
+                    metadata = local.value.metadata.copy(localChangeRevision = 2),
+                    bundle = localBundle
+                )
+            val cloud =
+                base.copy(
+                    localChangeRevision = 2,
+                    personalRecords =
+                        listOf(
+                            original.copy(weightKg = if (choice == null) 50.0 else 70.0),
+                            original.copy(
+                                id = "cloud-only",
+                                exerciseName = "Row",
+                                normalizedExerciseName = "row"
+                            )
+                        )
+                )
+            val remote = store(owner, transport)
+            val cloudBefore =
+                (remote.publish(account, 1, "installation-b", codec.encode(cloud))
+                        as RemoteBackupPublish.Completed)
+                    .backup
+            val before = local.value
+            proxy.commits.set(0)
+            // Plain backup must retain main's cross-device guard; only sync can merge this data.
+            assertEquals(
+                BackupPreviewResult.Failed(BackupFailureReason.ConcurrentRemoteChange),
+                subject.previewBackup()
+            )
+            val cancelled = (subject.previewSync() as SyncPreviewResult.Ready).preview
+            assertEquals(if (choice == null) 0 else 1, cancelled.conflicts["PersonalRecord"] ?: 0)
+            assertEquals(before, local.value)
+            assertEquals(0, proxy.commits.get())
+            subject.discardPreview(cancelled.id)
+            assertEquals(
+                BackupActionResult.Failed(BackupFailureReason.StalePreview),
+                subject.confirmSync(cancelled.id, choice)
+            )
+            assertEquals(before, local.value)
+            assertEquals(RemoteBackupRead.Complete(cloudBefore), remote.latest(account))
+            assertEquals(0, proxy.commits.get())
+            var preview = (subject.previewSync() as SyncPreviewResult.Ready).preview
+            if (choice != null) {
+                assertEquals(
+                    BackupActionResult.Failed(BackupFailureReason.ConflictChoiceRequired),
+                    subject.confirmSync(preview.id)
+                )
+                assertEquals(before, local.value)
+                assertEquals(0, proxy.commits.get())
+            }
+            if (failure != null) {
+                proxy.denyCommits = failure == BackupFailureReason.PermissionDenied
+                proxy.loseCompletionReceipt = failure == BackupFailureReason.Offline
+                assertEquals(
+                    BackupActionResult.Failed(failure),
+                    subject.confirmSync(preview.id, choice)
+                )
+                assertEquals(before, local.value)
+                assertFalse(subject.status.value is BackupStatus.UpToDate)
+                if (failure == BackupFailureReason.PermissionDenied)
+                    assertEquals(1, proxy.commits.get())
+                proxy.denyCommits = false
+                val afterFailure = (remote.latest(account) as RemoteBackupRead.Complete).backup
+                assertEquals(
+                    if (failure == BackupFailureReason.Offline) 3L else 2L,
+                    afterFailure.generation
+                )
+                subject = coordinator(owner, local, transport)
+                assertEquals(
+                    BackupPreviewResult.Failed(BackupFailureReason.ConcurrentRemoteChange),
+                    subject.previewBackup()
+                )
+                preview = (subject.previewSync() as SyncPreviewResult.Ready).preview
+            }
+            assertEquals(BackupActionResult.Completed, subject.confirmSync(preview.id, choice))
+            val merged = (remote.latest(account) as RemoteBackupRead.Complete).backup
+            assertEquals(3L, merged.generation)
+            assertEquals(
+                setOf("record", "local-only", "cloud-only"),
+                local.value.bundle.personalRecords.map { it.id }.toSet()
+            )
+            assertEquals(
+                if (choice == SyncConflictResolution.KeepCloud) 70.0 else 60.0,
+                local.value.bundle.personalRecords.single { it.id == "record" }.weightKg,
+                0.0
+            )
+            assertEquals(
+                local.value.bundle.personalRecords,
+                merged.validatedBundle().personalRecords
+            )
+            assertEquals(merged, local.value.baseline)
+            assertTrue(subject.status.value is BackupStatus.UpToDate)
+            assertTrue(proxy.commits.get() > 0)
+            assertTrue(proxy.paths.none { ":beginTransaction" in it || ":rollback" in it })
+        }
+    }
+
+    @Test
+    fun actualPayloadDownloadThreeWayMergeAndPublicationRemainGenerationAndOwnerScoped() =
+        runBlocking {
+            val owner = "sync-${UUID.randomUUID()}"
+            val account = AccountId(owner)
+            val first = store(owner)
+            val codec = BackupSnapshotCodec()
+            val base = codec.decode(snapshot())
+            val original = base.personalRecords.single()
+            first.publish(account, 0, "installation-a", codec.encode(base))
+                as RemoteBackupPublish.Completed
+            val local =
+                base.copy(
+                    localChangeRevision = 2,
+                    personalRecords =
+                        listOf(
+                            original.copy(weightKg = 60.0),
+                            original.copy(
+                                id = "local",
+                                exerciseName = "Press",
+                                normalizedExerciseName = "press"
+                            )
+                        )
+                )
+            val cloud =
+                base.copy(
+                    localChangeRevision = 3,
+                    personalRecords =
+                        listOf(
+                            original.copy(weightKg = 70.0),
+                            original.copy(
+                                id = "cloud",
+                                exerciseName = "Row",
+                                normalizedExerciseName = "row"
+                            )
+                        )
+                )
+            store(owner).publish(account, 1, "installation-b", codec.encode(cloud))
+                as RemoteBackupPublish.Completed
+            val downloaded = (first.latest(account) as RemoteBackupRead.Complete).backup
+            val analysis = ManualSyncMerger.analyze(base, local, downloaded.validatedBundle())
+            assertEquals(1, analysis.conflicts["PersonalRecord"])
+            for (candidate in listOf(analysis.localResult!!, analysis.cloudResult!!)) {
+                assertEquals(
+                    setOf("record", "local", "cloud"),
+                    candidate.personalRecords.map { it.id }.toSet()
+                )
+            }
+            val chosen = codec.encode(analysis.localResult!!)
+            val completed =
+                first.publish(account, downloaded.generation, "installation-a", chosen)
+                    as RemoteBackupPublish.Completed
+            assertEquals(3L, completed.backup.generation)
+            assertEquals(RemoteBackupRead.Complete(completed.backup), store(owner).latest(account))
+            assertEquals(
+                RemoteBackupRead.Failed(BackupFailureReason.PermissionDenied),
+                store("other").latest(account)
+            )
+            assertEquals(
+                RemoteBackupRead.Failed(BackupFailureReason.PermissionDenied),
+                store(null).latest(account)
+            )
+            assertEquals(
+                RemoteBackupPublish.Failed(BackupFailureReason.ConcurrentRemoteChange),
+                store(owner).publish(account, 2, "installation-b", codec.encode(cloud))
+            )
+            assertEquals(RemoteBackupRead.Complete(completed.backup), first.latest(account))
+        }
+
     @Test
     fun firstConfirmedBackupCreatesMetadataThroughTheCoordinatorWithBeginDenied() = runBlocking {
         val owner = "owner-${UUID.randomUUID()}"
@@ -354,6 +697,7 @@ class FirestoreTransportEmulatorTest {
             previous.backup.summary,
             (store(owner).inspect(account) as RemoteBackupInspection.Complete).backup.summary
         )
+        assertEquals(RemoteBackupRead.Complete(previous.backup), store(owner).latest(account))
         val resumed =
             store(owner).publish(account, 1, "installation-a", changed)
                 as RemoteBackupPublish.Completed
@@ -412,6 +756,8 @@ class FirestoreTransportEmulatorTest {
         val fresh = store(owner)
         val found = fresh.inspect(account) as RemoteBackupInspection.Complete
         assertEquals(1L, found.backup.generation)
+        val recovered = (fresh.latest(account) as RemoteBackupRead.Complete).backup
+        assertEquals(snapshot(), recovered.snapshot)
         assertEquals(
             RemoteBackupPublish.Failed(BackupFailureReason.ConcurrentRemoteChange),
             fresh.publish(account, 0, "installation-a", snapshot())
@@ -525,6 +871,28 @@ class FirestoreTransportEmulatorTest {
                             lastCompleteLocalRevision = captured.metadata.localChangeRevision,
                             lastObservedRemoteGeneration = backup.generation
                         ),
+                    baseline = backup
+                )
+            return true
+        }
+
+        override suspend fun applySync(
+            captured: ManualBackupCapture,
+            accountId: AccountId,
+            backup: RemoteBackupArtifact
+        ): Boolean {
+            if (captured != value || value.activeSessionId != null) return false
+            val revision = Math.addExact(value.metadata.localChangeRevision, 1)
+            value =
+                value.copy(
+                    metadata =
+                        value.metadata.copy(
+                            ownerUid = accountId.opaqueValue,
+                            localChangeRevision = revision,
+                            lastCompleteLocalRevision = revision,
+                            lastObservedRemoteGeneration = backup.generation
+                        ),
+                    bundle = backup.validatedBundle().copy(localChangeRevision = revision),
                     baseline = backup
                 )
             return true

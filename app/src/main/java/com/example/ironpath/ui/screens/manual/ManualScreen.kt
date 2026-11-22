@@ -101,7 +101,7 @@ private val manualTopics =
         ManualTopic(
             title = "History and personal records",
             guidance =
-                "Completed workouts appear in History. Personal records are added separately.",
+                "Completed workouts appear in History. Save a completed weighted set as a record, or add one manually. Tap a manual record to edit or delete it; tap a logged record to view its source workout.",
         ),
         ManualTopic(
             title = "AI planning and validation",

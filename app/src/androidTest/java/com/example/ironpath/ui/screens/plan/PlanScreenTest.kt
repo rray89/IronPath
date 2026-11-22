@@ -46,6 +46,7 @@ import com.example.ironpath.domain.planner.PlanningFailure
 import com.example.ironpath.domain.planner.PlanningGoal
 import com.example.ironpath.domain.planner.PlanningProviderMetadata
 import com.example.ironpath.domain.planner.RemotePlanningExperimentState
+import com.example.ironpath.domain.planner.RemotePlanningRoute
 import com.example.ironpath.domain.planner.TrainingExperience
 import com.example.ironpath.domain.planner.ValidatedPlanDraft
 import com.example.ironpath.domain.planner.WorkoutDraft
@@ -96,10 +97,57 @@ class PlanScreenTest {
             exercises = listOf(mondayExercise),
         )
 
+    @Test
+    fun completedWeekOffersExplicitSetupAction() {
+        var calls = 0
+        setPlanContent(
+            PlanUiState.Accepted(
+                1,
+                1,
+                listOf(mondayWorkout.copy(status = WorkoutStatus.Completed)),
+                null,
+                null,
+                false
+            ),
+            onPlanNextWeek = { calls++ }
+        )
+        composeRule.onNodeWithText("PLAN NEXT WEEK").performScrollTo().performClick()
+        assertEquals(1, calls)
+    }
+
+    @Test
+    fun cancelPlanningIsExplicit_andSavingDisablesAcceptAndCancel() {
+        setPlanContent(PlanUiState.Review(generated), saveState = PlanSaveUiState(isSaving = true))
+        composeRule.onNodeWithText("Saving plan…").assertIsDisplayed()
+        composeRule.onNodeWithText("Cancel Planning").assertIsNotEnabled()
+        composeRule.onNodeWithText("ACCEPT PLAN").performScrollTo().assertIsNotEnabled()
+        composeRule.onNodeWithText("REGENERATE").performScrollTo().assertIsNotEnabled()
+    }
+
+    @Test
+    fun replacementFailureKeepsReviewAndExposesRetryAndCancel() {
+        var cancelled = 0
+        setPlanContent(
+            PlanUiState.Review(generated),
+            saveState =
+                PlanSaveUiState(error = "Finish the active workout before accepting a new plan."),
+            onCancelPlanning = { cancelled++ }
+        )
+        composeRule
+            .onNodeWithText("Finish the active workout before accepting a new plan.")
+            .assertIsDisplayed()
+        composeRule.onNodeWithText("ACCEPT PLAN").performScrollTo().assertIsEnabled()
+        composeRule.onNodeWithText("Cancel Planning").performClick()
+        assertEquals(1, cancelled)
+    }
+
     private fun setPlanContent(
         uiState: PlanUiState,
         selectedGoal: PlanningGoal = PlanningGoal.STRENGTH,
         selectedDays: Set<Int> = emptySet(),
+        saveState: PlanSaveUiState = PlanSaveUiState(),
+        onPlanNextWeek: () -> Unit = {},
+        onCancelPlanning: () -> Unit = {},
         onGoalSelected: (PlanningGoal) -> Unit = {},
         onDayToggled: (Int) -> Unit = {},
         aiAvailable: Boolean = false,
@@ -125,6 +173,7 @@ class PlanScreenTest {
             RemotePlanningExperimentState(),
         onRemotePlanningEnabledChanged: (Boolean) -> Unit = {},
         onRemotePlanningApiKeyChanged: (String) -> Unit = {},
+        onRemotePlanningOptionChanged: (String) -> Unit = {},
     ) {
         composeRule.setContent {
             var intakeState by remember {
@@ -141,6 +190,9 @@ class PlanScreenTest {
                 Surface {
                     PlanContent(
                         uiState = uiState,
+                        saveState = saveState,
+                        onPlanNextWeek = onPlanNextWeek,
+                        onCancelPlanning = onCancelPlanning,
                         intakeState = intakeState,
                         aiAvailable = aiAvailable,
                         aiGenerationState = aiGenerationState,
@@ -207,6 +259,11 @@ class PlanScreenTest {
                             remoteState = remoteState.copy(enabled = it)
                             onRemotePlanningEnabledChanged(it)
                         },
+                        onRemotePlanningOptionChanged = {
+                            remoteState =
+                                remoteState.copy(optionId = it, enabled = false, apiKey = "")
+                            onRemotePlanningOptionChanged(it)
+                        },
                         onRemotePlanningApiKeyChanged = {
                             remoteState = remoteState.copy(apiKey = it)
                             onRemotePlanningApiKeyChanged(it)
@@ -252,6 +309,40 @@ class PlanScreenTest {
     }
 
     @Test
+    fun setup_remoteRouteSelectionClearsKeyAndRequiresFreshOptIn() {
+        var selected = ""
+        setPlanContent(
+            uiState = PlanUiState.Setup,
+            remotePlanningExperimentState =
+                RemotePlanningExperimentState(
+                    available = true,
+                    enabled = true,
+                    apiKey = "fixture-key",
+                    optionId = RemotePlanningRoute.GEMINI.name,
+                    options = RemotePlanningRoute.entries.map { it.option },
+                ),
+            onRemotePlanningOptionChanged = { selected = it },
+        )
+        composeRule.onNodeWithTag("plan_remote_option_GEMINI").performScrollTo().assertIsSelected()
+        composeRule
+            .onNodeWithTag("plan_remote_option_DEEPSEEK")
+            .performScrollTo()
+            .performClick()
+            .assertIsSelected()
+        composeRule.onNodeWithTag(TestTags.PLAN_REMOTE_AI_KEY).assertDoesNotExist()
+        composeRule
+            .onNodeWithTag(TestTags.PLAN_REMOTE_AI_TOGGLE)
+            .performScrollTo()
+            .assertIsOff()
+            .performClick()
+        composeRule
+            .onNodeWithTag(TestTags.PLAN_REMOTE_AI_KEY)
+            .performScrollTo()
+            .assertTextContains("")
+        assertEquals(RemotePlanningRoute.DEEPSEEK.name, selected)
+    }
+
+    @Test
     fun setup_remoteAiLabRequiresOptInAndAcceptsAnInMemoryKey() {
         var enabled: Boolean? = null
         var key = ""
@@ -265,7 +356,7 @@ class PlanScreenTest {
         composeRule.onNodeWithTag(TestTags.PLAN_REMOTE_AI_LAB).performScrollTo().assertIsDisplayed()
         composeRule
             .onNodeWithText(
-                "Planning inputs, injury notes, and summarized 28-day history are sent to Google Gemini."
+                "Only goal, days, experience, equipment, movement limits and eligible exercises are sent to the selected provider. Notes and training history stay on device."
             )
             .performScrollTo()
             .assertIsDisplayed()

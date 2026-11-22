@@ -112,7 +112,11 @@ class HomeScreenTest {
     @Test
     fun completedWeek_showsPlanNextWeek_andInvokesCallback() {
         var calls = 0
-        setContent(HomeUiState.WeekComplete(planned = 3, completed = 3), { calls++ })
+        setContent(
+            HomeUiState.WeekComplete(planned = 3, completed = 3),
+            onNavigateToPlan = { error("Expected explicit next-week intent") },
+            onPlanNextWeek = { calls++ }
+        )
 
         composeRule.onNodeWithTag(TestTags.HOME_WEEK_COMPLETE).assertIsDisplayed()
         composeRule.onNodeWithText("WEEK COMPLETE!", ignoreCase = true).assertIsDisplayed()
@@ -124,6 +128,7 @@ class HomeScreenTest {
     private fun setContent(
         state: HomeUiState,
         onNavigateToPlan: () -> Unit = {},
+        onPlanNextWeek: () -> Unit = onNavigateToPlan,
         onNavigateToActive: () -> Unit = {},
         onOpenWorkoutPreview: (String) -> Unit = {},
     ) {
@@ -133,6 +138,7 @@ class HomeScreenTest {
                     HomeContent(
                         uiState = state,
                         onNavigateToPlan = onNavigateToPlan,
+                        onPlanNextWeek = onPlanNextWeek,
                         onNavigateToActive = onNavigateToActive,
                         onOpenWorkoutPreview = onOpenWorkoutPreview,
                     )

@@ -4,8 +4,7 @@ import com.example.ironpath.data.local.entity.PlannedExercise
 import com.example.ironpath.data.local.entity.PlannedWorkout
 import com.example.ironpath.data.local.entity.WeeklyPlan
 import com.example.ironpath.domain.time.TimeProvider
-import java.time.DayOfWeek
-import java.time.temporal.TemporalAdjusters
+import java.time.LocalDate
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -27,15 +26,14 @@ internal constructor(
     fun generate(
         goal: PlanningGoal,
         selectedDays: Set<Int>, // 1=Mon..7=Sun (ISO)
+        targetWeekStart: LocalDate = nextPlanningWeekStart(timeProvider.today()),
     ): GeneratedPlan {
-        val today = timeProvider.today()
-        // Always generate for the upcoming Monday-Sunday week, never the current week
-        val nextMonday = today.with(TemporalAdjusters.next(DayOfWeek.MONDAY))
+        require(targetWeekStart.dayOfWeek == java.time.DayOfWeek.MONDAY)
         val draft =
             planFactory.create(
                 request =
                     PlanningRequest(
-                        targetWeekStart = nextMonday,
+                        targetWeekStart = targetWeekStart,
                         intake = PlanningIntake(goal = goal, selectedDays = selectedDays),
                     ),
                 providerMetadata =

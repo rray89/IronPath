@@ -12,11 +12,13 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -35,6 +37,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import com.example.ironpath.data.local.entity.PersonalRecord
 import com.example.ironpath.domain.validation.RecordDraftResult
 import com.example.ironpath.domain.validation.RecordDraftValidator
 import com.example.ironpath.domain.validation.RecordField
@@ -53,15 +56,50 @@ internal fun AddRecordScreen(
     modifier: Modifier = Modifier,
     externalError: String? = null,
     onExternalErrorConsumed: () -> Unit = {},
+    record: PersonalRecord? = null,
+    busy: Boolean = false,
+    onDelete: () -> Unit = {},
 ) {
     val validator = remember { RecordDraftValidator() }
 
-    var exerciseName by rememberSaveable { mutableStateOf("") }
-    var weightText by rememberSaveable { mutableStateOf("") }
-    var dateText by rememberSaveable { mutableStateOf(today.toString()) }
-    var note by rememberSaveable { mutableStateOf("") }
+    var exerciseName by
+        rememberSaveable(record?.id) { mutableStateOf(record?.exerciseName.orEmpty()) }
+    var weightText by
+        rememberSaveable(record?.id) { mutableStateOf(record?.weightKg?.toString().orEmpty()) }
+    var dateText by
+        rememberSaveable(record?.id) { mutableStateOf(record?.achievedOn ?: today.toString()) }
+    var note by rememberSaveable(record?.id) { mutableStateOf(record?.note.orEmpty()) }
     var errorMessage by rememberSaveable { mutableStateOf<String?>(null) }
     var fieldErrors by remember { mutableStateOf<Map<RecordField, String>>(emptyMap()) }
+    var confirmDelete by rememberSaveable(record?.id) { mutableStateOf(false) }
+    if (confirmDelete && record != null) {
+        AlertDialog(
+            onDismissRequest = { if (!busy) confirmDelete = false },
+            title = { Text("Delete this record?") },
+            text = { Text("This cannot be undone.") },
+            confirmButton = {
+                TextButton(
+                    modifier = Modifier.testTag("record_delete_confirm"),
+                    enabled = !busy,
+                    onClick = {
+                        confirmDelete = false
+                        onDelete()
+                    }
+                ) {
+                    Text("DELETE")
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    modifier = Modifier.testTag("record_delete_cancel"),
+                    enabled = !busy,
+                    onClick = { confirmDelete = false }
+                ) {
+                    Text("CANCEL")
+                }
+            },
+        )
+    }
     val filteredSuggestions =
         remember(exerciseName, suggestions) {
             val query = exerciseName.trim()
@@ -104,7 +142,7 @@ internal fun AddRecordScreen(
         Spacer(Modifier.height(16.dp))
 
         Text(
-            text = "ADD RECORD",
+            text = if (record == null) "ADD RECORD" else "EDIT RECORD",
             style = MaterialTheme.typography.headlineMedium,
             color = MaterialTheme.colorScheme.onSurface,
         )
@@ -119,6 +157,7 @@ internal fun AddRecordScreen(
         )
         Spacer(Modifier.height(4.dp))
         OutlinedTextField(
+            enabled = !busy,
             value = exerciseName,
             onValueChange = {
                 exerciseName = it
@@ -146,7 +185,7 @@ internal fun AddRecordScreen(
                 modifier =
                     Modifier.fillMaxWidth()
                         .heightIn(min = 48.dp)
-                        .clickable(role = Role.Button) {
+                        .clickable(enabled = !busy, role = Role.Button) {
                             exerciseName = suggestion
                             fieldErrors = fieldErrors - RecordField.ExerciseName
                         }
@@ -166,6 +205,7 @@ internal fun AddRecordScreen(
                 )
                 Spacer(Modifier.height(4.dp))
                 OutlinedTextField(
+                    enabled = !busy,
                     value = weightText,
                     onValueChange = {
                         weightText = it
@@ -198,6 +238,7 @@ internal fun AddRecordScreen(
                 )
                 Spacer(Modifier.height(4.dp))
                 OutlinedTextField(
+                    enabled = !busy,
                     value = "kg",
                     onValueChange = {},
                     modifier =
@@ -220,6 +261,7 @@ internal fun AddRecordScreen(
         )
         Spacer(Modifier.height(4.dp))
         OutlinedTextField(
+            enabled = !busy,
             value = dateText,
             onValueChange = {
                 dateText = it
@@ -249,6 +291,7 @@ internal fun AddRecordScreen(
         )
         Spacer(Modifier.height(4.dp))
         OutlinedTextField(
+            enabled = !busy,
             value = note,
             onValueChange = { note = it },
             modifier =
@@ -274,7 +317,8 @@ internal fun AddRecordScreen(
 
         // Save button
         GreenGradientButton(
-            text = "Save",
+            text = if (busy) "Saving" else "Save",
+            enabled = !busy,
             onClick = {
                 when (
                     val result =
@@ -309,10 +353,19 @@ internal fun AddRecordScreen(
             modifier =
                 Modifier.fillMaxWidth()
                     .heightIn(min = 48.dp)
-                    .clickable(role = Role.Button, onClick = onCancel)
+                    .clickable(enabled = !busy, role = Role.Button, onClick = onCancel)
                     .padding(vertical = 12.dp),
         )
 
+        if (record != null) {
+            TextButton(
+                onClick = { confirmDelete = true },
+                enabled = !busy,
+                modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
+            ) {
+                Text("DELETE RECORD", color = MaterialTheme.colorScheme.error)
+            }
+        }
         Spacer(Modifier.height(32.dp))
     }
 }

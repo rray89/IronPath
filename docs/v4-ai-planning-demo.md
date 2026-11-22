@@ -20,7 +20,7 @@ quota.
 | --- | --- | --- |
 | Seeker debug, Remote AI Lab off | `DEBUG FAKE AI` | On-device capability is unavailable, then the deterministic fake produces a valid draft. |
 | Supported AICore device, debug or release | `ON-DEVICE AI` | Gemini Nano proposes a structured draft locally, subject to normal validation. |
-| Debug with Remote AI Lab configured | `REMOTE AI EXPERIMENT` | Gemini is attempted after on-device AI and before the debug fake. |
+| Debug with Remote AI Lab configured | `REMOTE AI EXPERIMENT` | The selected fixed route is attempted after on-device AI and before the debug fake. |
 | Seeker release | `RULE-BASED` | On-device capability is unavailable, so generation honestly falls back to the local planner. |
 
 The Solana Seeker runs API 36 but does not expose the required AICore capability. Its
@@ -90,30 +90,31 @@ The demo does not need a deliberately unreliable live model to prove those paths
 
 ## Optional remote comparison
 
-The remote path is a debug-only developer experiment. It sends structured planning
-intake, injury notes, preferences, and summarized 28-day training context to Google
-Gemini. Do not use personal or sensitive text in a portfolio demonstration.
+The October 4 multi-provider candidate supports fixed Gemini, DeepSeek and OpenRouter
+routes. It awaits combined product acceptance and authorized live verification.
+It sends only structured goal/days/experience/equipment/movement exclusions and the
+eligible catalog; notes, preferences and local history stay on device for validation.
 
-1. Create a restricted Gemini API key and review possible quota or billing impact.
-2. Open **Remote AI Lab** and enable **Use Google Gemini**.
-3. Enter the key in the masked field.
-4. Tap **Generate with AI**.
-5. On success, show `REMOTE AI EXPERIMENT` in Plan Review.
-6. Disable the experiment afterward to clear the in-memory key.
+1. Confirm the provider, restricted test-key source and a small request/spend budget.
+2. Open **Remote AI Lab**, select the fixed model/provider route and read the disclosure.
+3. Enable **Use selected remote provider**, then enter its key in the masked field.
+4. Use identical synthetic intake for each comparison and tap **Generate with AI**.
+5. Show `REMOTE AI EXPERIMENT`, configured route, duration and reported token usage.
+6. Disable or switch the route; the old key, outstanding request and draft become invalid.
 
-`DEBUG FAKE AI` is fallback evidence, not a successful remote smoke. If it appears,
-verify key/model access and the current structured-output contract before presenting
-the remote comparison.
+`DEBUG FAKE AI` is fallback evidence, not a successful remote smoke. Record failures
+and sample size honestly; do not infer model quality or billed cost from a few calls.
+Each user generation allows one remote attempt, with no automatic paid retry/repair.
+OpenRouter plugins must not be forced by account settings; requests disable documented
+optional plugins, but cannot override account-level enforcement.
 
-The key is held only in process memory. IronPath does not write it to Room,
-`SavedStateHandle`, logs, request URLs, request bodies, or release code. A production
-hosted provider would require authenticated backend routing and server-side secret,
-quota, abuse, monitoring, and cost controls. The debug transport sends `store: false`
-to opt out of provider-side Interaction resource retention, but planning context
-still leaves the device for Google processing.
+The key stays in process memory and clears on disable, route switch or process end.
+Gemini keeps `store: false`; this is not an off-device processing opt-out. Other
+provider terms still apply. Cancel stops local waiting and invalidates late output;
+it cannot guarantee upstream processing or charges stop.
 
-See [debug-remote-ai-experiment.md](debug-remote-ai-experiment.md) for the complete
-privacy and transport boundary.
+See [debug-remote-ai-experiment.md](debug-remote-ai-experiment.md) for protocol evidence,
+privacy limits, synthetic final checks and the historical Gemini smoke.
 
 ## Optional on-device proof
 
@@ -140,11 +141,10 @@ Run the non-device quality gates:
 ./gradlew :app:assembleBenchmarkRelease :app:assembleNonMinifiedRelease
 ```
 
-Run the physical-device suite on Seeker:
-
-```bash
-ANDROID_SERIAL=<seeker-serial> ./gradlew connectedDebugAndroidTest
-```
+For a future authorized physical-device run, follow the isolated direct-ADB procedure
+in [testing-strategy.md](testing-strategy.md). Never use the connected Gradle runner
+on a Seeker containing retained data. The current multi-provider task prohibits local
+installation/emulator execution and uses existing cloud CI for device evidence.
 
 The managed API 29 fallback is:
 
@@ -162,7 +162,7 @@ key, live network output, model weights, AICore, or provider quota.
 - **Provider isolation:** build variants keep debug experiments out of release.
 - **Deterministic safety:** typed drafts, stable exercise IDs, and explicit validation
   stand between provider output and persistence.
-- **Failure design:** cancellation, one bounded repair, sanitized errors, and an
+- **Failure design:** cancellation, one bounded on-device repair, no automatic paid remote retry, sanitized errors, and an
   always-available local fallback are part of the normal architecture.
 - **Honest capability:** unsupported hardware shows fallback rather than simulated
   on-device output.

@@ -51,6 +51,9 @@ constructor(
         expectedProfileGeneration: Long? = null,
     ) =
         database.withProfileWrite(expectedProfileGeneration) {
+            if (database.sessionDao().getActiveSession() != null)
+                throw ActiveSessionBlocksPlanException()
+            if (planDao.getActivePlan()?.id == plan.id) return@withProfileWrite
             planDao.createPlanWithWorkouts(plan, workouts, exercises)
             backupChangeTracker.markIncludedDataChanged()
         }
@@ -70,3 +73,6 @@ constructor(
             backupChangeTracker.markIncludedDataChanged()
         }
 }
+
+class ActiveSessionBlocksPlanException :
+    IllegalStateException("Finish the active workout before accepting a new plan.")
