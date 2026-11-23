@@ -145,8 +145,7 @@ internal fun AiPlanReviewScreen(
             )
         }
 
-        if (remoteFailure != null) RemotePlanningFailureNotice(remoteFailure, draftRetained = true)
-        else
+        if (remoteFailure == null)
             AiReplacementStatus(
                 state = generationState,
                 onCancel = onCancelGeneration,
@@ -211,6 +210,9 @@ internal fun AiPlanReviewScreen(
             Spacer(Modifier.height(12.dp))
         }
 
+        remoteFailure?.let {
+            RemotePlanningFailureNotice(it, draftRetained = true, onDismiss = onClearGeneration)
+        }
         GreenGradientButton(
             text = if (state.isAccepting) "Saving plan" else "Accept Plan",
             onClick = onAccept,

@@ -86,7 +86,7 @@ internal constructor(
         } catch (cancellation: CancellationException) {
             throw cancellation
         } catch (_: Exception) {
-            PlanningResult.Failure(PlanningFailure.Remote(provider, RemoteFailureKind.SERVICE))
+            PlanningResult.Failure(PlanningFailure.Remote(provider, RemoteFailureKind.INTERNAL))
         }
     }
 

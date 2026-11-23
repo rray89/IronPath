@@ -149,6 +149,10 @@ class ChatCompletionRemotePlanningTransportTest {
             val responses =
                 listOf(
                     RemoteHttpResponse(401, "secret upstream body"),
+                    RemoteHttpResponse(400, "secret upstream body"),
+                    RemoteHttpResponse(402, "secret upstream body"),
+                    RemoteHttpResponse(403, "secret upstream body"),
+                    RemoteHttpResponse(408, "secret upstream body"),
                     RemoteHttpResponse(429, "secret upstream body"),
                     RemoteHttpResponse(503, "secret upstream body"),
                     RemoteHttpResponse(200, "not-json"),
@@ -183,7 +187,11 @@ class ChatCompletionRemotePlanningTransportTest {
                     assertEquals(
                         RemotePlanningTransportResult.Failure(
                             when (response.statusCode) {
+                                400 -> RemoteFailureKind.REQUEST
                                 401 -> RemoteFailureKind.AUTHENTICATION
+                                402 -> RemoteFailureKind.BILLING
+                                403 -> RemoteFailureKind.ACCESS
+                                408 -> RemoteFailureKind.TIMEOUT
                                 429 -> RemoteFailureKind.RATE_LIMIT
                                 503 -> RemoteFailureKind.SERVICE
                                 else -> RemoteFailureKind.RESPONSE_FORMAT
@@ -208,7 +216,7 @@ class ChatCompletionRemotePlanningTransportTest {
                 ): RemoteHttpResponse = error("secret detail")
             }
         assertEquals(
-            RemotePlanningTransportResult.Failure(RemoteFailureKind.REQUEST),
+            RemotePlanningTransportResult.Failure(RemoteFailureKind.INTERNAL),
             DeepSeekRemotePlanningTransport(failure).generate("key", prompt)
         )
         val cancelled =

@@ -582,7 +582,9 @@ private fun PlanSetupScreen(
 
         val remoteFailure = aiGenerationState.remoteFailure()
         if (aiAvailable) {
-            remoteFailure?.let { RemotePlanningFailureNotice(it, draftRetained = false) }
+            remoteFailure?.let {
+                RemotePlanningFailureNotice(it, draftRetained = false, onDismiss = onClearAiResult)
+            }
             GreenGradientButton(
                 text = remoteFailure?.let { "Retry ${it.provider}" } ?: "Generate with AI",
                 onClick = onGenerateWithAi,

@@ -20,6 +20,7 @@ import com.example.ironpath.domain.planner.PlanningProviderMetadata
 import com.example.ironpath.domain.planner.PlanningRequest
 import com.example.ironpath.domain.planner.PlanningResult
 import com.example.ironpath.domain.planner.RecentTrainingSummary
+import com.example.ironpath.domain.planner.RemoteFailureKind
 import com.example.ironpath.domain.planner.RemotePlanningExperiment
 import com.example.ironpath.domain.planner.RemotePlanningExperimentState
 import com.example.ironpath.domain.planner.RemotePlanningOption
@@ -241,6 +242,29 @@ class PlannerIntakeViewModelTest {
 
         assertSame(draft, viewModel.validatedDraft)
         assertEquals(revision, experiment.state.value.revision)
+    }
+
+    @Test
+    fun `remote failure and dismissal retain the full intake for a voluntary retry`() = runTest {
+        val failure =
+            PlanningFailure.Remote(
+                "DeepSeek",
+                RemoteFailureKind.MAPPING,
+                listOf("Day 1, exercise 2 is not in the catalog.")
+            )
+        val engine = StaticEngine(PlanningResult.Failure(failure))
+        val model =
+            createViewModel(engine = engine, remotePlanningExperiment = configuredExperiment())
+        model.toggleDay(1)
+        model.setInjuryNotes("synthetic local note")
+        val before = model.intakeState.value
+        model.generateWithAi()
+        runCurrent()
+        assertEquals(AiGenerationUiState.Failed(failure), model.aiGenerationState.value)
+        model.clearGeneratedDraft()
+        assertEquals(AiGenerationUiState.Idle, model.aiGenerationState.value)
+        assertEquals(before, model.intakeState.value)
+        assertEquals(1, engine.calls)
     }
 
     @Test

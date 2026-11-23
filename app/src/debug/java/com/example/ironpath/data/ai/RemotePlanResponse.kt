@@ -22,12 +22,13 @@ internal suspend fun requestRemotePlan(
         } catch (_: IOException) {
             return RemotePlanningTransportResult.Failure(RemoteFailureKind.NETWORK)
         } catch (_: Exception) {
-            return RemotePlanningTransportResult.Failure(RemoteFailureKind.REQUEST)
+            return RemotePlanningTransportResult.Failure(RemoteFailureKind.INTERNAL)
         }
     val failure =
         when (response.statusCode) {
             in 200..299 -> null
             401 -> RemoteFailureKind.AUTHENTICATION
+            402 -> RemoteFailureKind.BILLING
             403 -> RemoteFailureKind.ACCESS
             408,
             504 -> RemoteFailureKind.TIMEOUT

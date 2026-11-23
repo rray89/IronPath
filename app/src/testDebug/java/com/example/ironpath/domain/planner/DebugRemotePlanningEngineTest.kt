@@ -449,7 +449,7 @@ class DebugRemotePlanningEngineTest {
 
         assertTrue(result is PlanningResult.Failure)
         assertEquals(
-            PlanningFailure.Remote(RemotePlanningRoute.GEMINI.label, RemoteFailureKind.SERVICE),
+            PlanningFailure.Remote(RemotePlanningRoute.GEMINI.label, RemoteFailureKind.INTERNAL),
             (result as PlanningResult.Failure).reason
         )
         assertFalse(result.toString().contains(secret))

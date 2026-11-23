@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.LiveRegionMode
@@ -18,7 +19,11 @@ internal fun AiGenerationUiState.remoteFailure(): PlanningFailure.Remote? =
     (this as? AiGenerationUiState.Failed)?.failure as? PlanningFailure.Remote
 
 @Composable
-internal fun RemotePlanningFailureNotice(failure: PlanningFailure.Remote, draftRetained: Boolean) {
+internal fun RemotePlanningFailureNotice(
+    failure: PlanningFailure.Remote,
+    draftRetained: Boolean,
+    onDismiss: () -> Unit
+) {
     Surface(
         modifier =
             Modifier.fillMaxWidth().padding(vertical = 12.dp).semantics {
@@ -38,6 +43,7 @@ internal fun RemotePlanningFailureNotice(failure: PlanningFailure.Remote, draftR
                 if (draftRetained) "Your existing draft is still available."
                 else "Your plan settings are still here."
             )
+            TextButton(onClick = onDismiss) { Text("Dismiss") }
         }
     }
 }
