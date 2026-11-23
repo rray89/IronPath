@@ -156,12 +156,11 @@ class RemoteHttpClientTest {
                         .post(fixture.url, emptyMap(), "{}")
                     throw AssertionError("Stalled response must time out")
                 } catch (failure: IOException) {
-                    assertEquals("The remote request could not finish.", failure.message)
+                    assertTrue(failure is java.io.InterruptedIOException)
+                    assertEquals("Request timed out", failure.message)
                     // Coroutine stack recovery may copy the sanitized exception as its cause.
                     generateSequence<Throwable>(failure) { it.cause }
-                        .forEach {
-                            assertEquals("The remote request could not finish.", it.message)
-                        }
+                        .forEach { assertEquals("Request timed out", it.message) }
                 }
                 assertTrue("timeout closes IO", peerClosed.await(2, TimeUnit.SECONDS))
                 assertEquals(1, fixture.requests.get())

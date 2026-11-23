@@ -39,7 +39,12 @@ class DebugRemotePlanningEngineTest {
         )
         settings.setEnabled(true)
         assertEquals(
-            PlanningResult.Failure(PlanningFailure.Unavailable),
+            PlanningResult.Failure(
+                PlanningFailure.Remote(
+                    RemotePlanningRoute.GEMINI.label,
+                    RemoteFailureKind.CONFIGURATION
+                )
+            ),
             engine(settings, transport).generate(request()),
         )
         assertEquals(0, transport.calls)
@@ -90,7 +95,11 @@ class DebugRemotePlanningEngineTest {
 
         assertTrue(result is PlanningResult.Failure)
         assertEquals(
-            PlanningFailure.InvalidRequest(listOf("Sets must be between 1 and 6.")),
+            PlanningFailure.Remote(
+                RemotePlanningRoute.GEMINI.label,
+                RemoteFailureKind.VALIDATION,
+                listOf("MON · push-ups · Sets must be between 1 and 6.")
+            ),
             (result as PlanningResult.Failure).reason,
         )
     }
@@ -98,13 +107,16 @@ class DebugRemotePlanningEngineTest {
     @Test
     fun `transport errors are sanitized and never expose the key`() = runTest {
         val settings = configuredSettings(apiKey = "secret-key-that-must-not-leak")
-        val transport = FakeRemotePlanningTransport(RemotePlanningTransportResult.ProviderFailure)
+        val transport =
+            FakeRemotePlanningTransport(
+                RemotePlanningTransportResult.Failure(RemoteFailureKind.SERVICE)
+            )
 
         val result = engine(settings, transport).generate(request())
 
         assertEquals(
             PlanningResult.Failure(
-                PlanningFailure.ProviderError("The remote planning experiment could not finish.")
+                PlanningFailure.Remote(RemotePlanningRoute.GEMINI.label, RemoteFailureKind.SERVICE)
             ),
             result,
         )
@@ -123,7 +135,9 @@ class DebugRemotePlanningEngineTest {
                 }
             )
         assertEquals(
-            PlanningResult.Failure(PlanningFailure.Timeout),
+            PlanningResult.Failure(
+                PlanningFailure.Remote(RemotePlanningRoute.GEMINI.label, RemoteFailureKind.TIMEOUT)
+            ),
             engine(settings, timeoutTransport, timeoutMillis = 100).generate(request()),
         )
 
@@ -247,7 +261,8 @@ class DebugRemotePlanningEngineTest {
         val transport =
             FakeRemotePlanningTransport(
                 block = {
-                    if (attempt++ == 0) RemotePlanningTransportResult.ProviderFailure
+                    if (attempt++ == 0)
+                        RemotePlanningTransportResult.Failure(RemoteFailureKind.SERVICE)
                     else validTransportResult()
                 }
             )
@@ -286,7 +301,10 @@ class DebugRemotePlanningEngineTest {
         val engine = engine(settings, transport)
 
         val unknown = engine.generate(request()) as PlanningResult.Failure
-        assertTrue(unknown.reason is PlanningFailure.ProviderError)
+        assertEquals(
+            PlanningFailure.Remote("Remote AI", RemoteFailureKind.CONFIGURATION),
+            unknown.reason
+        )
         mutableConfiguration.value = mutableConfiguration.value.copy(enabled = false, revision = 1)
         assertEquals(
             PlanningResult.Failure(PlanningFailure.Unavailable),
@@ -310,14 +328,20 @@ class DebugRemotePlanningEngineTest {
                     base.workouts.single().exercises.single().copy(targetWeightKg = 301.0)
                 ),
             )
-        invalidProposals.forEach { proposal ->
+        invalidProposals.forEachIndexed { index, proposal ->
             val transport =
                 FakeRemotePlanningTransport(RemotePlanningTransportResult.Success(proposal))
 
             val result = engine(configuredSettings(), transport).generate(request())
 
             assertTrue(result is PlanningResult.Failure)
-            assertTrue((result as PlanningResult.Failure).reason is PlanningFailure.InvalidRequest)
+            val reason = (result as PlanningResult.Failure).reason as PlanningFailure.Remote
+            assertEquals(
+                if (index < 3) RemoteFailureKind.MAPPING else RemoteFailureKind.VALIDATION,
+                reason.kind
+            )
+            assertTrue(reason.details.isNotEmpty())
+            assertFalse(reason.toString().contains("not-in-catalog"))
             assertEquals(1, transport.calls)
         }
     }
@@ -396,8 +420,12 @@ class DebugRemotePlanningEngineTest {
             assertTrue(sent.userPrompt.contains("Goal: STRENGTH"))
             assertEquals(
                 PlanningResult.Failure(
-                    PlanningFailure.InvalidRequest(
-                        listOf("Target weight increases too quickly from recent history.")
+                    PlanningFailure.Remote(
+                        RemotePlanningRoute.GEMINI.label,
+                        RemoteFailureKind.VALIDATION,
+                        listOf(
+                            "MON · barbell-bench-press · Target weight increases too quickly from recent history."
+                        )
                     )
                 ),
                 result,
@@ -420,7 +448,10 @@ class DebugRemotePlanningEngineTest {
         val result = engine(configuredSettings(apiKey = secret), transport).generate(request())
 
         assertTrue(result is PlanningResult.Failure)
-        assertTrue((result as PlanningResult.Failure).reason is PlanningFailure.ProviderError)
+        assertEquals(
+            PlanningFailure.Remote(RemotePlanningRoute.GEMINI.label, RemoteFailureKind.SERVICE),
+            (result as PlanningResult.Failure).reason
+        )
         assertFalse(result.toString().contains(secret))
         assertEquals(1, transport.calls)
     }
@@ -493,7 +524,7 @@ class DebugRemotePlanningEngineTest {
 
 private class FakeRemotePlanningTransport(
     private val result: RemotePlanningTransportResult =
-        RemotePlanningTransportResult.ProviderFailure,
+        RemotePlanningTransportResult.Failure(RemoteFailureKind.SERVICE),
     private val block: (suspend () -> RemotePlanningTransportResult)? = null,
 ) : RemotePlanningTransport {
     var calls = 0

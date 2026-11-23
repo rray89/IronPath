@@ -196,7 +196,12 @@ constructor(
         startGeneration(
             targetWeekStart = targetWeekStart,
             requireEquipment = true,
-            generator = aiPlanningCoordinator::generateWithAi,
+            generator = { request ->
+                aiPlanningCoordinator.generateWithAi(
+                    request,
+                    preferRemote = remotePlanningExperiment.state.value.enabled
+                )
+            },
         )
     }
 

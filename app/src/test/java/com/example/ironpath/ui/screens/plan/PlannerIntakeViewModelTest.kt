@@ -615,10 +615,35 @@ class PlannerIntakeViewModelTest {
     ) =
         createViewModelWithEngines(
             handle,
-            mapOf(engine.type to engine),
+            mapOf(
+                engine.type to engine,
+                PlanningEngineType.DEBUG_REMOTE_AI to
+                    remoteFixture(engine, remotePlanningExperiment)
+            ),
             remotePlanningExperiment,
             planningHistoryProvider,
         )
+
+    // Exercise generation and cancellation through the same selected route as the debug build.
+    private fun remoteFixture(delegate: PlanningEngine, experiment: RemotePlanningExperiment) =
+        object : PlanningEngine {
+            override val type = PlanningEngineType.DEBUG_REMOTE_AI
+
+            override suspend fun generate(request: PlanningRequest): PlanningResult =
+                if (!experiment.state.value.enabled)
+                    PlanningResult.Failure(PlanningFailure.Unavailable)
+                else
+                    when (val result = delegate.generate(request)) {
+                        is PlanningResult.Failure -> result
+                        is PlanningResult.Success ->
+                            PlanningResult.Success(
+                                result.draft.copy(
+                                    providerMetadata =
+                                        result.draft.providerMetadata.copy(engineType = type)
+                                )
+                            )
+                    }
+        }
 
     private fun createViewModelWithEngines(
         handle: SavedStateHandle = SavedStateHandle(),
@@ -631,7 +656,7 @@ class PlannerIntakeViewModelTest {
             mapOf(
                 PlanningEngineType.ON_DEVICE_AI to 0,
                 PlanningEngineType.DEBUG_FAKE_AI to 50,
-                PlanningEngineType.DEBUG_REMOTE_AI to 75,
+                PlanningEngineType.DEBUG_REMOTE_AI to 25,
                 PlanningEngineType.RULE_BASED to 100,
             )
         val coordinator =

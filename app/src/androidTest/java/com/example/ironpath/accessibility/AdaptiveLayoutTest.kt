@@ -347,6 +347,33 @@ class AdaptiveLayoutTest {
     }
 
     @Test
+    fun remoteValidationAtDoubleFontShowsReasonAndRetainsPreviousDraft() {
+        val failure =
+            com.example.ironpath.domain.planner.PlanningFailure.Remote(
+                "DeepSeek",
+                com.example.ironpath.domain.planner.RemoteFailureKind.VALIDATION,
+                listOf("MON · push-ups · Sets must be between 1 and 6.")
+            )
+        setAdaptiveContent(COMPACT_PORTRAIT) {
+            AiPlanReviewContent(AiGenerationUiState.Failed(failure))
+        }
+        listOf(
+                "DeepSeek could not generate a plan",
+                failure.details.single(),
+                "Your existing draft is still available."
+            )
+            .forEach { composeRule.onNodeWithText(it).performScrollTo().assertIsDisplayed() }
+        composeRule
+            .onNodeWithTag(TestTags.PLAN_AI_REGENERATE)
+            .performScrollTo()
+            .assertHasClickAction()
+        composeRule
+            .onNodeWithTag(TestTags.PLAN_AI_RULE_FALLBACK)
+            .performScrollTo()
+            .assertHasClickAction()
+    }
+
+    @Test
     fun aiPlanEditor_compactLandscapeAt200Percent_keepsCatalogAndFormReachable() {
         val reviewState = aiPlanReviewState()
         setAdaptiveContent(COMPACT_LANDSCAPE) {
@@ -725,9 +752,12 @@ class AdaptiveLayoutTest {
     }
 
     @Composable
-    private fun AiPlanReviewContent() {
+    private fun AiPlanReviewContent(
+        generationState: AiGenerationUiState = AiGenerationUiState.Idle
+    ) {
         AiPlanReviewScreen(
             state = aiPlanReviewState(),
+            generationState = generationState,
             onAddExercise = { _, _ -> },
             onReplaceExercise = { _, _, _ -> },
             onEditInputs = {},

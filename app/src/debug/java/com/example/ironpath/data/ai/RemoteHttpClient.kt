@@ -3,6 +3,7 @@ package com.example.ironpath.data.ai
 import java.io.ByteArrayOutputStream
 import java.io.IOException
 import java.io.InputStream
+import java.io.InterruptedIOException
 import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -47,7 +48,7 @@ class OkHttpRemoteHttpClient internal constructor(private val client: OkHttpClie
         call.enqueue(
             object : Callback {
                 override fun onFailure(call: Call, e: IOException) {
-                    continuation.resumeWithException(remoteHttpFailure())
+                    continuation.resumeWithException(safeHttpFailure(e))
                 }
 
                 override fun onResponse(call: Call, response: Response) {
@@ -67,9 +68,9 @@ class OkHttpRemoteHttpClient internal constructor(private val client: OkHttpClie
                                 }
                             }
                         continuation.resume(result)
-                    } catch (_: Exception) {
+                    } catch (e: Exception) {
                         call.cancel()
-                        continuation.resumeWithException(remoteHttpFailure())
+                        continuation.resumeWithException(safeHttpFailure(e))
                     }
                 }
             }
@@ -114,10 +115,17 @@ private fun readBoundedUtf8(input: InputStream): String {
         output.write(buffer, 0, read)
         total += read
     }
-    if (total > MAX_RESPONSE_BYTES) throw remoteHttpFailure()
+    if (total > MAX_RESPONSE_BYTES) throw OversizedPlanResponse()
     return output.toString(Charsets.UTF_8.name())
 }
 
-private fun remoteHttpFailure() = IOException("The remote request could not finish.")
+internal class OversizedPlanResponse : IOException("The remote request could not finish.")
+
+private fun safeHttpFailure(cause: Exception): IOException =
+    when (cause) {
+        is OversizedPlanResponse -> cause
+        is InterruptedIOException -> InterruptedIOException("Request timed out")
+        else -> IOException("The remote request could not finish.")
+    }
 
 private const val MAX_RESPONSE_BYTES = 256 * 1024

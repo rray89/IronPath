@@ -75,6 +75,12 @@ sealed interface PlanningResult {
 sealed interface PlanningFailure {
     data class InvalidRequest(val violations: List<String>) : PlanningFailure
 
+    data class Remote(
+        val provider: String,
+        val kind: RemoteFailureKind,
+        val details: List<String> = emptyList()
+    ) : PlanningFailure
+
     data object Unavailable : PlanningFailure
 
     data object Timeout : PlanningFailure

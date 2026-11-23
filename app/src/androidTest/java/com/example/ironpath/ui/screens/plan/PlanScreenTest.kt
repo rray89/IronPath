@@ -44,6 +44,7 @@ import com.example.ironpath.domain.planner.PlanningEngineType
 import com.example.ironpath.domain.planner.PlanningFailure
 import com.example.ironpath.domain.planner.PlanningGoal
 import com.example.ironpath.domain.planner.PlanningProviderMetadata
+import com.example.ironpath.domain.planner.RemoteFailureKind
 import com.example.ironpath.domain.planner.RemotePlanningExperimentState
 import com.example.ironpath.domain.planner.RemotePlanningRoute
 import com.example.ironpath.domain.planner.TrainingExperience
@@ -515,6 +516,38 @@ class PlanScreenTest {
                 AiGenerationUiState.Failed(PlanningFailure.ProviderError("offline")),
         )
         composeRule.onNodeWithText("Draft unavailable").performScrollTo().assertIsDisplayed()
+    }
+
+    @Test
+    fun remoteFailureInSetupShowsRecoveryActionsWithoutTriggeringEither() {
+        var retries = 0
+        var localChoices = 0
+        setPlanContent(
+            uiState = PlanUiState.Setup,
+            aiAvailable = true,
+            intakeOverride =
+                PlannerIntakeUiState(
+                    selectedDays = setOf(1),
+                    availableEquipment = setOf(Equipment.BODYWEIGHT)
+                ),
+            aiGenerationState =
+                AiGenerationUiState.Failed(
+                    PlanningFailure.Remote("DeepSeek", RemoteFailureKind.RATE_LIMIT)
+                ),
+            onGenerateWithAi = { retries++ },
+            onGenerate = { localChoices++ }
+        )
+        composeRule
+            .onNodeWithText(RemoteFailureKind.RATE_LIMIT.guidance)
+            .performScrollTo()
+            .assertIsDisplayed()
+        assertEquals(0, retries)
+        assertEquals(0, localChoices)
+        composeRule.onNodeWithTag(TestTags.PLAN_GENERATE_AI).performScrollTo().performClick()
+        assertEquals(1, retries)
+        composeRule.onNodeWithTag(TestTags.PLAN_GENERATE).performScrollTo().performClick()
+        assertEquals(1, localChoices)
+        assertEquals(1, retries)
     }
 
     @Test

@@ -62,8 +62,16 @@ constructor(
     val ruleBasedAvailable: Boolean =
         planningEngineRegistry.find(PlanningEngineType.RULE_BASED) != null
 
-    suspend fun generateWithAi(request: PlanningRequest): AiPlanningOutcome =
-        generate(request, orderedCandidates)
+    suspend fun generateWithAi(
+        request: PlanningRequest,
+        preferRemote: Boolean = false
+    ): AiPlanningOutcome =
+        generate(
+            request,
+            if (preferRemote)
+                orderedCandidates.filter { it.type == PlanningEngineType.DEBUG_REMOTE_AI }
+            else orderedCandidates
+        )
 
     suspend fun generateRuleBased(request: PlanningRequest): AiPlanningOutcome =
         generate(
@@ -96,6 +104,8 @@ constructor(
                 }
             when (result) {
                 is PlanningResult.Failure -> {
+                    if (result.reason is PlanningFailure.Remote)
+                        return AiPlanningOutcome.Failure(result.reason)
                     failedAttempts += FailedAttempt(candidate.type, result.reason)
                 }
                 is PlanningResult.Success -> {
@@ -107,6 +117,21 @@ constructor(
                             )
                     ) {
                         is PlanValidationResult.Invalid -> {
+                            if (
+                                candidate.type == PlanningEngineType.DEBUG_REMOTE_AI &&
+                                    candidates.size == 1
+                            ) {
+                                return AiPlanningOutcome.Failure(
+                                    PlanningFailure.Remote(
+                                        result.draft.providerMetadata.sourceLabel ?: "Remote AI",
+                                        RemoteFailureKind.VALIDATION,
+                                        validation.violations
+                                            .map(PlanViolation::message)
+                                            .distinct()
+                                            .take(3),
+                                    )
+                                )
+                            }
                             lastInvalid = validation.violations
                             failedAttempts +=
                                 FailedAttempt(
@@ -188,6 +213,7 @@ constructor(
             }
         val cause =
             when (failedAttempt.failure) {
+                is PlanningFailure.Remote -> return null
                 PlanningFailure.Unavailable -> "$providerName is unavailable, so "
                 PlanningFailure.Timeout -> "$providerName took too long, so "
                 is PlanningFailure.InvalidRequest ->

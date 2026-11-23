@@ -18,6 +18,44 @@ class AiPlanningCoordinatorTest {
     private val validator = PlanValidator(catalog, FakeTimeProvider())
 
     @Test
+    fun `selected remote failure waits for explicit local choice without a second request`() =
+        runTest {
+            val failure =
+                PlanningFailure.Remote(
+                    "DeepSeek · Flash",
+                    RemoteFailureKind.VALIDATION,
+                    listOf("Sets must be between 1 and 6.")
+                )
+            val remote =
+                StaticEngine(PlanningEngineType.DEBUG_REMOTE_AI, PlanningResult.Failure(failure))
+            val onDevice =
+                StaticEngine(
+                    PlanningEngineType.ON_DEVICE_AI,
+                    success(PlanningEngineType.ON_DEVICE_AI)
+                )
+            val fake =
+                StaticEngine(
+                    PlanningEngineType.DEBUG_FAKE_AI,
+                    success(PlanningEngineType.DEBUG_FAKE_AI)
+                )
+            val rule =
+                StaticEngine(PlanningEngineType.RULE_BASED, success(PlanningEngineType.RULE_BASED))
+            val planner = coordinator(onDevice, remote, fake, rule)
+            assertEquals(
+                AiPlanningOutcome.Failure(failure),
+                planner.generateWithAi(request(), preferRemote = true)
+            )
+            assertEquals(1, remote.calls)
+            assertEquals(0, onDevice.calls)
+            assertEquals(0, fake.calls)
+            assertEquals(0, rule.calls)
+            val chosen = planner.generateRuleBased(request()) as AiPlanningOutcome.Validated
+            assertEquals(PlanningEngineType.RULE_BASED, chosen.effectiveEngineType)
+            assertEquals(1, remote.calls)
+            assertEquals(1, rule.calls)
+        }
+
+    @Test
     fun `on-device success wins without invoking lower priority engines`() = runTest {
         val onDevice =
             StaticEngine(PlanningEngineType.ON_DEVICE_AI, success(PlanningEngineType.ON_DEVICE_AI))
