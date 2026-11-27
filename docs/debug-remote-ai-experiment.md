@@ -83,10 +83,12 @@ and past loads stay local; structured Movement Limits and the existing validator
 remain authoritative. Preferences and dislikes guide exercise selection.
 
 Why This Week shows catalog matches against the generated draft and names equipment
-or Movement Limits when a matching exercise is ineligible. Unmatched wording is
-reported as unverifiable from the draft. This evidence describes observable choices
-and cannot establish the provider's reasoning. The shared path uses app-generated
-explanations and workout titles to keep provider echoes out of review and saved plans.
+or Movement Limits when a matching exercise is ineligible. Specific exercise names
+take priority over broad movement matches. Unmatched wording is reported as
+unverifiable from the draft. This evidence describes observable choices and cannot
+establish the provider's reasoning. The review withdraws the original evidence once
+workouts are edited. The shared path uses app-generated explanations and workout
+titles to keep provider echoes out of review and saved plans.
 
 ## Secret and variant boundary
 

@@ -192,6 +192,49 @@ class DebugRemotePlanningEngineTest {
     }
 
     @Test
+    fun `specific exercise notes stay distinct and broad terms include catalog variants`() =
+        runTest {
+            val settings = configuredSettings(optionId = RemotePlanningRoute.DEEPSEEK.name)
+            val original = request()
+            val shared =
+                original.copy(
+                    intake =
+                        original.intake.copy(
+                            injuryNotes = "Unmatched synthetic wording",
+                            exercisePreferences = "Romanian Deadlift",
+                            exerciseDislikes = "squats",
+                        ),
+                    remoteNoteSharingRevision = settings.state.value.revision,
+                )
+            val base = validProposal()
+            val proposal =
+                base.copy(
+                    workouts =
+                        listOf(
+                            base.workouts
+                                .single()
+                                .copy(
+                                    exercises =
+                                        listOf(
+                                            OnDeviceExerciseProposal("deadlift", 3, 8, 30.0),
+                                            OnDeviceExerciseProposal("goblet-squats", 2, 8, 8.0),
+                                        ),
+                                )
+                        )
+                )
+            val transport =
+                FakeRemotePlanningTransport(RemotePlanningTransportResult.Success(proposal))
+
+            val result = engine(settings, transport).generate(shared) as PlanningResult.Success
+
+            val evidence = result.draft.providerMetadata.sharedTrainingNotesEvidence
+            assertTrue(evidence[0].contains("No catalog match"))
+            assertTrue(evidence[1].contains("Omits Romanian Deadlift"))
+            assertFalse(evidence[1].contains("Includes Deadlift"))
+            assertTrue(evidence[2].contains("Includes Goblet Squats (2 sets)"))
+        }
+
+    @Test
     fun `invalid remote output is rejected by the local validator`() = runTest {
         val invalidProposal =
             validProposal()

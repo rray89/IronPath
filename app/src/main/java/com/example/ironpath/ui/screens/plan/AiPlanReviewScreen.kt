@@ -171,19 +171,26 @@ internal fun AiPlanReviewScreen(
                 )
             }
             if (sharedNotes.isNotEmpty()) {
+                val matchesGeneratedDraft = draft.workouts == state.sourceToken.draft.workouts
                 Text(
                     text =
-                        "Catalog matches in the generated draft. Shared notes are guidance. Movement Limits are enforced.",
+                        if (matchesGeneratedDraft) {
+                            "Catalog matches in the generated draft. Shared notes are guidance. Movement Limits are enforced."
+                        } else {
+                            "You edited this draft. DeepSeek received the notes for the original generation."
+                        },
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                sharedNotes.forEach { evidence ->
-                    Text(
-                        text = evidence,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurface,
-                        modifier = Modifier.padding(top = 8.dp),
-                    )
+                if (matchesGeneratedDraft) {
+                    sharedNotes.forEach { evidence ->
+                        Text(
+                            text = evidence,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            modifier = Modifier.padding(top = 8.dp),
+                        )
+                    }
                 }
             }
         }

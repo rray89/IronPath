@@ -3,6 +3,7 @@ package com.example.ironpath.e2e
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsOff
 import androidx.compose.ui.test.assertIsOn
+import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onAllNodesWithText
@@ -10,6 +11,7 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.performTextReplacement
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.example.ironpath.MainActivity
@@ -136,6 +138,22 @@ class DeepSeekTrainingNotesJourneyTest {
         composeRule.onNodeWithText(PRIVATE_MARKER).assertDoesNotExist()
         assertEquals(3, requests.size)
         assertSharedRequest(requests[2])
+
+        clickTag(TestTags.planAiExercise(1, "push-ups"))
+        val editor = composeRule.onNodeWithTag(TestTags.PLAN_AI_EDITOR_LIST)
+        editor.performScrollToNode(hasTestTag(TestTags.PLAN_AI_EDITOR_SETS))
+        composeRule.onNodeWithTag(TestTags.PLAN_AI_EDITOR_SETS).performTextReplacement("4")
+        editor.performScrollToNode(hasTestTag(TestTags.PLAN_AI_EDITOR_CONFIRM))
+        composeRule.onNodeWithTag(TestTags.PLAN_AI_EDITOR_CONFIRM).performClick()
+        composeRule
+            .onNodeWithText("Exercise Preferences — Includes Push-ups (3 sets).")
+            .assertDoesNotExist()
+        composeRule
+            .onNodeWithText(
+                "You edited this draft. DeepSeek received the notes for the original generation."
+            )
+            .performScrollTo()
+            .assertIsDisplayed()
 
         composeRule.onNodeWithText("EDIT INPUTS").performScrollTo().performClick()
         waitForTag(TestTags.PLAN_GENERATE_AI)

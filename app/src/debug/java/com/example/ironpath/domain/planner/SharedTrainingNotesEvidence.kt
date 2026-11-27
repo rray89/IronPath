@@ -8,9 +8,14 @@ import javax.inject.Inject
 class SharedTrainingNotesEvidence
 @Inject
 constructor(
-    private val catalog: ExerciseCatalog,
+    catalog: ExerciseCatalog,
     private val eligibilityPolicy: ExerciseEligibilityPolicy,
 ) {
+    private val catalogPhrases =
+        catalog.entries
+            .map { it to it.displayName.catalogWords() }
+            .sortedByDescending { it.second.length }
+
     fun summarize(draft: PlanDraft, request: PlanningRequest): List<String> {
         val allExercises = draft.workouts.flatMap(WorkoutDraft::exercises)
         val setsById =
@@ -50,21 +55,18 @@ constructor(
         matchCautionTags: Boolean = false,
     ): String? {
         if (note.isBlank()) return null
-        val words = note.catalogWords()
-        val matches =
-            catalog.entries.filter { entry ->
-                words.contains(entry.displayName.catalogWords()) ||
-                    movementTerms.any { (term, ids) -> entry.id in ids && words.contains(term) } ||
-                    (matchCautionTags &&
-                        entry.cautionTags.any { tag -> words.contains(tag.name.catalogWords()) })
-            }
+        val matches = catalogMatches(note, matchCautionTags)
         if (matches.isEmpty()) return "$label — No catalog match to verify in this draft."
 
         val included = matches.filter { it.id in setsById }
         val omitted =
             matches.filterNot { it.id in setsById }.map { eligibilityPolicy.evaluate(it, context) }
         val eligibleOmitted = omitted.filter(ExerciseEligibility::isEligible)
-        val excluded = omitted.firstOrNull { !it.isEligible }
+        val excludedExamples =
+            omitted
+                .filterNot(ExerciseEligibility::isEligible)
+                .distinctBy(ExerciseEligibility::reasons)
+                .take(MAX_EXAMPLES)
         val findings =
             listOfNotNull(
                 included.takeIf(List<*>::isNotEmpty)?.let { entries ->
@@ -80,9 +82,10 @@ constructor(
                         entries.take(MAX_EXAMPLES).joinToString(" and ") { it.entry.displayName } +
                         " from the eligible options."
                 },
-                excluded?.let {
+            ) +
+                excludedExamples.map { exclusion ->
                     val limits =
-                        it.reasons.joinToString(" and ") { reason ->
+                        exclusion.reasons.joinToString(" and ") { reason ->
                             when (reason) {
                                 ExerciseIneligibilityReason.FORBIDDEN_MOVEMENT -> "Movement Limits"
                                 ExerciseIneligibilityReason.MISSING_EQUIPMENT ->
@@ -93,29 +96,50 @@ constructor(
                                     "AI catalog restrictions"
                             }
                         }
-                    "${it.entry.displayName} was ineligible under $limits."
-                },
-            )
+                    "${exclusion.entry.displayName} was ineligible under $limits."
+                }
         return "$label — ${findings.joinToString(" ")}"
     }
 
+    private fun catalogMatches(note: String, matchCautionTags: Boolean): Set<ExerciseCatalogEntry> =
+        buildSet {
+            var remaining = note.catalogWords()
+            // Consume specific names before considering shorter names and bare family terms.
+            catalogPhrases.forEach { (entry, phrase) ->
+                if (phrase in remaining) {
+                    add(entry)
+                    remaining = remaining.replace(phrase, "  ")
+                }
+            }
+            val families = movementFamilies.filter { " $it " in remaining }
+            catalogPhrases.forEach { (entry, phrase) ->
+                if (
+                    families.any { " $it " in phrase } ||
+                        (matchCautionTags &&
+                            entry.cautionTags.any { it.name.catalogWords() in remaining })
+                )
+                    add(entry)
+            }
+        }
+
     private fun String.catalogWords(): String =
-        " " + lowercase(Locale.ROOT).replace(nonWord, " ").trim() + " "
+        lowercase(Locale.ROOT).split(nonWord).filter(String::isNotEmpty).joinToString(
+            separator = " ",
+            prefix = " ",
+            postfix = " "
+        ) { word ->
+            val singular = if (word == "presses") "press" else word.removeSuffix("s")
+            when {
+                word == "pushups" || word == "pushup" -> "push up"
+                word == "ups" -> "up"
+                singular in movementFamilies -> singular
+                else -> word
+            }
+        }
 
     private companion object {
         const val MAX_EXAMPLES = 2
         val nonWord = Regex("[^\\p{L}\\p{N}]+")
-        val movementTerms =
-            mapOf(
-                " squat " to
-                    setOf(ExerciseCatalogIds.BODYWEIGHT_SQUATS, ExerciseCatalogIds.BARBELL_SQUATS),
-                " squats " to
-                    setOf(ExerciseCatalogIds.BODYWEIGHT_SQUATS, ExerciseCatalogIds.BARBELL_SQUATS),
-                " lunge " to setOf(ExerciseCatalogIds.WALKING_LUNGES),
-                " lunges " to setOf(ExerciseCatalogIds.WALKING_LUNGES),
-                " push up " to setOf(ExerciseCatalogIds.PUSH_UPS),
-                " push ups " to setOf(ExerciseCatalogIds.PUSH_UPS),
-                " pushups " to setOf(ExerciseCatalogIds.PUSH_UPS),
-            )
+        val movementFamilies = setOf("squat", "lunge", "row", "deadlift", "curl", "press", "raise")
     }
 }
