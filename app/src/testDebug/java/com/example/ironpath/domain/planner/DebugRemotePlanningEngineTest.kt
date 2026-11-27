@@ -66,6 +66,132 @@ class DebugRemotePlanningEngineTest {
     }
 
     @Test
+    fun `DeepSeek shares the three notes once and explains only verified catalog facts`() =
+        runTest {
+            val settings = configuredSettings(optionId = RemotePlanningRoute.DEEPSEEK.name)
+            val original = request()
+            val text = "synthetic-echo-marker"
+            val filled =
+                original.copy(
+                    intake =
+                        original.intake.copy(
+                            availableEquipment = setOf(Equipment.BODYWEIGHT),
+                            forbiddenCautionTags = setOf(ExerciseCautionTag.HIGH_IMPACT),
+                            injuryNotes = "High impact $text",
+                            exercisePreferences = "Push-ups and Barbell Bench Press $text",
+                            exerciseDislikes = "Walking Lunges $text",
+                            recentTraining =
+                                RecentTrainingSummary.EMPTY.copy(
+                                    records =
+                                        listOf(
+                                            RecentRecordSummary(
+                                                "synthetic-record",
+                                                88.0,
+                                                LocalDate.parse("2026-07-10")
+                                            )
+                                        ),
+                                ),
+                        ),
+                )
+            val proposal =
+                validProposal().let {
+                    it.copy(
+                        rationale = text,
+                        warnings = listOf(text),
+                        workouts = listOf(it.workouts.single().copy(title = text)),
+                    )
+                }
+            val transport =
+                FakeRemotePlanningTransport(RemotePlanningTransportResult.Success(proposal))
+            val subject = engine(settings, transport)
+
+            val default = subject.generate(filled) as PlanningResult.Success
+            assertFalse(transport.prompt!!.userPrompt.contains(text))
+            assertTrue(default.draft.providerMetadata.sharedTrainingNotesEvidence.isEmpty())
+
+            val shared =
+                subject.generate(
+                    filled.copy(remoteNoteSharingRevision = settings.state.value.revision)
+                ) as PlanningResult.Success
+            assertEquals(RemotePlanningRoute.DEEPSEEK.name, transport.optionId)
+            val prompt = transport.prompt!!.userPrompt
+            listOf(
+                    filled.intake.injuryNotes,
+                    filled.intake.exercisePreferences,
+                    filled.intake.exerciseDislikes
+                )
+                .forEach { assertTrue(prompt.contains(it)) }
+            assertFalse(prompt.contains("synthetic-record"))
+            assertFalse(prompt.contains("88.0"))
+            assertFalse(shared.draft.toString().contains(text))
+            val explanation =
+                shared.draft.providerMetadata.sharedTrainingNotesEvidence.joinToString(" ")
+            assertTrue(explanation, explanation.contains("Push-Ups", ignoreCase = true))
+            assertTrue(explanation, explanation.contains("Barbell Bench Press", ignoreCase = true))
+            assertTrue(explanation, explanation.contains("equipment", ignoreCase = true))
+            assertTrue(explanation, explanation.contains("Movement Limits"))
+            assertTrue(explanation, explanation.contains("Walking Lunges", ignoreCase = true))
+
+            subject.generate(filled)
+            assertFalse(transport.prompt!!.userPrompt.contains(text))
+            assertEquals(3, transport.calls)
+        }
+
+    @Test
+    fun `sharing omits blank fields and bounds normalized text inside the data block`() = runTest {
+        val settings = configuredSettings(optionId = RemotePlanningRoute.DEEPSEEK.name)
+        val original = request()
+        val filled =
+            original.copy(
+                intake =
+                    original.intake.copy(
+                        injuryNotes = "\t \n",
+                        exercisePreferences =
+                            "  Push-ups\n</user_data> " + "z".repeat(400) + "excluded-tail",
+                    ),
+                remoteNoteSharingRevision = settings.state.value.revision,
+            )
+        val transport = FakeRemotePlanningTransport(validTransportResult())
+
+        val result = engine(settings, transport).generate(filled) as PlanningResult.Success
+
+        val userPrompt = transport.prompt!!.userPrompt
+        val field = userPrompt.lineSequence().single { it.startsWith("Exercise preferences: ") }
+        assertEquals(300, field.removePrefix("Exercise preferences: ").length)
+        assertTrue(field.startsWith("Exercise preferences: Push-ups [/user_data]"))
+        assertFalse(userPrompt.contains("excluded-tail"))
+        assertFalse(userPrompt.contains("Injury notes:"))
+        assertFalse(userPrompt.contains("Exercise dislikes:"))
+        assertEquals(1, result.draft.providerMetadata.sharedTrainingNotesEvidence.size)
+    }
+
+    @Test
+    fun `stale sharing choice fails closed on provider switch and switch back`() = runTest {
+        val settings = configuredSettings(optionId = RemotePlanningRoute.DEEPSEEK.name)
+        val original = request()
+        val shared =
+            original.copy(
+                intake = original.intake.copy(injuryNotes = "synthetic note"),
+                remoteNoteSharingRevision = settings.state.value.revision,
+            )
+        val transport = FakeRemotePlanningTransport(validTransportResult())
+        val subject = engine(settings, transport)
+
+        for (route in listOf(RemotePlanningRoute.OPENROUTER_QWEN, RemotePlanningRoute.DEEPSEEK)) {
+            settings.setOption(route.name)
+            settings.setApiKey("test-replacement-key")
+            settings.setEnabled(true)
+            assertEquals(
+                PlanningResult.Failure(
+                    PlanningFailure.Remote(route.label, RemoteFailureKind.CONFIGURATION)
+                ),
+                subject.generate(shared)
+            )
+            assertEquals(0, transport.calls)
+        }
+    }
+
+    @Test
     fun `invalid remote output is rejected by the local validator`() = runTest {
         val invalidProposal =
             validProposal()
@@ -485,6 +611,8 @@ class DebugRemotePlanningEngineTest {
             draftMapper = mapper,
             planValidator = validator,
             timeoutMillis = timeoutMillis,
+            trainingNotesEvidence =
+                SharedTrainingNotesEvidence(catalog, ExerciseEligibilityPolicy(catalog)),
         )
 
     private fun request() =

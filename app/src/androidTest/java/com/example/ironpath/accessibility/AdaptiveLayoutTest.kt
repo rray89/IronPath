@@ -82,6 +82,7 @@ import com.example.ironpath.ui.testing.TestTags
 import com.example.ironpath.ui.theme.IronPathTheme
 import java.time.LocalDate
 import java.time.ZoneOffset
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -344,6 +345,32 @@ class AdaptiveLayoutTest {
                     .assertHasClickAction()
                     .assertMinimumTouchTarget(label)
             }
+    }
+
+    @Test
+    fun deepSeekConsentAtDoubleFontKeepsSharingAndActionsReachable() {
+        var submitted: Boolean? = null
+        setAdaptiveContent(COMPACT_PORTRAIT) {
+            com.example.ironpath.ui.screens.plan.RemoteTrainingNotesDialog(
+                action = "Regenerate",
+                onDismiss = {},
+                onConfirm = { submitted = it },
+            )
+        }
+        composeRule
+            .onNodeWithTag("plan_share_training_notes")
+            .assertIsOff()
+            .assertHasClickAction()
+            .assertMinimumTouchTarget("Share Training Notes")
+        listOf("Injury Notes", "Exercise Preferences", "Exercise Dislikes").forEach { label ->
+            composeRule
+                .onNodeWithText(label, substring = true)
+                .performScrollTo()
+                .assertIsDisplayed()
+        }
+        composeRule.onNodeWithText("Cancel").assertIsDisplayed()
+        composeRule.onNodeWithText("Regenerate").assertIsDisplayed().performClick()
+        assertEquals(false, submitted)
     }
 
     @Test

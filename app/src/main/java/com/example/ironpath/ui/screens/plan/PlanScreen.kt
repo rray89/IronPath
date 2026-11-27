@@ -38,6 +38,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -172,6 +175,9 @@ fun PlanScreen(
         onAddAiExercise = viewModel::addAiExercise,
         onReplaceAiExercise = viewModel::replaceAiExercise,
         onRegenerateAi = { intakeViewModel.generateWithAi(viewModel.targetWeekStart()) },
+        onGenerateWithSharedNotes = { revision ->
+            intakeViewModel.generateWithAi(viewModel.targetWeekStart(), revision)
+        },
         onUseRuleFallback = {
             intakeViewModel.generateWithRuleBasedFallback(viewModel.targetWeekStart())
         },
@@ -229,7 +235,40 @@ internal fun PlanContent(
     saveState: PlanSaveUiState = PlanSaveUiState(),
     onPlanNextWeek: () -> Unit = {},
     onCancelPlanning: () -> Unit = {},
+    onGenerateWithSharedNotes: (Long) -> Unit = {},
 ) {
+    val generationAction = if (uiState is PlanUiState.AiReview) onRegenerateAi else onGenerateWithAi
+    var confirmNotes by
+        remember(uiState, intakeState, aiGenerationState, remotePlanningExperimentState.revision) {
+            mutableStateOf(false)
+        }
+    val onAiRequest: () -> Unit = {
+        if (remotePlanningExperimentState.canShareTrainingNotes && intakeState.hasTrainingNotes) {
+            confirmNotes = true
+        } else {
+            generationAction()
+        }
+    }
+    if (confirmNotes && remotePlanningExperimentState.canShareTrainingNotes) {
+        val action =
+            when {
+                aiGenerationState.remoteFailure() != null -> "Retry"
+                uiState is PlanUiState.AiReview -> "Regenerate"
+                else -> "Generate"
+            }
+        RemoteTrainingNotesDialog(
+            action = action,
+            onDismiss = { confirmNotes = false },
+            onConfirm = { share ->
+                if (confirmNotes) {
+                    confirmNotes = false
+                    if (share) onGenerateWithSharedNotes(remotePlanningExperimentState.revision)
+                    else generationAction()
+                }
+            },
+        )
+    }
+
     Column(modifier.fillMaxSize()) {
         saveState.error?.let {
             Text(
@@ -278,7 +317,7 @@ internal fun PlanContent(
                         onPreferencesChanged = onPreferencesChanged,
                         onDislikesChanged = onDislikesChanged,
                         onGenerate = onGenerate,
-                        onGenerateWithAi = onGenerateWithAi,
+                        onGenerateWithAi = onAiRequest,
                         onCancelAiGeneration = onCancelAiGeneration,
                         onClearAiResult = onClearAiResult,
                         remotePlanningExperimentState = remotePlanningExperimentState,
@@ -314,7 +353,7 @@ internal fun PlanContent(
                             onClearAiResult()
                             onBackToSetup()
                         },
-                        onRegenerate = onRegenerateAi,
+                        onRegenerate = onAiRequest,
                         onUseRuleFallback = onUseRuleFallback,
                         onAccept = onAccept,
                         modifier = Modifier,

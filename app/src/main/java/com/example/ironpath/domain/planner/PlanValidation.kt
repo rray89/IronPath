@@ -589,7 +589,10 @@ private fun PlanDraft.validationSnapshot() =
                 .filter(String::isNotBlank)
                 .take(PlanDraftTextLimits.MAX_WARNING_COUNT)
                 .toList(),
-        providerMetadata = providerMetadata.copy(),
+        providerMetadata =
+            providerMetadata.copy(
+                sharedTrainingNotesEvidence = providerMetadata.sharedTrainingNotesEvidence.toList()
+            ),
     )
 
 internal fun String.normalizedModelText(maxLength: Int): String =

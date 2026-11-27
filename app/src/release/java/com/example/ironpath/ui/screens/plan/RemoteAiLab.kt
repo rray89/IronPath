@@ -12,3 +12,11 @@ internal fun RemoteAiLab(
     onApiKeyChanged: (String) -> Unit,
     onOptionChanged: (String) -> Unit,
 ) = Unit
+
+@Suppress("UNUSED_PARAMETER")
+@Composable
+internal fun RemoteTrainingNotesDialog(
+    action: String,
+    onDismiss: () -> Unit,
+    onConfirm: (Boolean) -> Unit,
+) = Unit

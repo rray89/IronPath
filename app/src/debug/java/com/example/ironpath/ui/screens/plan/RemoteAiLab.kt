@@ -1,11 +1,18 @@
 package com.example.ironpath.ui.screens.plan
 
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
@@ -15,7 +22,10 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
+import com.example.ironpath.domain.planner.OnDevicePlanPromptBuilder.Companion.MAX_INTAKE_TEXT_LENGTH
+import com.example.ironpath.domain.planner.OnDevicePlanPromptBuilder.Companion.MAX_PREFERENCE_TEXT_LENGTH
 import com.example.ironpath.domain.planner.RemotePlanningExperimentState
+import com.example.ironpath.domain.planner.RemotePlanningRoute
 import com.example.ironpath.ui.testing.TestTags
 
 @Composable
@@ -55,7 +65,11 @@ internal fun RemoteAiLab(
         }
     }
     Text(
-        "Only goal, days, experience, equipment, movement limits and eligible exercises are sent to the selected provider. Notes and training history stay on device.",
+        if (state.optionId == RemotePlanningRoute.DEEPSEEK.name) {
+            "DeepSeek receives goal, days, experience, equipment, movement limits and eligible exercises. You can choose to share Training Notes for a single request. Training history and Records stay on this device."
+        } else {
+            "Only goal, days, experience, equipment, movement limits and eligible exercises are sent to the selected provider. Notes and training history stay on device."
+        },
         style = MaterialTheme.typography.bodySmall,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
     )
@@ -100,4 +114,45 @@ internal fun RemoteAiLab(
                 KeyboardOptions(keyboardType = KeyboardType.Password, autoCorrectEnabled = false)
         )
     }
+}
+
+@Composable
+internal fun RemoteTrainingNotesDialog(
+    action: String,
+    onDismiss: () -> Unit,
+    onConfirm: (Boolean) -> Unit,
+) {
+    var shareNotes by remember { mutableStateOf(false) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("$action with DeepSeek") },
+        text = {
+            Column(Modifier.verticalScroll(rememberScrollState())) {
+                Row(
+                    modifier =
+                        Modifier.fillMaxWidth()
+                            .heightIn(min = 48.dp)
+                            .toggleable(
+                                value = shareNotes,
+                                role = Role.Checkbox,
+                                onValueChange = { shareNotes = it },
+                            )
+                            .testTag("plan_share_training_notes"),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Checkbox(checked = shareNotes, onCheckedChange = null)
+                    Text("Share filled Training Notes for this request")
+                }
+                Text("Injury Notes · up to $MAX_INTAKE_TEXT_LENGTH characters")
+                Text("Exercise Preferences · up to $MAX_PREFERENCE_TEXT_LENGTH characters")
+                Text("Exercise Dislikes · up to $MAX_PREFERENCE_TEXT_LENGTH characters")
+                Spacer(Modifier.height(12.dp))
+                Text(
+                    "This choice resets for each request. Training history and Records stay on this device."
+                )
+            }
+        },
+        confirmButton = { TextButton(onClick = { onConfirm(shareNotes) }) { Text(action) } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
 }

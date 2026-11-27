@@ -152,7 +152,9 @@ internal fun AiPlanReviewScreen(
                 onClear = onClearGeneration,
             )
 
-        draft.rationale?.takeIf(String::isNotBlank)?.let { rationale ->
+        val sharedNotes = draft.providerMetadata.sharedTrainingNotesEvidence
+        val rationale = draft.rationale?.takeIf(String::isNotBlank)
+        if (rationale != null || sharedNotes.isNotEmpty()) {
             Spacer(Modifier.height(20.dp))
             Text(
                 text = "WHY THIS WEEK",
@@ -160,12 +162,30 @@ internal fun AiPlanReviewScreen(
                 color = MaterialTheme.colorScheme.primary,
             )
             Spacer(Modifier.height(6.dp))
-            Text(
-                text = rationale,
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurface,
-                modifier = Modifier.testTag(TestTags.PLAN_AI_RATIONALE),
-            )
+            if (rationale != null) {
+                Text(
+                    text = rationale,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.testTag(TestTags.PLAN_AI_RATIONALE),
+                )
+            }
+            if (sharedNotes.isNotEmpty()) {
+                Text(
+                    text =
+                        "Catalog matches in the generated draft. Shared notes are guidance. Movement Limits are enforced.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                sharedNotes.forEach { evidence ->
+                    Text(
+                        text = evidence,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier.padding(top = 8.dp),
+                    )
+                }
+            }
         }
 
         val messages = draft.warnings + state.review.violations.map { it.message }

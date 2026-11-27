@@ -7,6 +7,8 @@ import com.example.ironpath.domain.planner.AiPlanningCoordinator
 import com.example.ironpath.domain.planner.AiPlanningOutcome
 import com.example.ironpath.domain.planner.Equipment
 import com.example.ironpath.domain.planner.ExerciseCautionTag
+import com.example.ironpath.domain.planner.OnDevicePlanPromptBuilder.Companion.MAX_INTAKE_TEXT_LENGTH
+import com.example.ironpath.domain.planner.OnDevicePlanPromptBuilder.Companion.MAX_PREFERENCE_TEXT_LENGTH
 import com.example.ironpath.domain.planner.PlanValidationLimits
 import com.example.ironpath.domain.planner.PlanViolation
 import com.example.ironpath.domain.planner.PlanningFailure
@@ -50,6 +52,12 @@ data class PlannerIntakeUiState(
 
     val canGenerateWithAi: Boolean
         get() = canGenerateRuleBased && availableEquipment.isNotEmpty()
+
+    val hasTrainingNotes: Boolean
+        get() =
+            injuryNotes.isNotBlank() ||
+                exercisePreferences.isNotBlank() ||
+                exerciseDislikes.isNotBlank()
 
     fun toPlanningIntake() =
         PlanningIntake(
@@ -177,18 +185,29 @@ constructor(
     }
 
     fun setInjuryNotes(notes: String) = updateIntake {
-        copy(injuryNotes = notes.take(MAX_NOTES_LENGTH))
+        copy(injuryNotes = notes.take(MAX_INTAKE_TEXT_LENGTH))
     }
 
     fun setExercisePreferences(preferences: String) = updateIntake {
-        copy(exercisePreferences = preferences.take(MAX_PREFERENCE_LENGTH))
+        copy(exercisePreferences = preferences.take(MAX_PREFERENCE_TEXT_LENGTH))
     }
 
     fun setExerciseDislikes(dislikes: String) = updateIntake {
-        copy(exerciseDislikes = dislikes.take(MAX_PREFERENCE_LENGTH))
+        copy(exerciseDislikes = dislikes.take(MAX_PREFERENCE_TEXT_LENGTH))
     }
 
-    fun generateWithAi(targetWeekStart: java.time.LocalDate? = null) {
+    fun generateWithAi(
+        targetWeekStart: java.time.LocalDate? = null,
+        remoteNoteSharingRevision: Long? = null,
+    ) {
+        val configuration = remotePlanningExperiment.state.value
+        if (
+            remoteNoteSharingRevision != null &&
+                (!configuration.canShareTrainingNotes ||
+                    configuration.revision != remoteNoteSharingRevision)
+        )
+            return
+
         if (!aiPlanningCoordinator.aiAvailable) {
             _aiGenerationState.value = AiGenerationUiState.Failed(PlanningFailure.Unavailable)
             return
@@ -196,11 +215,9 @@ constructor(
         startGeneration(
             targetWeekStart = targetWeekStart,
             requireEquipment = true,
+            remoteNoteSharingRevision = remoteNoteSharingRevision,
             generator = { request ->
-                aiPlanningCoordinator.generateWithAi(
-                    request,
-                    preferRemote = remotePlanningExperiment.state.value.enabled
-                )
+                aiPlanningCoordinator.generateWithAi(request, preferRemote = configuration.enabled)
             },
         )
     }
@@ -220,6 +237,7 @@ constructor(
     private fun startGeneration(
         targetWeekStart: java.time.LocalDate?,
         requireEquipment: Boolean,
+        remoteNoteSharingRevision: Long? = null,
         generator: suspend (PlanningRequest) -> AiPlanningOutcome,
     ) {
         val intakeSnapshot = _intakeState.value
@@ -257,6 +275,7 @@ constructor(
                     val request =
                         PlanningRequest(
                             targetWeekStart = targetMonday,
+                            remoteNoteSharingRevision = remoteNoteSharingRevision,
                             intake =
                                 intakeSnapshot
                                     .toPlanningIntake()
@@ -392,8 +411,6 @@ constructor(
             ?.toSet()
 
     private companion object {
-        const val MAX_NOTES_LENGTH = 500
-        const val MAX_PREFERENCE_LENGTH = 300
         const val KEY_GOAL = "planner_intake_goal"
         const val KEY_DAYS = "planner_intake_days"
         const val KEY_EXPERIENCE = "planner_intake_experience"

@@ -32,6 +32,7 @@ internal constructor(
     private val draftMapper: OnDevicePlanDraftMapper,
     private val planValidator: PlanValidator,
     private val timeoutMillis: Long,
+    private val trainingNotesEvidence: SharedTrainingNotesEvidence,
 ) : PlanningEngine {
     @Inject
     constructor(
@@ -40,6 +41,7 @@ internal constructor(
         promptBuilder: OnDevicePlanPromptBuilder,
         draftMapper: OnDevicePlanDraftMapper,
         planValidator: PlanValidator,
+        trainingNotesEvidence: SharedTrainingNotesEvidence,
     ) : this(
         experiment = experiment,
         transport = transport,
@@ -47,6 +49,7 @@ internal constructor(
         draftMapper = draftMapper,
         planValidator = planValidator,
         timeoutMillis = GENERATION_TIMEOUT_MILLIS,
+        trainingNotesEvidence = trainingNotesEvidence,
     )
 
     override val type = PlanningEngineType.DEBUG_REMOTE_AI
@@ -99,22 +102,53 @@ internal constructor(
                 ?: return PlanningResult.Failure(
                     PlanningFailure.Remote("Remote AI", RemoteFailureKind.CONFIGURATION)
                 )
+        val sharingRevision = request.remoteNoteSharingRevision
+        if (
+            sharingRevision != null &&
+                (route != RemotePlanningRoute.DEEPSEEK || sharingRevision != configuration.revision)
+        ) {
+            return PlanningResult.Failure(
+                PlanningFailure.Remote(route.label, RemoteFailureKind.CONFIGURATION)
+            )
+        }
+        val intake = request.intake
+        val shareNotes =
+            sharingRevision != null &&
+                (intake.injuryNotes
+                    .boundedPromptText(OnDevicePlanPromptBuilder.MAX_INTAKE_TEXT_LENGTH)
+                    .isNotEmpty() ||
+                    intake.exercisePreferences
+                        .boundedPromptText(OnDevicePlanPromptBuilder.MAX_PREFERENCE_TEXT_LENGTH)
+                        .isNotEmpty() ||
+                    intake.exerciseDislikes
+                        .boundedPromptText(OnDevicePlanPromptBuilder.MAX_PREFERENCE_TEXT_LENGTH)
+                        .isNotEmpty())
         val minimalRequest =
             request.copy(
                 intake =
-                    request.intake.copy(
-                        injuryNotes = "",
-                        exercisePreferences = "",
-                        exerciseDislikes = "",
+                    intake.copy(
+                        injuryNotes = intake.injuryNotes.takeIf { shareNotes }.orEmpty(),
+                        exercisePreferences =
+                            intake.exercisePreferences.takeIf { shareNotes }.orEmpty(),
+                        exerciseDislikes = intake.exerciseDislikes.takeIf { shareNotes }.orEmpty(),
                         recentTraining = RecentTrainingSummary.EMPTY,
-                    )
+                    ),
+                remoteNoteSharingRevision = sharingRevision.takeIf { shareNotes },
             )
+        val prompt =
+            promptBuilder.build(minimalRequest, type).let {
+                if (shareNotes) {
+                    it.copy(systemInstruction = it.systemInstruction + SHARED_NOTES_INSTRUCTION)
+                } else {
+                    it
+                }
+            }
         val startedAt = TimeSource.Monotonic.markNow()
         return when (
             val transportResult =
                 transport.generate(
                     apiKey = configuration.apiKey,
-                    prompt = promptBuilder.build(minimalRequest, type),
+                    prompt = prompt,
                     optionId = configuration.optionId,
                 )
         ) {
@@ -124,7 +158,9 @@ internal constructor(
                 when (
                     val mapping =
                         draftMapper.map(
-                            proposal = transportResult.proposal,
+                            proposal =
+                                if (shareNotes) transportResult.proposal.withoutProviderProse()
+                                else transportResult.proposal,
                             request = request,
                             generationDurationMillis = startedAt.elapsedNow().inWholeMilliseconds,
                             engineType = type,
@@ -149,6 +185,13 @@ internal constructor(
                                                 remoteConfigurationRevision =
                                                     configuration.revision,
                                                 tokenUsage = transportResult.usage,
+                                                sharedTrainingNotesEvidence =
+                                                    if (shareNotes)
+                                                        trainingNotesEvidence.summarize(
+                                                            mapping.draft,
+                                                            request
+                                                        )
+                                                    else emptyList(),
                                             )
                                     ),
                                     request.validationContext(type),
@@ -187,7 +230,23 @@ internal constructor(
         }
     }
 
+    private fun OnDevicePlanProposal.withoutProviderProse() =
+        copy(
+            rationale = null,
+            warnings = emptyList(),
+            workouts =
+                workouts.mapIndexed { index, workout ->
+                    workout.copy(title = "Workout ${index + 1}")
+                },
+        )
+
     private companion object {
+        const val SHARED_NOTES_INSTRUCTION =
+            " Use injury notes as conservative context. Prefer exercises mentioned in preferences " +
+                "and avoid exercises mentioned in dislikes when feasible. " +
+                "Equipment and structured movement limits take precedence. " +
+                "Never repeat training notes in the response."
+
         const val GENERATION_TIMEOUT_MILLIS = 60_000L
     }
 }
