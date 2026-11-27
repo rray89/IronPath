@@ -111,10 +111,16 @@ constructor(
                     remaining = remaining.replace(phrase, "  ")
                 }
             }
-            val families = movementFamilies.filter { " $it " in remaining }
+            val standaloneTerms =
+                note
+                    .split(noteSeparators)
+                    .map { it.catalogWords().trim().replaceFirst(noteLeadIn, "") }
+                    .toSet()
+            val families = standaloneTerms.intersect(movementFamilies)
             catalogPhrases.forEach { (entry, phrase) ->
                 if (
-                    families.any { " $it " in phrase } ||
+                    standaloneTerms.any { exerciseAliases[it] == entry.id } ||
+                        families.any { " $it " in phrase } ||
                         (matchCautionTags &&
                             entry.cautionTags.any { it.name.catalogWords() in remaining })
                 )
@@ -141,5 +147,8 @@ constructor(
         const val MAX_EXAMPLES = 2
         val nonWord = Regex("[^\\p{L}\\p{N}]+")
         val movementFamilies = setOf("squat", "lunge", "row", "deadlift", "curl", "press", "raise")
+        val exerciseAliases = mapOf("bench press" to ExerciseCatalogIds.BARBELL_BENCH_PRESS)
+        val noteSeparators = Regex("[,;.!?•]|\\b(?:and|or)\\b", RegexOption.IGNORE_CASE)
+        val noteLeadIn = Regex("^(?:i )?(?:like|prefer|enjoy|dislike|avoid|skip|no|prioritize) ")
     }
 }

@@ -84,7 +84,7 @@ remain authoritative. Preferences and dislikes guide exercise selection.
 
 Why This Week shows catalog matches against the generated draft and names equipment
 or Movement Limits when a matching exercise is ineligible. Specific exercise names
-take priority over broad movement matches. Unmatched wording is reported as
+take priority over standalone movement terms such as “squats.” Unmatched wording is reported as
 unverifiable from the draft. This evidence describes observable choices and cannot
 establish the provider's reasoning. The review withdraws the original evidence once
 workouts are edited. The shared path uses app-generated explanations and workout

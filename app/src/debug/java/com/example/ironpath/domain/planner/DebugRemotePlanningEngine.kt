@@ -242,8 +242,8 @@ internal constructor(
 
     private companion object {
         const val SHARED_NOTES_INSTRUCTION =
-            " Use injury notes as conservative context. Prefer exercises mentioned in preferences " +
-                "and avoid exercises mentioned in dislikes when feasible. " +
+            " Use injury notes as conservative context. Interpret exercise preferences and dislikes as " +
+                "soft guidance about which movements to favor or avoid. " +
                 "Equipment and structured movement limits take precedence. " +
                 "Never repeat training notes in the response."
 

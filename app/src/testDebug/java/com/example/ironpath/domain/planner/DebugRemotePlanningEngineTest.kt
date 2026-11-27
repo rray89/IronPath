@@ -235,6 +235,48 @@ class DebugRemotePlanningEngineTest {
         }
 
     @Test
+    fun `qualified notes never fall back to an unrelated movement family`() = runTest {
+        val settings = configuredSettings(optionId = RemotePlanningRoute.DEEPSEEK.name)
+        val original = request()
+        val shared =
+            original.copy(
+                intake =
+                    original.intake.copy(
+                        exercisePreferences = "I prefer bench press",
+                        exerciseDislikes = "Avoid split squats",
+                    ),
+                remoteNoteSharingRevision = settings.state.value.revision,
+            )
+        val base = validProposal()
+        val proposal =
+            base.copy(
+                workouts =
+                    listOf(
+                        base.workouts
+                            .single()
+                            .copy(
+                                exercises =
+                                    listOf(
+                                        OnDeviceExerciseProposal("leg-press", 3, 8, 30.0),
+                                        OnDeviceExerciseProposal("goblet-squats", 2, 8, 8.0),
+                                    ),
+                            )
+                    )
+            )
+        val transport = FakeRemotePlanningTransport(RemotePlanningTransportResult.Success(proposal))
+
+        val result = engine(settings, transport).generate(shared) as PlanningResult.Success
+
+        assertEquals(
+            listOf(
+                "Exercise Preferences — Omits Barbell Bench Press from the eligible options.",
+                "Exercise Dislikes — No catalog match to verify in this draft.",
+            ),
+            result.draft.providerMetadata.sharedTrainingNotesEvidence,
+        )
+    }
+
+    @Test
     fun `invalid remote output is rejected by the local validator`() = runTest {
         val invalidProposal =
             validProposal()
