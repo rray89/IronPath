@@ -7,7 +7,6 @@ import com.example.ironpath.domain.planner.RemotePlanningTransport
 import com.example.ironpath.domain.planner.RemotePlanningTransportResult
 import javax.inject.Inject
 import javax.inject.Singleton
-import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
@@ -65,7 +64,9 @@ constructor(private val httpClient: RemoteHttpClient) : RemotePlanningTransport 
             route != RemotePlanningRoute.OPENROUTER_OPENAI &&
                 route != RemotePlanningRoute.OPENROUTER_QWEN
         ) {
-            return RemotePlanningTransportResult.ProviderFailure
+            return RemotePlanningTransportResult.Failure(
+                com.example.ironpath.domain.planner.RemoteFailureKind.CONFIGURATION
+            )
         }
         return chatCompletion(
             httpClient,
@@ -146,7 +147,10 @@ constructor(
             RemotePlanningRoute.DEEPSEEK -> deepSeek.generate(apiKey, prompt, optionId)
             RemotePlanningRoute.OPENROUTER_OPENAI,
             RemotePlanningRoute.OPENROUTER_QWEN -> openRouter.generate(apiKey, prompt, optionId)
-            null -> RemotePlanningTransportResult.ProviderFailure
+            null ->
+                RemotePlanningTransportResult.Failure(
+                    com.example.ironpath.domain.planner.RemoteFailureKind.CONFIGURATION
+                )
         }
 }
 
@@ -156,8 +160,8 @@ private suspend fun chatCompletion(
     apiKey: String,
     request: JsonObject
 ): RemotePlanningTransportResult =
-    try {
-        val response =
+    requestRemotePlan(
+        request = {
             httpClient.post(
                 url = endpoint,
                 headers =
@@ -167,13 +171,9 @@ private suspend fun chatCompletion(
                     ),
                 body = request.toString(),
             )
-        if (response.statusCode !in 200..299) RemotePlanningTransportResult.ProviderFailure
-        else parseChatCompletion(response.body)
-    } catch (cancellation: CancellationException) {
-        throw cancellation
-    } catch (_: Exception) {
-        RemotePlanningTransportResult.ProviderFailure
-    }
+        },
+        parse = ::parseChatCompletion
+    )
 
 private fun parseChatCompletion(body: String): RemotePlanningTransportResult.Success {
     val response = Json.parseToJsonElement(body).jsonObject

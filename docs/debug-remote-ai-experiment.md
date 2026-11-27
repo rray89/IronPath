@@ -41,9 +41,7 @@ All routes use a single non-streaming request with 4,096 output tokens, a 60-sec
 application deadline, cancellable HTTP, no redirects or automatic HTTP retries and
 a 256 KiB response limit. Invalid status, empty/refused/truncated output, malformed
 JSON or schema mismatches fail closed. Error bodies and provider exceptions never
-become user-visible strings. There is no automatic paid repair/retry. Failure proceeds
-to the deterministic debug fake and then rule-based fallback, never another remote
-request. Normal selection remains on-device → enabled remote → debug fake → rules.
+become user-visible strings. There is no automatic paid repair/retry. Enabling the remote provider explicitly selects that route. A failure leaves the intake or existing draft in place and identifies the attempted route and failure stage. Retry sends one new request. Choosing the local rule-based planner makes no network request. With remote disabled, generation still uses the on-device, debug fake, and rule-based chain.
 
 The shared codec establishes JSON structure; app mapping and `PlanValidator` still
 check catalog IDs, selected dates, equipment, movement exclusions, exercise bounds,
@@ -100,7 +98,7 @@ INTERNET permission alone is not proof of remote AI inclusion or exclusion.
    the process: the experiment is disabled and no key survives.
 5. Accept a valid synthetic draft only in the authorized isolated test environment;
    confirm one plan. An expired/invalid draft must remain unaccepted with violations.
-6. Exercise unavailable/invalid-key fallback and verify fake/rule provenance is clear.
+6. Exercise an invalid credential and a parseable, invalid workout. Verify that retry and local generation are explicit choices and a prior draft survives failed regeneration.
 
 Live verification requires BOSS to name the provider(s), supply their own restricted
 keys through the app, and set a small request-count/spend cap. Buying credits and

@@ -91,6 +91,7 @@ internal fun AiPlanReviewScreen(
     val draft = state.review.draft
     val entriesById = state.eligibleExercises.associateBy(ExerciseCatalogEntry::id)
     val replacementInProgress = generationState is AiGenerationUiState.Generating
+    val remoteFailure = generationState.remoteFailure()
     val controlsEnabled = !state.isAccepting && !replacementInProgress
 
     Column(
@@ -144,11 +145,12 @@ internal fun AiPlanReviewScreen(
             )
         }
 
-        AiReplacementStatus(
-            state = generationState,
-            onCancel = onCancelGeneration,
-            onClear = onClearGeneration,
-        )
+        if (remoteFailure == null)
+            AiReplacementStatus(
+                state = generationState,
+                onCancel = onCancelGeneration,
+                onClear = onClearGeneration,
+            )
 
         draft.rationale?.takeIf(String::isNotBlank)?.let { rationale ->
             Spacer(Modifier.height(20.dp))
@@ -208,6 +210,9 @@ internal fun AiPlanReviewScreen(
             Spacer(Modifier.height(12.dp))
         }
 
+        remoteFailure?.let {
+            RemotePlanningFailureNotice(it, draftRetained = true, onDismiss = onClearGeneration)
+        }
         GreenGradientButton(
             text = if (state.isAccepting) "Saving plan" else "Accept Plan",
             onClick = onAccept,
@@ -216,7 +221,7 @@ internal fun AiPlanReviewScreen(
         )
         Spacer(Modifier.height(12.dp))
         AiSecondaryAction(
-            text = "REGENERATE WITH AI",
+            text = remoteFailure?.let { "Retry ${it.provider}" } ?: "REGENERATE WITH AI",
             onClick = onRegenerate,
             enabled = controlsEnabled,
             modifier = Modifier.testTag(TestTags.PLAN_AI_REGENERATE),
@@ -654,6 +659,7 @@ private fun PlanningFailure.reviewMessage(): String =
     when (this) {
         is PlanningFailure.InvalidRequest ->
             violations.firstOrNull() ?: "Review the planning intake and try again."
+        is PlanningFailure.Remote -> kind.guidance
         PlanningFailure.Timeout -> "Generation took too long. Try again."
         PlanningFailure.Unavailable -> "No planning provider is available on this build."
         is PlanningFailure.ProviderError -> "The provider could not create a replacement."

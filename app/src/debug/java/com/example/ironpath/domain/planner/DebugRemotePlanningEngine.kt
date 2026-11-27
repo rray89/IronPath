@@ -13,7 +13,7 @@ sealed interface RemotePlanningTransportResult {
     data class Success(val proposal: OnDevicePlanProposal, val usage: PlanningTokenUsage? = null) :
         RemotePlanningTransportResult
 
-    data object ProviderFailure : RemotePlanningTransportResult
+    data class Failure(val kind: RemoteFailureKind) : RemotePlanningTransportResult
 }
 
 interface RemotePlanningTransport {
@@ -53,9 +53,18 @@ internal constructor(
 
     override suspend fun generate(request: PlanningRequest): PlanningResult {
         val experimentSnapshot = experiment.state.value
+        if (experimentSnapshot.enabled && !experimentSnapshot.configured) {
+            return PlanningResult.Failure(
+                PlanningFailure.Remote(
+                    RemotePlanningRoute.fromId(experimentSnapshot.optionId)?.label ?: "Remote AI",
+                    RemoteFailureKind.CONFIGURATION
+                )
+            )
+        }
         if (!experimentSnapshot.configured) {
             return PlanningResult.Failure(PlanningFailure.Unavailable)
         }
+        val provider = RemotePlanningRoute.fromId(experimentSnapshot.optionId)?.label ?: "Remote AI"
         return try {
             withTimeoutOrNull(timeoutMillis) {
                 coroutineScope {
@@ -73,11 +82,11 @@ internal constructor(
                         invalidation.cancel()
                     }
                 }
-            } ?: PlanningResult.Failure(PlanningFailure.Timeout)
+            } ?: PlanningResult.Failure(PlanningFailure.Remote(provider, RemoteFailureKind.TIMEOUT))
         } catch (cancellation: CancellationException) {
             throw cancellation
         } catch (_: Exception) {
-            providerFailure()
+            PlanningResult.Failure(PlanningFailure.Remote(provider, RemoteFailureKind.INTERNAL))
         }
     }
 
@@ -86,8 +95,10 @@ internal constructor(
         configuration: RemotePlanningExperimentState,
     ): PlanningResult {
         val route =
-            RemotePlanningRoute.entries.firstOrNull { it.name == configuration.optionId }
-                ?: return providerFailure()
+            RemotePlanningRoute.fromId(configuration.optionId)
+                ?: return PlanningResult.Failure(
+                    PlanningFailure.Remote("Remote AI", RemoteFailureKind.CONFIGURATION)
+                )
         val minimalRequest =
             request.copy(
                 intake =
@@ -107,7 +118,8 @@ internal constructor(
                     optionId = configuration.optionId,
                 )
         ) {
-            RemotePlanningTransportResult.ProviderFailure -> providerFailure()
+            is RemotePlanningTransportResult.Failure ->
+                PlanningResult.Failure(PlanningFailure.Remote(route.label, transportResult.kind))
             is RemotePlanningTransportResult.Success -> {
                 when (
                     val mapping =
@@ -120,7 +132,11 @@ internal constructor(
                 ) {
                     is OnDeviceDraftMapping.Invalid ->
                         PlanningResult.Failure(
-                            PlanningFailure.InvalidRequest(listOf(mapping.message))
+                            PlanningFailure.Remote(
+                                route.label,
+                                RemoteFailureKind.MAPPING,
+                                listOf(mapping.message)
+                            )
                         )
                     is OnDeviceDraftMapping.Success -> {
                         when (
@@ -142,8 +158,26 @@ internal constructor(
                                 PlanningResult.Success(validation.validatedPlan.draft)
                             is PlanValidationResult.Invalid ->
                                 PlanningResult.Failure(
-                                    PlanningFailure.InvalidRequest(
-                                        validation.violations.map(PlanViolation::message).distinct()
+                                    PlanningFailure.Remote(
+                                        route.label,
+                                        RemoteFailureKind.VALIDATION,
+                                        validation.violations
+                                            .map { v ->
+                                                listOfNotNull(
+                                                        v.workoutDay
+                                                            ?.takeIf { it in 1..7 }
+                                                            ?.let {
+                                                                java.time.DayOfWeek.of(it)
+                                                                    .name
+                                                                    .take(3)
+                                                            },
+                                                        v.exerciseCatalogId?.value,
+                                                        v.message
+                                                    )
+                                                    .joinToString(" · ")
+                                            }
+                                            .distinct()
+                                            .take(3)
                                     )
                                 )
                         }
@@ -152,11 +186,6 @@ internal constructor(
             }
         }
     }
-
-    private fun providerFailure() =
-        PlanningResult.Failure(
-            PlanningFailure.ProviderError("The remote planning experiment could not finish.")
-        )
 
     private companion object {
         const val GENERATION_TIMEOUT_MILLIS = 60_000L

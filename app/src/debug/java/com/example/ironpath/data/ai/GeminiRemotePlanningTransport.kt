@@ -5,7 +5,6 @@ import com.example.ironpath.domain.planner.RemotePlanningTransport
 import com.example.ironpath.domain.planner.RemotePlanningTransportResult
 import javax.inject.Inject
 import javax.inject.Singleton
-import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
@@ -23,8 +22,8 @@ class GeminiRemotePlanningTransport @Inject constructor(private val httpClient: 
         prompt: OnDeviceModelPrompt,
         optionId: String,
     ): RemotePlanningTransportResult =
-        try {
-            val response =
+        requestRemotePlan(
+            request = {
                 httpClient.post(
                     url = ENDPOINT,
                     headers =
@@ -34,17 +33,9 @@ class GeminiRemotePlanningTransport @Inject constructor(private val httpClient: 
                         ),
                     body = GeminiInteractionsCodec.requestBody(prompt),
                 )
-            if (response.statusCode !in 200..299) {
-                RemotePlanningTransportResult.ProviderFailure
-            } else {
-                GeminiInteractionsCodec.parseResponse(response.body)
-                    ?: RemotePlanningTransportResult.ProviderFailure
-            }
-        } catch (cancellation: CancellationException) {
-            throw cancellation
-        } catch (_: Exception) {
-            RemotePlanningTransportResult.ProviderFailure
-        }
+            },
+            parse = GeminiInteractionsCodec::parseResponse
+        )
 
     private companion object {
         const val ENDPOINT = "https://generativelanguage.googleapis.com/v1/interactions"

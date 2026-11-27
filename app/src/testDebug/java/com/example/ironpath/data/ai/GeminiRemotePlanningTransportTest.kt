@@ -2,6 +2,7 @@ package com.example.ironpath.data.ai
 
 import com.example.ironpath.domain.planner.OnDeviceModelPrompt
 import com.example.ironpath.domain.planner.PlanningTokenUsage
+import com.example.ironpath.domain.planner.RemoteFailureKind
 import com.example.ironpath.domain.planner.RemotePlanningTransportResult
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.Json
@@ -33,7 +34,10 @@ class GeminiRemotePlanningTransportTest {
                 prompt = OnDeviceModelPrompt("system rules", "bounded planning summary"),
             )
 
-        assertEquals(RemotePlanningTransportResult.ProviderFailure, result)
+        assertEquals(
+            RemotePlanningTransportResult.Failure(RemoteFailureKind.AUTHENTICATION),
+            result
+        )
         assertEquals("secret-test-key", httpClient.headers["x-goog-api-key"])
         assertFalse(httpClient.url.orEmpty().contains("secret-test-key"))
         assertFalse(httpClient.body.orEmpty().contains("secret-test-key"))
@@ -183,7 +187,10 @@ class GeminiRemotePlanningTransportTest {
                 prompt = OnDeviceModelPrompt("system", "summary"),
             )
 
-        assertEquals(RemotePlanningTransportResult.ProviderFailure, result)
+        assertEquals(
+            RemotePlanningTransportResult.Failure(RemoteFailureKind.RESPONSE_FORMAT),
+            result
+        )
     }
 
     @Test
@@ -198,7 +205,13 @@ class GeminiRemotePlanningTransportTest {
                     GeminiRemotePlanningTransport(RecordingRemoteHttpClient(response))
                         .generate("test-key", OnDeviceModelPrompt("system", "summary"))
 
-                assertEquals(RemotePlanningTransportResult.ProviderFailure, result)
+                assertEquals(
+                    RemotePlanningTransportResult.Failure(
+                        if (response.statusCode == 500) RemoteFailureKind.SERVICE
+                        else RemoteFailureKind.RESPONSE_FORMAT
+                    ),
+                    result
+                )
                 assertFalse(result.toString().contains(response.body))
             }
     }
@@ -238,7 +251,7 @@ class GeminiRemotePlanningTransportTest {
 
             assertEquals(
                 "Over-limit fixture $index must be rejected",
-                RemotePlanningTransportResult.ProviderFailure,
+                RemotePlanningTransportResult.Failure(RemoteFailureKind.RESPONSE_FORMAT),
                 result,
             )
         }

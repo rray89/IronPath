@@ -25,11 +25,11 @@ class OnDevicePlanDraftMapper @Inject constructor(private val exerciseCatalog: E
                 )
             }
             val exercises = mutableListOf<ExerciseDraft>()
-            workout.exercises.forEach { exercise ->
+            workout.exercises.forEachIndexed { index, exercise ->
                 val catalogId = ExerciseCatalogId(exercise.catalogId)
                 if (exerciseCatalog.find(catalogId) == null) {
                     return OnDeviceDraftMapping.Invalid(
-                        "The draft contains an exercise that is not in the catalog."
+                        "Day ${workout.dayOfWeek}, exercise ${index + 1} is not in the catalog."
                     )
                 }
                 exercises +=

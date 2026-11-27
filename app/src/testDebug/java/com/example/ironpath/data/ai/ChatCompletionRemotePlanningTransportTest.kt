@@ -2,6 +2,7 @@ package com.example.ironpath.data.ai
 
 import com.example.ironpath.domain.planner.OnDeviceModelPrompt
 import com.example.ironpath.domain.planner.PlanningTokenUsage
+import com.example.ironpath.domain.planner.RemoteFailureKind
 import com.example.ironpath.domain.planner.RemotePlanningRoute
 import com.example.ironpath.domain.planner.RemotePlanningTransportResult
 import kotlinx.coroutines.CancellationException
@@ -29,7 +30,10 @@ class ChatCompletionRemotePlanningTransportTest {
         runTest {
             val http = FixtureRemoteHttpClient()
             val result = DeepSeekRemotePlanningTransport(http).generate("secret-test-key", prompt)
-            assertEquals(RemotePlanningTransportResult.ProviderFailure, result)
+            assertEquals(
+                RemotePlanningTransportResult.Failure(RemoteFailureKind.AUTHENTICATION),
+                result
+            )
             assertEquals("https://api.deepseek.com/chat/completions", http.url)
             assertEquals("Bearer secret-test-key", http.headers["Authorization"])
             val body = http.request()
@@ -145,6 +149,10 @@ class ChatCompletionRemotePlanningTransportTest {
             val responses =
                 listOf(
                     RemoteHttpResponse(401, "secret upstream body"),
+                    RemoteHttpResponse(400, "secret upstream body"),
+                    RemoteHttpResponse(402, "secret upstream body"),
+                    RemoteHttpResponse(403, "secret upstream body"),
+                    RemoteHttpResponse(408, "secret upstream body"),
                     RemoteHttpResponse(429, "secret upstream body"),
                     RemoteHttpResponse(503, "secret upstream body"),
                     RemoteHttpResponse(200, "not-json"),
@@ -176,7 +184,21 @@ class ChatCompletionRemotePlanningTransportTest {
                             OpenRouterRemotePlanningTransport(http)
                                 .generate("key", prompt, RemotePlanningRoute.OPENROUTER_OPENAI.name)
                         else DeepSeekRemotePlanningTransport(http).generate("key", prompt)
-                    assertEquals(RemotePlanningTransportResult.ProviderFailure, result)
+                    assertEquals(
+                        RemotePlanningTransportResult.Failure(
+                            when (response.statusCode) {
+                                400 -> RemoteFailureKind.REQUEST
+                                401 -> RemoteFailureKind.AUTHENTICATION
+                                402 -> RemoteFailureKind.BILLING
+                                403 -> RemoteFailureKind.ACCESS
+                                408 -> RemoteFailureKind.TIMEOUT
+                                429 -> RemoteFailureKind.RATE_LIMIT
+                                503 -> RemoteFailureKind.SERVICE
+                                else -> RemoteFailureKind.RESPONSE_FORMAT
+                            }
+                        ),
+                        result
+                    )
                     assertEquals(1, http.calls)
                     assertFalse(result.toString().contains("secret"))
                 }
@@ -194,7 +216,7 @@ class ChatCompletionRemotePlanningTransportTest {
                 ): RemoteHttpResponse = error("secret detail")
             }
         assertEquals(
-            RemotePlanningTransportResult.ProviderFailure,
+            RemotePlanningTransportResult.Failure(RemoteFailureKind.INTERNAL),
             DeepSeekRemotePlanningTransport(failure).generate("key", prompt)
         )
         val cancelled =
@@ -255,7 +277,7 @@ class ChatCompletionRemotePlanningTransportTest {
             }
             assertEquals(4, http.calls)
             assertEquals(
-                RemotePlanningTransportResult.ProviderFailure,
+                RemotePlanningTransportResult.Failure(RemoteFailureKind.CONFIGURATION),
                 routing.generate("key", prompt, "UNKNOWN")
             )
             assertEquals(4, http.calls)

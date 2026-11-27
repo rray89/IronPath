@@ -580,25 +580,32 @@ private fun PlanSetupScreen(
 
         Spacer(Modifier.height(32.dp))
 
+        val remoteFailure = aiGenerationState.remoteFailure()
         if (aiAvailable) {
+            remoteFailure?.let {
+                RemotePlanningFailureNotice(it, draftRetained = false, onDismiss = onClearAiResult)
+            }
             GreenGradientButton(
-                text = "Generate with AI",
+                text = remoteFailure?.let { "Retry ${it.provider}" } ?: "Generate with AI",
                 onClick = onGenerateWithAi,
                 modifier = Modifier.testTag(TestTags.PLAN_GENERATE_AI),
                 enabled =
                     intakeState.canGenerateWithAi &&
                         aiGenerationState !is AiGenerationUiState.Generating,
             )
-            AiGenerationStatus(
-                state = aiGenerationState,
-                onCancel = onCancelAiGeneration,
-                onClear = onClearAiResult,
-            )
+            if (remoteFailure == null)
+                AiGenerationStatus(
+                    state = aiGenerationState,
+                    onCancel = onCancelAiGeneration,
+                    onClear = onClearAiResult,
+                )
             Spacer(Modifier.height(12.dp))
         }
 
         GreenGradientButton(
-            text = "Use Rule-Based Planner",
+            text =
+                if (remoteFailure == null) "Use Rule-Based Planner"
+                else "Use local rule-based plan",
             onClick = onGenerate,
             modifier = Modifier.testTag(TestTags.PLAN_GENERATE),
             enabled = intakeState.canGenerateRuleBased,
@@ -771,6 +778,7 @@ private fun com.example.ironpath.domain.planner.PlanningFailure.userMessage(): S
     when (this) {
         is com.example.ironpath.domain.planner.PlanningFailure.InvalidRequest ->
             violations.firstOrNull() ?: "Review the planning intake and try again."
+        is com.example.ironpath.domain.planner.PlanningFailure.Remote -> kind.guidance
         com.example.ironpath.domain.planner.PlanningFailure.Timeout ->
             "Generation took too long. Try again."
         com.example.ironpath.domain.planner.PlanningFailure.Unavailable ->
