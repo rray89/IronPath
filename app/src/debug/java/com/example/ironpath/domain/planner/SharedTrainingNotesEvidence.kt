@@ -101,32 +101,43 @@ constructor(
         return "$label — ${findings.joinToString(" ")}"
     }
 
-    private fun catalogMatches(note: String, matchCautionTags: Boolean): Set<ExerciseCatalogEntry> =
-        buildSet {
-            var remaining = note.catalogWords()
-            // Consume specific names before considering shorter names and bare family terms.
-            catalogPhrases.forEach { (entry, phrase) ->
-                if (phrase in remaining) {
-                    add(entry)
-                    remaining = remaining.replace(phrase, "  ")
+    private fun catalogMatches(note: String, matchCautionTags: Boolean): Set<ExerciseCatalogEntry> {
+        val phrases =
+            note
+                .split(noteSeparators)
+                .map { it.catalogWords().trim().replaceFirst(noteLeadIn, "") }
+                .toSet()
+        // Match at the start of a clause after its lead-in so an unsupported
+        // qualifier such as "kettlebell deadlift" cannot become "Deadlift".
+        val namedMatches =
+            phrases
+                .mapNotNull { phrase ->
+                    val paddedPhrase = " $phrase "
+                    catalogPhrases
+                        .firstOrNull { (_, name) ->
+                            name.trim() !in movementFamilies && paddedPhrase.startsWith(name)
+                        }
+                        ?.let { phrase to it.first }
                 }
-            }
-            val standaloneTerms =
-                note
-                    .split(noteSeparators)
-                    .map { it.catalogWords().trim().replaceFirst(noteLeadIn, "") }
-                    .toSet()
-            val families = standaloneTerms.intersect(movementFamilies)
+                .toMap()
+        val remainingPhrases = phrases - namedMatches.keys
+        val aliases = remainingPhrases.mapNotNull(exerciseAliases::get).toSet()
+        val families = remainingPhrases.intersect(movementFamilies)
+        return buildSet {
+            addAll(namedMatches.values)
             catalogPhrases.forEach { (entry, phrase) ->
                 if (
-                    standaloneTerms.any { exerciseAliases[it] == entry.id } ||
+                    entry.id in aliases ||
                         families.any { " $it " in phrase } ||
                         (matchCautionTags &&
-                            entry.cautionTags.any { it.name.catalogWords() in remaining })
+                            entry.cautionTags.any { tag ->
+                                remainingPhrases.any { " $it ".contains(tag.name.catalogWords()) }
+                            })
                 )
                     add(entry)
             }
         }
+    }
 
     private fun String.catalogWords(): String =
         lowercase(Locale.ROOT).split(nonWord).filter(String::isNotEmpty).joinToString(

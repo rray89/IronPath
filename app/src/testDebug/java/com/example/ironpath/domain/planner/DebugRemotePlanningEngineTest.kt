@@ -277,6 +277,35 @@ class DebugRemotePlanningEngineTest {
     }
 
     @Test
+    fun `an unsupported equipment variant does not inherit another exercise restriction`() =
+        runTest {
+            val settings = configuredSettings(optionId = RemotePlanningRoute.DEEPSEEK.name)
+            val original = request()
+            val shared =
+                original.copy(
+                    intake =
+                        original.intake.copy(
+                            availableEquipment = setOf(Equipment.KETTLEBELL, Equipment.BODYWEIGHT),
+                            experience = TrainingExperience.ADVANCED,
+                            exercisePreferences = "I prefer kettlebell deadlifts",
+                            exerciseDislikes = "Skip single leg press",
+                        ),
+                    remoteNoteSharingRevision = settings.state.value.revision,
+                )
+            val subject = engine(settings, FakeRemotePlanningTransport(validTransportResult()))
+
+            val result = subject.generate(shared) as PlanningResult.Success
+
+            assertEquals(
+                listOf(
+                    "Exercise Preferences — No catalog match to verify in this draft.",
+                    "Exercise Dislikes — No catalog match to verify in this draft.",
+                ),
+                result.draft.providerMetadata.sharedTrainingNotesEvidence,
+            )
+        }
+
+    @Test
     fun `invalid remote output is rejected by the local validator`() = runTest {
         val invalidProposal =
             validProposal()

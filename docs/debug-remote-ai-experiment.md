@@ -83,9 +83,10 @@ and past loads stay local; structured Movement Limits and the existing validator
 remain authoritative. Preferences and dislikes guide exercise selection.
 
 Why This Week shows catalog matches against the generated draft and names equipment
-or Movement Limits when a matching exercise is ineligible. Specific exercise names
-take priority over standalone movement terms such as “squats.” Unmatched wording is reported as
-unverifiable from the draft. This evidence describes observable choices and cannot
+or Movement Limits when a matching exercise is ineligible. The app checks named
+exercises and standalone movement terms such as “squats” at phrase boundaries.
+Unsupported variants and unmatched wording are reported as unverifiable from the
+draft. This evidence describes observable choices and cannot
 establish the provider's reasoning. The review withdraws the original evidence once
 workouts are edited. The shared path uses app-generated explanations and workout
 titles to keep provider echoes out of review and saved plans.
