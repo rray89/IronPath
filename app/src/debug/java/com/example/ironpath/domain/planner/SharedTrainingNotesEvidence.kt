@@ -1,7 +1,5 @@
 package com.example.ironpath.domain.planner
 
-import com.example.ironpath.domain.planner.OnDevicePlanPromptBuilder.Companion.MAX_INTAKE_TEXT_LENGTH
-import com.example.ironpath.domain.planner.OnDevicePlanPromptBuilder.Companion.MAX_PREFERENCE_TEXT_LENGTH
 import java.util.Locale
 import javax.inject.Inject
 
@@ -23,28 +21,15 @@ constructor(
                 exercises.sumOf(ExerciseDraft::sets)
             }
         val context = request.validationContext(PlanningEngineType.DEBUG_REMOTE_AI)
-        val intake = request.intake
-        return listOfNotNull(
+        return request.intake.trainingNotesForSharing().mapNotNull { note ->
             describe(
-                "Injury Notes",
-                intake.injuryNotes.boundedPromptText(MAX_INTAKE_TEXT_LENGTH),
+                note.field.title,
+                note.text,
                 setsById,
                 context,
-                matchCautionTags = true,
-            ),
-            describe(
-                "Exercise Preferences",
-                intake.exercisePreferences.boundedPromptText(MAX_PREFERENCE_TEXT_LENGTH),
-                setsById,
-                context,
-            ),
-            describe(
-                "Exercise Dislikes",
-                intake.exerciseDislikes.boundedPromptText(MAX_PREFERENCE_TEXT_LENGTH),
-                setsById,
-                context,
-            ),
-        )
+                matchCautionTags = note.field == TrainingNoteField.INJURY_NOTES,
+            )
+        }
     }
 
     private fun describe(

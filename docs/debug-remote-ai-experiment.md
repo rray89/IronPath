@@ -76,9 +76,12 @@ provider or key invalidates the confirmation and any in-flight request. Cancella
 after sending stops local waiting and discards the remote result.
 
 Only the filled Injury Notes, Exercise Preferences and Exercise Dislikes may be
-shared in that request. The planner accepts up to 500 characters of Injury Notes and
-300 each for Preferences and Dislikes. Prompt construction flattens whitespace and
-escapes data delimiters before applying the same bounds. Training history, Records
+shared in that request. The confirmation previews the exact cleaned text for each
+field even while sharing is unchecked. Empty fields are marked and omitted. The
+request flattens whitespace and escapes data delimiters before applying its limits
+of 500 for Injury Notes and 300 each for Preferences and Dislikes. Only shortened
+fields show a truncation notice. The Debug editor retains up to 4,000 per field
+locally so text over the send limit survives cancellation. Training history, Records
 and past loads stay local; structured Movement Limits and the existing validator
 remain authoritative. Preferences and dislikes guide exercise selection.
 

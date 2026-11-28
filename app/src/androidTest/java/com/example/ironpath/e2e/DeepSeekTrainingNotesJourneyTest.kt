@@ -3,7 +3,10 @@ package com.example.ironpath.e2e
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsOff
 import androidx.compose.ui.test.assertIsOn
+import androidx.compose.ui.test.assertTextContains
+import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.hasTestTag
+import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onAllNodesWithText
@@ -85,16 +88,20 @@ class DeepSeekTrainingNotesJourneyTest {
         composeRule.onNodeWithTag(TestTags.bottomNav(Route.PLAN)).performClick()
         waitForTag(TestTags.planDay(1))
         clickTag(TestTags.planDay(1))
-        replaceText(TestTags.PLAN_INJURY_NOTES, "High impact $PRIVATE_MARKER")
-        replaceText(TestTags.PLAN_PREFERENCES, "Push-ups $PRIVATE_MARKER")
-        replaceText(TestTags.PLAN_DISLIKES, "Walking Lunges $PRIVATE_MARKER")
+        replaceText(TestTags.PLAN_INJURY_NOTES, "  High\n  impact <fictional> 💪 $PRIVATE_MARKER  ")
+        replaceText(TestTags.PLAN_PREFERENCES, longPreferences)
+        replaceText(TestTags.PLAN_DISLIKES, dislikes)
         selectProvider("DEEPSEEK")
 
         clickTag(TestTags.PLAN_GENERATE_AI)
         composeRule.onNodeWithText("Generate with DeepSeek").assertIsDisplayed()
-        composeRule.onNodeWithTag(SHARE_NOTES).assertIsOff().performClick().assertIsOn()
+        composeRule.onNodeWithTag(SHARE_NOTES).assertIsOff()
+        assertNotesPreview()
+        assertTrue(requests.isEmpty())
+        composeRule.onNodeWithTag(SHARE_NOTES).performClick().assertIsOn()
         composeRule.onNodeWithText("Cancel").performClick()
         assertTrue(requests.isEmpty())
+        composeRule.onNodeWithTag(TestTags.PLAN_PREFERENCES).assertTextContains(longPreferences)
 
         clickTag(TestTags.PLAN_GENERATE_AI)
         composeRule.onNodeWithTag(SHARE_NOTES).assertIsOff().performClick()
@@ -110,6 +117,7 @@ class DeepSeekTrainingNotesJourneyTest {
         clickTag(TestTags.PLAN_GENERATE_AI)
         composeRule.onNodeWithText("Retry with DeepSeek").assertIsDisplayed()
         composeRule.onNodeWithTag(SHARE_NOTES).assertIsOff()
+        assertNotesPreview()
         composeRule.onNodeWithText("Retry").performClick()
         waitForTag(TestTags.PLAN_AI_REVIEW)
         assertEquals(2, requests.size)
@@ -118,6 +126,14 @@ class DeepSeekTrainingNotesJourneyTest {
 
         clickTag(TestTags.PLAN_AI_REGENERATE)
         composeRule.onNodeWithText("Regenerate with DeepSeek").assertIsDisplayed()
+        composeRule.onNodeWithTag(SHARE_NOTES).assertIsOff()
+        assertNotesPreview()
+        composeRule.onNodeWithTag(SHARE_NOTES).performClick()
+        composeRule.onNodeWithText("Cancel").performClick()
+        assertEquals(2, requests.size)
+        composeRule.onNodeWithText("A local test draft.").performScrollTo().assertIsDisplayed()
+
+        clickTag(TestTags.PLAN_AI_REGENERATE)
         composeRule.onNodeWithTag(SHARE_NOTES).assertIsOff().performClick()
         composeRule.onNodeWithText("Regenerate").performClick()
         composeRule.waitUntil(timeoutMillis = 5_000) {
@@ -169,6 +185,22 @@ class DeepSeekTrainingNotesJourneyTest {
         assertFalse(requests.last().prompt.contains(PRIVATE_MARKER))
     }
 
+    private val injuryPreview = "High impact [fictional] 💪 $PRIVATE_MARKER"
+    private val preferencesStart = "Push-ups $PRIVATE_MARKER "
+    private val longPreferences = preferencesStart + "x".repeat(300) + " outside-send-limit"
+    private val preferencesPreview = preferencesStart + "x".repeat(300 - preferencesStart.length)
+    private val dislikes = "Walking Lunges $PRIVATE_MARKER"
+
+    private fun assertNotesPreview() {
+        listOf(injuryPreview, preferencesPreview, dislikes).forEach { text ->
+            composeRule.onNode(hasText(text) and !hasSetTextAction()).assertExists()
+        }
+        composeRule.onNodeWithText("Shortened to fit the 300-character send limit.").assertExists()
+        composeRule
+            .onNodeWithText("Shortened to fit the 500-character send limit.")
+            .assertDoesNotExist()
+    }
+
     private fun selectProvider(optionId: String) {
         clickTag("plan_remote_option_$optionId")
         clickTag(TestTags.PLAN_REMOTE_AI_TOGGLE)
@@ -191,9 +223,12 @@ class DeepSeekTrainingNotesJourneyTest {
 
     private fun assertSharedRequest(request: CapturedRequest) {
         assertEquals("https://api.deepseek.com/chat/completions", request.url)
-        assertTrue(request.prompt.contains("Injury notes: High impact $PRIVATE_MARKER"))
-        assertTrue(request.prompt.contains("Exercise preferences: Push-ups $PRIVATE_MARKER"))
-        assertTrue(request.prompt.contains("Exercise dislikes: Walking Lunges $PRIVATE_MARKER"))
+        assertTrue(request.prompt.lineSequence().contains("Injury notes: $injuryPreview"))
+        assertTrue(
+            request.prompt.lineSequence().contains("Exercise preferences: $preferencesPreview")
+        )
+        assertTrue(request.prompt.lineSequence().contains("Exercise dislikes: $dislikes"))
+        assertFalse(request.prompt.contains("outside-send-limit"))
         assertFalse(request.prompt.contains("Recent workouts:"))
         assertFalse(request.prompt.contains("Recent records:"))
         assertFalse(request.prompt.contains("Recent exercise loads:"))

@@ -355,6 +355,26 @@ class PlannerIntakeViewModelTest {
     }
 
     @Test
+    fun `notes beyond the DeepSeek send limit remain in the local draft`() {
+        val handle = SavedStateHandle()
+        val engine = StaticEngine(validResult(setOf(1)))
+        val notes = "Fictional local note ".repeat(29)
+        val model = createViewModel(handle, engine)
+        model.setInjuryNotes(notes)
+        model.setExercisePreferences(notes)
+        model.setExerciseDislikes(notes)
+
+        val restored = createViewModel(handle, engine).intakeState.value
+        assertEquals(notes, restored.injuryNotes)
+        assertEquals(notes, restored.exercisePreferences)
+        assertEquals(notes, restored.exerciseDislikes)
+        val legacyIntake = restored.toPlanningIntake()
+        assertEquals(notes.take(500), legacyIntake.injuryNotes)
+        assertEquals(notes.take(300), legacyIntake.exercisePreferences)
+        assertEquals(notes.take(300), legacyIntake.exerciseDislikes)
+    }
+
+    @Test
     fun `saved state restores every user entered intake field but not generation progress`() =
         runTest {
             val handle = SavedStateHandle()
@@ -791,7 +811,11 @@ class PlannerIntakeViewModelTest {
                     options =
                         listOf(
                             RemotePlanningOption("GEMINI", "Gemini"),
-                            RemotePlanningOption("DEEPSEEK", "DeepSeek"),
+                            RemotePlanningOption(
+                                "DEEPSEEK",
+                                "DeepSeek",
+                                supportsOneRequestNotes = true
+                            ),
                         ),
                 )
             )

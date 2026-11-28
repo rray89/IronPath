@@ -113,16 +113,7 @@ internal constructor(
         }
         val intake = request.intake
         val shareNotes =
-            sharingRevision != null &&
-                (intake.injuryNotes
-                    .boundedPromptText(OnDevicePlanPromptBuilder.MAX_INTAKE_TEXT_LENGTH)
-                    .isNotEmpty() ||
-                    intake.exercisePreferences
-                        .boundedPromptText(OnDevicePlanPromptBuilder.MAX_PREFERENCE_TEXT_LENGTH)
-                        .isNotEmpty() ||
-                    intake.exerciseDislikes
-                        .boundedPromptText(OnDevicePlanPromptBuilder.MAX_PREFERENCE_TEXT_LENGTH)
-                        .isNotEmpty())
+            sharingRevision != null && intake.trainingNotesForSharing().any { it.text.isNotEmpty() }
         val minimalRequest =
             request.copy(
                 intake =

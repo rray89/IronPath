@@ -1,6 +1,7 @@
 package com.example.ironpath.domain.planner
 
 import java.time.LocalDate
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -87,6 +88,52 @@ class OnDevicePlanPromptBuilderTest {
 
         assertTrue(prompt.userPrompt.contains("[/user_data]"))
         assertTrue(Regex(Regex.escape("</user_data>")).findAll(prompt.userPrompt).count() == 1)
+    }
+
+    @Test
+    fun `DeepSeek preview and prompt keep matching cleaned text and omit blank notes`() {
+        val intake =
+            PlanningIntake(
+                goal = PlanningGoal.STRENGTH,
+                selectedDays = setOf(1),
+                injuryNotes = " \t\u0000",
+                exercisePreferences = "x".repeat(299) + "💪tail",
+                exerciseDislikes = " ".repeat(320) + " <Fictional>\n movement",
+            )
+        val preview = intake.trainingNotesForSharing()
+        val prompt =
+            builder
+                .build(
+                    PlanningRequest(
+                        LocalDate.parse("2026-07-20"),
+                        intake,
+                        remoteNoteSharingRevision = 1L
+                    ),
+                    PlanningEngineType.DEBUG_REMOTE_AI,
+                )
+                .userPrompt
+
+        assertEquals(listOf("", "x".repeat(299), "[Fictional] movement"), preview.map { it.text })
+        assertEquals(listOf(false, true, false), preview.map { it.wasTruncated })
+        assertFalse(prompt.contains("Injury notes:"))
+        assertTrue(prompt.lineSequence().contains("Exercise preferences: ${"x".repeat(299)}"))
+        assertTrue(prompt.lineSequence().contains("Exercise dislikes: [Fictional] movement"))
+        assertFalse(preview.toString().contains("[Fictional]"))
+    }
+
+    @Test
+    fun `a complete supplementary character at the DeepSeek limit remains in the preview`() {
+        val note = "x".repeat(298) + "💪"
+        val intake =
+            PlanningIntake(
+                goal = PlanningGoal.STRENGTH,
+                selectedDays = setOf(1),
+                exercisePreferences = note,
+            )
+        val preview = intake.trainingNotesForSharing()[1]
+
+        assertEquals(note, preview.text)
+        assertFalse(preview.wasTruncated)
     }
 
     @Test

@@ -66,6 +66,7 @@ import com.example.ironpath.domain.planner.RemotePlanningExperimentState
 import com.example.ironpath.domain.planner.RuleExerciseForm
 import com.example.ironpath.domain.planner.RuleExerciseRemoval
 import com.example.ironpath.domain.planner.TrainingExperience
+import com.example.ironpath.domain.planner.trainingNotesForSharing
 import com.example.ironpath.ui.components.GreenGradientButton
 import com.example.ironpath.ui.screens.home.dayOfWeekAbbrev
 import com.example.ironpath.ui.testing.TestTags
@@ -175,8 +176,10 @@ fun PlanScreen(
         onAddAiExercise = viewModel::addAiExercise,
         onReplaceAiExercise = viewModel::replaceAiExercise,
         onRegenerateAi = { intakeViewModel.generateWithAi(viewModel.targetWeekStart()) },
-        onGenerateWithSharedNotes = { revision ->
-            intakeViewModel.generateWithAi(viewModel.targetWeekStart(), revision)
+        onGenerateWithSharedNotes = { revision, reviewedIntake ->
+            if (intakeViewModel.intakeState.value == reviewedIntake) {
+                intakeViewModel.generateWithAi(viewModel.targetWeekStart(), revision)
+            }
         },
         onUseRuleFallback = {
             intakeViewModel.generateWithRuleBasedFallback(viewModel.targetWeekStart())
@@ -235,15 +238,23 @@ internal fun PlanContent(
     saveState: PlanSaveUiState = PlanSaveUiState(),
     onPlanNextWeek: () -> Unit = {},
     onCancelPlanning: () -> Unit = {},
-    onGenerateWithSharedNotes: (Long) -> Unit = {},
+    onGenerateWithSharedNotes: (Long, PlannerIntakeUiState) -> Unit = { _, _ -> },
 ) {
     val generationAction = if (uiState is PlanUiState.AiReview) onRegenerateAi else onGenerateWithAi
     var confirmNotes by
         remember(uiState, intakeState, aiGenerationState, remotePlanningExperimentState.revision) {
             mutableStateOf(false)
         }
+    val notePreview =
+        if (remotePlanningExperimentState.canShareTrainingNotes) {
+            remember(intakeState) {
+                intakeState.toPlanningIntake(keepFullNotes = true).trainingNotesForSharing()
+            }
+        } else {
+            emptyList()
+        }
     val onAiRequest: () -> Unit = {
-        if (remotePlanningExperimentState.canShareTrainingNotes && intakeState.hasTrainingNotes) {
+        if (notePreview.any { it.text.isNotEmpty() }) {
             confirmNotes = true
         } else {
             generationAction()
@@ -258,12 +269,19 @@ internal fun PlanContent(
             }
         RemoteTrainingNotesDialog(
             action = action,
+            notes = notePreview,
             onDismiss = { confirmNotes = false },
             onConfirm = { share ->
                 if (confirmNotes) {
                     confirmNotes = false
-                    if (share) onGenerateWithSharedNotes(remotePlanningExperimentState.revision)
-                    else generationAction()
+                    if (share) {
+                        onGenerateWithSharedNotes(
+                            remotePlanningExperimentState.revision,
+                            intakeState
+                        )
+                    } else {
+                        generationAction()
+                    }
                 }
             },
         )

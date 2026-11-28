@@ -22,10 +22,9 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
-import com.example.ironpath.domain.planner.OnDevicePlanPromptBuilder.Companion.MAX_INTAKE_TEXT_LENGTH
-import com.example.ironpath.domain.planner.OnDevicePlanPromptBuilder.Companion.MAX_PREFERENCE_TEXT_LENGTH
 import com.example.ironpath.domain.planner.RemotePlanningExperimentState
 import com.example.ironpath.domain.planner.RemotePlanningRoute
+import com.example.ironpath.domain.planner.TrainingNoteForSharing
 import com.example.ironpath.ui.testing.TestTags
 
 @Composable
@@ -119,6 +118,7 @@ internal fun RemoteAiLab(
 @Composable
 internal fun RemoteTrainingNotesDialog(
     action: String,
+    notes: List<TrainingNoteForSharing>,
     onDismiss: () -> Unit,
     onConfirm: (Boolean) -> Unit,
 ) {
@@ -127,7 +127,10 @@ internal fun RemoteTrainingNotesDialog(
         onDismissRequest = onDismiss,
         title = { Text("$action with DeepSeek") },
         text = {
-            Column(Modifier.verticalScroll(rememberScrollState())) {
+            Column(
+                modifier = Modifier.verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
                 Row(
                     modifier =
                         Modifier.fillMaxWidth()
@@ -143,10 +146,23 @@ internal fun RemoteTrainingNotesDialog(
                     Checkbox(checked = shareNotes, onCheckedChange = null)
                     Text("Share filled Training Notes for this request")
                 }
-                Text("Injury Notes · up to $MAX_INTAKE_TEXT_LENGTH characters")
-                Text("Exercise Preferences · up to $MAX_PREFERENCE_TEXT_LENGTH characters")
-                Text("Exercise Dislikes · up to $MAX_PREFERENCE_TEXT_LENGTH characters")
-                Spacer(Modifier.height(12.dp))
+                Text("DeepSeek receives the text below only if you check the box and continue.")
+                notes.forEach { note ->
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text(note.field.title, style = MaterialTheme.typography.titleSmall)
+                        if (note.text.isEmpty()) {
+                            Text("No text to share", style = MaterialTheme.typography.bodyMedium)
+                        } else {
+                            Text(note.text, style = MaterialTheme.typography.bodyMedium)
+                        }
+                        if (note.wasTruncated) {
+                            Text(
+                                "Shortened to fit the ${note.field.sendLimit}-character send limit.",
+                                style = MaterialTheme.typography.bodySmall,
+                            )
+                        }
+                    }
+                }
                 Text(
                     "This choice resets for each request. Training history and Records stay on this device."
                 )

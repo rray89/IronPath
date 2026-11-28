@@ -53,22 +53,21 @@ data class PlannerIntakeUiState(
     val canGenerateWithAi: Boolean
         get() = canGenerateRuleBased && availableEquipment.isNotEmpty()
 
-    val hasTrainingNotes: Boolean
-        get() =
-            injuryNotes.isNotBlank() ||
-                exercisePreferences.isNotBlank() ||
-                exerciseDislikes.isNotBlank()
-
-    fun toPlanningIntake() =
+    fun toPlanningIntake(keepFullNotes: Boolean = false) =
         PlanningIntake(
             goal = goal,
             selectedDays = selectedDays,
             experience = experience,
             availableEquipment = availableEquipment,
             forbiddenCautionTags = forbiddenCautionTags,
-            injuryNotes = injuryNotes,
-            exercisePreferences = exercisePreferences,
-            exerciseDislikes = exerciseDislikes,
+            injuryNotes =
+                if (keepFullNotes) injuryNotes else injuryNotes.take(MAX_INTAKE_TEXT_LENGTH),
+            exercisePreferences =
+                if (keepFullNotes) exercisePreferences
+                else exercisePreferences.take(MAX_PREFERENCE_TEXT_LENGTH),
+            exerciseDislikes =
+                if (keepFullNotes) exerciseDislikes
+                else exerciseDislikes.take(MAX_PREFERENCE_TEXT_LENGTH),
         )
 }
 
@@ -185,16 +184,25 @@ constructor(
     }
 
     fun setInjuryNotes(notes: String) = updateIntake {
-        copy(injuryNotes = notes.take(MAX_INTAKE_TEXT_LENGTH))
+        copy(injuryNotes = notes.keepLocalDraft(MAX_INTAKE_TEXT_LENGTH))
     }
 
     fun setExercisePreferences(preferences: String) = updateIntake {
-        copy(exercisePreferences = preferences.take(MAX_PREFERENCE_TEXT_LENGTH))
+        copy(exercisePreferences = preferences.keepLocalDraft(MAX_PREFERENCE_TEXT_LENGTH))
     }
 
     fun setExerciseDislikes(dislikes: String) = updateIntake {
-        copy(exerciseDislikes = dislikes.take(MAX_PREFERENCE_TEXT_LENGTH))
+        copy(exerciseDislikes = dislikes.keepLocalDraft(MAX_PREFERENCE_TEXT_LENGTH))
     }
+
+    private fun String.keepLocalDraft(legacyLimit: Int): String =
+        take(
+            if (remotePlanningExperiment.state.value.options.any { it.supportsOneRequestNotes }) {
+                MAX_DEBUG_NOTE_DRAFT_LENGTH
+            } else {
+                legacyLimit
+            }
+        )
 
     fun generateWithAi(
         targetWeekStart: java.time.LocalDate? = null,
@@ -278,7 +286,9 @@ constructor(
                             remoteNoteSharingRevision = remoteNoteSharingRevision,
                             intake =
                                 intakeSnapshot
-                                    .toPlanningIntake()
+                                    .toPlanningIntake(
+                                        keepFullNotes = remoteNoteSharingRevision != null
+                                    )
                                     .copy(recentTraining = recentTraining),
                         )
                     if (configurationSnapshot != remotePlanningExperiment.state.value) return@launch
@@ -411,6 +421,7 @@ constructor(
             ?.toSet()
 
     private companion object {
+        const val MAX_DEBUG_NOTE_DRAFT_LENGTH = 4_000
         const val KEY_GOAL = "planner_intake_goal"
         const val KEY_DAYS = "planner_intake_days"
         const val KEY_EXPERIENCE = "planner_intake_experience"

@@ -76,17 +76,21 @@ constructor(
             val sharingRemoteNotes =
                 engineType == PlanningEngineType.DEBUG_REMOTE_AI &&
                     remoteNoteSharingRevision != null
-            listOf(
-                    "Injury notes" to intake.injuryNotes.boundedPromptText(MAX_INTAKE_TEXT_LENGTH),
-                    "Exercise preferences" to
-                        intake.exercisePreferences.boundedPromptText(MAX_PREFERENCE_TEXT_LENGTH),
-                    "Exercise dislikes" to
-                        intake.exerciseDislikes.boundedPromptText(MAX_PREFERENCE_TEXT_LENGTH),
-                )
-                .forEach { (label, note) ->
-                    if (!sharingRemoteNotes || note.isNotBlank()) appendLine("$label: $note")
+            if (sharingRemoteNotes) {
+                intake.trainingNotesForSharing().forEach { note ->
+                    if (note.text.isNotEmpty())
+                        appendLine("${note.field.promptLabel}: ${note.text}")
                 }
-            if (!sharingRemoteNotes) {
+            } else {
+                appendLine(
+                    "Injury notes: ${intake.injuryNotes.boundedPromptText(MAX_INTAKE_TEXT_LENGTH)}"
+                )
+                appendLine(
+                    "Exercise preferences: ${intake.exercisePreferences.boundedPromptText(MAX_PREFERENCE_TEXT_LENGTH)}"
+                )
+                appendLine(
+                    "Exercise dislikes: ${intake.exerciseDislikes.boundedPromptText(MAX_PREFERENCE_TEXT_LENGTH)}"
+                )
                 appendLine("Recent workouts:")
                 intake.recentTraining.workouts.take(MAX_HISTORY_ITEMS).forEach { workout ->
                     appendLine(
@@ -138,12 +142,14 @@ constructor(
 }
 
 internal fun String.boundedPromptText(maxLength: Int): String =
+    normalizedPromptText().take(maxLength)
+
+internal fun String.normalizedPromptText(): String =
     map { character -> if (character.isISOControl()) ' ' else character }
         .joinToString(separator = "")
         .replace('<', '[')
         .replace('>', ']')
         .replace(WHITESPACE, " ")
         .trim()
-        .take(maxLength)
 
 private val WHITESPACE = Regex("\\s+")
