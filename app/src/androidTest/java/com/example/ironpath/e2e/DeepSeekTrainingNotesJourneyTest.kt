@@ -106,8 +106,15 @@ class DeepSeekTrainingNotesJourneyTest {
         clickTag(TestTags.PLAN_GENERATE_AI)
         composeRule.onNodeWithTag(SHARE_NOTES).assertIsOff().performClick()
         composeRule.onNodeWithText("Generate").performClick()
+        val failureTitle = "DeepSeek · Flash could not generate a plan"
+        val errorHeading = composeRule.onAllNodesWithText(failureTitle, useUnmergedTree = true)
+        val shareDialog = composeRule.onAllNodesWithTag(SHARE_NOTES, useUnmergedTree = true)
+        composeRule.waitUntil(timeoutMillis = 5_000) {
+            shareDialog.fetchSemanticsNodes().isEmpty() &&
+                errorHeading.fetchSemanticsNodes().size == 1
+        }
         composeRule
-            .onNodeWithText("DeepSeek · Flash could not generate a plan")
+            .onNodeWithText(failureTitle, useUnmergedTree = true)
             .performScrollTo()
             .assertIsDisplayed()
         composeRule.onNodeWithText(PRIVATE_MARKER).assertDoesNotExist()
