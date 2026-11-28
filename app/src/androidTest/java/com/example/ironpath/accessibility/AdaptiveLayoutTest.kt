@@ -53,12 +53,14 @@ import com.example.ironpath.domain.planner.PlanDraft
 import com.example.ironpath.domain.planner.PlanValidationContext
 import com.example.ironpath.domain.planner.PlanningEngineType
 import com.example.ironpath.domain.planner.PlanningGoal
+import com.example.ironpath.domain.planner.PlanningIntake
 import com.example.ironpath.domain.planner.PlanningProviderMetadata
 import com.example.ironpath.domain.planner.RemotePlanningExperimentState
 import com.example.ironpath.domain.planner.RemotePlanningRoute
 import com.example.ironpath.domain.planner.TrainingExperience
 import com.example.ironpath.domain.planner.ValidatedPlanDraft
 import com.example.ironpath.domain.planner.WorkoutDraft
+import com.example.ironpath.domain.planner.trainingNotesForSharing
 import com.example.ironpath.ui.screens.WorkoutStartUiState
 import com.example.ironpath.ui.screens.active.ActiveContent
 import com.example.ironpath.ui.screens.active.ActiveUiState
@@ -82,6 +84,7 @@ import com.example.ironpath.ui.testing.TestTags
 import com.example.ironpath.ui.theme.IronPathTheme
 import java.time.LocalDate
 import java.time.ZoneOffset
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -344,6 +347,46 @@ class AdaptiveLayoutTest {
                     .assertHasClickAction()
                     .assertMinimumTouchTarget(label)
             }
+    }
+
+    @Test
+    fun deepSeekConsentAtDoubleFontKeepsSharingAndActionsReachable() {
+        var submitted: Boolean? = null
+        val notes =
+            PlanningIntake(
+                    goal = PlanningGoal.STRENGTH,
+                    selectedDays = setOf(1),
+                    injuryNotes = "Fictional training note. ".repeat(30),
+                    exerciseDislikes = "Walking Lunges",
+                )
+                .trainingNotesForSharing()
+        setAdaptiveContent(COMPACT_PORTRAIT) {
+            com.example.ironpath.ui.screens.plan.RemoteTrainingNotesDialog(
+                action = "Regenerate",
+                notes = notes,
+                onDismiss = {},
+                onConfirm = { submitted = it },
+            )
+        }
+        composeRule
+            .onNodeWithTag("plan_share_training_notes")
+            .assertIsOff()
+            .assertHasClickAction()
+            .assertMinimumTouchTarget("Share Training Notes")
+        listOf(
+                "Injury Notes",
+                "Shortened to fit the 500-character send limit.",
+                "Exercise Preferences",
+                "No text to share",
+                "Exercise Dislikes",
+                "Walking Lunges",
+            )
+            .forEach { label ->
+                composeRule.onNodeWithText(label).performScrollTo().assertIsDisplayed()
+            }
+        composeRule.onNodeWithText("Cancel").assertIsDisplayed()
+        composeRule.onNodeWithText("Regenerate").assertIsDisplayed().performClick()
+        assertEquals(false, submitted)
     }
 
     @Test

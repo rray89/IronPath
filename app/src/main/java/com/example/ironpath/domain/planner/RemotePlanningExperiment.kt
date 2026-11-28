@@ -2,7 +2,11 @@ package com.example.ironpath.domain.planner
 
 import kotlinx.coroutines.flow.StateFlow
 
-data class RemotePlanningOption(val id: String, val label: String)
+data class RemotePlanningOption(
+    val id: String,
+    val label: String,
+    val supportsOneRequestNotes: Boolean = false,
+)
 
 data class RemotePlanningExperimentState(
     val available: Boolean = false,
@@ -14,6 +18,9 @@ data class RemotePlanningExperimentState(
 ) {
     val configured: Boolean
         get() = available && enabled && apiKey.isNotBlank()
+
+    val canShareTrainingNotes: Boolean
+        get() = configured && options.any { it.id == optionId && it.supportsOneRequestNotes }
 
     override fun toString() =
         "RemotePlanningExperimentState(available=$available, enabled=$enabled, apiKey=<redacted>)"

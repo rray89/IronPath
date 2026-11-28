@@ -15,6 +15,7 @@ enum class PlanningEngineType(val debugOnly: Boolean) {
 data class PlanningRequest(
     val targetWeekStart: LocalDate,
     val intake: PlanningIntake,
+    val remoteNoteSharingRevision: Long? = null,
 ) {
     constructor(
         targetWeekStart: LocalDate,
@@ -64,6 +65,7 @@ data class PlanningProviderMetadata(
     val sourceLabel: String? = null,
     val remoteConfigurationRevision: Long? = null,
     val tokenUsage: PlanningTokenUsage? = null,
+    val sharedTrainingNotesEvidence: List<String> = emptyList(),
 )
 
 sealed interface PlanningResult {

@@ -45,9 +45,10 @@ become user-visible strings. There is no automatic paid repair/retry. Enabling t
 
 The shared codec establishes JSON structure; app mapping and `PlanValidator` still
 check catalog IDs, selected dates, equipment, movement exclusions, exercise bounds,
-weekly volume, rest and progression. Remote requests omit free-text injury notes,
-preferences/dislikes and all workout/record/load history. They send only goal, days,
+weekly volume, rest and progression. By default remote requests send goal, days,
 experience, equipment, structured movement exclusions and eligible catalog entries.
+Only a one-request DeepSeek confirmation can add free-text Training Notes. All
+remote routes omit workout, record and load history.
 The validator retains the original local intake/history, so omitted history never
 weakens progression checks. Use synthetic intake for the final live smoke.
 
@@ -65,6 +66,33 @@ generation duration, and input/output token counts when reported. Missing usage 
 shown as unreported, not zero. These are ephemeral observations, not billing totals.
 The existing source badge and sanitized fallback explanation distinguish remote,
 fake and rules. No keys, request/response bodies or raw errors are logged or persisted.
+
+## DeepSeek one-request Training Notes
+
+A configured DeepSeek request with at least one filled note opens a confirmation beside
+Generate, Retry or Regenerate. Sharing starts unchecked every time. Cancel closes
+the confirmation without sending. Edit Inputs preserves the local fields. Changing
+provider or key invalidates the confirmation and any in-flight request. Cancellation
+after sending stops local waiting and discards the remote result.
+
+Only the filled Injury Notes, Exercise Preferences and Exercise Dislikes may be
+shared in that request. The confirmation previews the exact cleaned text for each
+field even while sharing is unchecked. Empty fields are marked and omitted. The
+request flattens whitespace and escapes data delimiters before applying its limits
+of 500 for Injury Notes and 300 each for Preferences and Dislikes. Only shortened
+fields show a truncation notice. The Debug editor retains up to 4,000 per field
+locally so text over the send limit survives cancellation. Training history, Records
+and past loads stay local; structured Movement Limits and the existing validator
+remain authoritative. Preferences and dislikes guide exercise selection.
+
+Why This Week shows catalog matches against the generated draft and names equipment
+or Movement Limits when a matching exercise is ineligible. The app checks named
+exercises and standalone movement terms such as “squats” at phrase boundaries.
+Unsupported variants and unmatched wording are reported as unverifiable from the
+draft. This evidence describes observable choices and cannot
+establish the provider's reasoning. The review withdraws the original evidence once
+workouts are edited. The shared path uses app-generated explanations and workout
+titles to keep provider echoes out of review and saved plans.
 
 ## Secret and variant boundary
 

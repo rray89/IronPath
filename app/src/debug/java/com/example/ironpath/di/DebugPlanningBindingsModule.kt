@@ -32,10 +32,6 @@ abstract class DebugPlanningBindingsModule {
 
     @Binds
     @Singleton
-    abstract fun bindRemoteHttpClient(implementation: OkHttpRemoteHttpClient): RemoteHttpClient
-
-    @Binds
-    @Singleton
     abstract fun bindRemotePlanningTransport(
         implementation: RoutingRemotePlanningTransport
     ): RemotePlanningTransport
@@ -63,4 +59,12 @@ abstract class DebugPlanningBindingsModule {
         fun provideDebugRemoteAiCandidate() =
             AiPlanningCandidate(PlanningEngineType.DEBUG_REMOTE_AI, priority = 25)
     }
+}
+
+@Module
+@InstallIn(SingletonComponent::class)
+abstract class DebugRemoteHttpModule {
+    @Binds
+    @Singleton
+    abstract fun bindRemoteHttpClient(implementation: OkHttpRemoteHttpClient): RemoteHttpClient
 }

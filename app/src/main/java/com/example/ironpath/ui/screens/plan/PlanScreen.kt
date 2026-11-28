@@ -38,6 +38,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -63,6 +66,7 @@ import com.example.ironpath.domain.planner.RemotePlanningExperimentState
 import com.example.ironpath.domain.planner.RuleExerciseForm
 import com.example.ironpath.domain.planner.RuleExerciseRemoval
 import com.example.ironpath.domain.planner.TrainingExperience
+import com.example.ironpath.domain.planner.trainingNotesForSharing
 import com.example.ironpath.ui.components.GreenGradientButton
 import com.example.ironpath.ui.screens.home.dayOfWeekAbbrev
 import com.example.ironpath.ui.testing.TestTags
@@ -172,6 +176,11 @@ fun PlanScreen(
         onAddAiExercise = viewModel::addAiExercise,
         onReplaceAiExercise = viewModel::replaceAiExercise,
         onRegenerateAi = { intakeViewModel.generateWithAi(viewModel.targetWeekStart()) },
+        onGenerateWithSharedNotes = { revision, reviewedIntake ->
+            if (intakeViewModel.intakeState.value == reviewedIntake) {
+                intakeViewModel.generateWithAi(viewModel.targetWeekStart(), revision)
+            }
+        },
         onUseRuleFallback = {
             intakeViewModel.generateWithRuleBasedFallback(viewModel.targetWeekStart())
         },
@@ -229,7 +238,55 @@ internal fun PlanContent(
     saveState: PlanSaveUiState = PlanSaveUiState(),
     onPlanNextWeek: () -> Unit = {},
     onCancelPlanning: () -> Unit = {},
+    onGenerateWithSharedNotes: (Long, PlannerIntakeUiState) -> Unit = { _, _ -> },
 ) {
+    val generationAction = if (uiState is PlanUiState.AiReview) onRegenerateAi else onGenerateWithAi
+    var confirmNotes by
+        remember(uiState, intakeState, aiGenerationState, remotePlanningExperimentState.revision) {
+            mutableStateOf(false)
+        }
+    val notePreview =
+        if (remotePlanningExperimentState.canShareTrainingNotes) {
+            remember(intakeState) {
+                intakeState.toPlanningIntake(keepFullNotes = true).trainingNotesForSharing()
+            }
+        } else {
+            emptyList()
+        }
+    val onAiRequest: () -> Unit = {
+        if (notePreview.any { it.text.isNotEmpty() }) {
+            confirmNotes = true
+        } else {
+            generationAction()
+        }
+    }
+    if (confirmNotes && remotePlanningExperimentState.canShareTrainingNotes) {
+        val action =
+            when {
+                aiGenerationState.remoteFailure() != null -> "Retry"
+                uiState is PlanUiState.AiReview -> "Regenerate"
+                else -> "Generate"
+            }
+        RemoteTrainingNotesDialog(
+            action = action,
+            notes = notePreview,
+            onDismiss = { confirmNotes = false },
+            onConfirm = { share ->
+                if (confirmNotes) {
+                    confirmNotes = false
+                    if (share) {
+                        onGenerateWithSharedNotes(
+                            remotePlanningExperimentState.revision,
+                            intakeState
+                        )
+                    } else {
+                        generationAction()
+                    }
+                }
+            },
+        )
+    }
+
     Column(modifier.fillMaxSize()) {
         saveState.error?.let {
             Text(
@@ -278,7 +335,7 @@ internal fun PlanContent(
                         onPreferencesChanged = onPreferencesChanged,
                         onDislikesChanged = onDislikesChanged,
                         onGenerate = onGenerate,
-                        onGenerateWithAi = onGenerateWithAi,
+                        onGenerateWithAi = onAiRequest,
                         onCancelAiGeneration = onCancelAiGeneration,
                         onClearAiResult = onClearAiResult,
                         remotePlanningExperimentState = remotePlanningExperimentState,
@@ -314,7 +371,7 @@ internal fun PlanContent(
                             onClearAiResult()
                             onBackToSetup()
                         },
-                        onRegenerate = onRegenerateAi,
+                        onRegenerate = onAiRequest,
                         onUseRuleFallback = onUseRuleFallback,
                         onAccept = onAccept,
                         modifier = Modifier,

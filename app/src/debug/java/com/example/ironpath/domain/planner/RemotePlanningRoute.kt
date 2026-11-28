@@ -8,7 +8,12 @@ enum class RemotePlanningRoute(val label: String, val model: String, val provide
     OPENROUTER_QWEN("OpenRouter · Qwen3.8 Flash · Alibaba", "qwen/qwen3.8-flash", "alibaba");
 
     val option: RemotePlanningOption
-        get() = RemotePlanningOption(id = name, label = label)
+        get() =
+            RemotePlanningOption(
+                id = name,
+                label = label,
+                supportsOneRequestNotes = this == DEEPSEEK
+            )
 
     companion object {
         fun fromId(id: String): RemotePlanningRoute? = entries.firstOrNull { it.name == id }
